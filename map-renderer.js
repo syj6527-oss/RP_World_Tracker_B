@@ -309,7 +309,21 @@ export class MapRenderer {
         for (const loc of locations) {
             const cur = loc.id === currentLocationId;
             const ps = this._pinStyle(loc.name);
-            const g = this._el('g', { class: 'wt-location-node', 'data-id': loc.id, transform: `translate(${loc.x},${loc.y})` });
+
+            // ========== 15분 반경 페이드 ==========
+            let fadeOpacity = 1;
+            if (!cur) {
+                const dist = (this.lm.distances || []).find(d =>
+                    (d.fromId === currentLocationId && d.toId === loc.id) ||
+                    (d.toId === currentLocationId && d.fromId === loc.id)
+                );
+                const level = dist?.level || 5;
+                if (level >= 8) fadeOpacity = 0.3;       // 차량 필요+ → 많이 흐림
+                else if (level >= 7) fadeOpacity = 0.5;   // 대중교통 → 중간 흐림
+                else if (level >= 6) fadeOpacity = 0.7;   // 도보 15분+ → 살짝 흐림
+            }
+
+            const g = this._el('g', { class: 'wt-location-node', 'data-id': loc.id, transform: `translate(${loc.x},${loc.y})`, opacity: fadeOpacity });
 
             if (cur) {
                 const pulse = this._el('circle', { r: 18, fill: 'none', stroke: ps.color, 'stroke-width': 2, opacity: '0.4' });
@@ -376,6 +390,9 @@ export class MapRenderer {
         const locs = this.lm.locations;
         const dists = this.lm.distances || [];
         if (locs.length < 2) return;
+
+        // 핀 수동 이동 시 레이아웃 스킵
+        if (this._skipLayout) { this._skipLayout = false; return; }
 
         const needsInit = locs.some(l => l.x === 0 && l.y === 0);
         // 🐛 FIX: _layoutDone 초기값 undefined → 첫 렌더링 보장
@@ -575,7 +592,14 @@ export class MapRenderer {
                 this._longPress = setTimeout(() => { this._movingNodeId = hitId; const loc = this.lm.locations.find(l => l.id === hitId); if (loc && this.onMoveRequest) this.onMoveRequest(hitId, loc.name); this._longPress = null; }, 500);
             } else if (this._movingNodeId) {
                 e.preventDefault(); const loc = this.lm.locations.find(l => l.id === this._movingNodeId);
-                if (loc) { loc.x = Math.round(pt.x); loc.y = Math.round(pt.y); this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y }); this.render(); }
+                if (loc) {
+                    loc.x = Math.round(pt.x); loc.y = Math.round(pt.y);
+                    loc._manualXY = true; // 수동 배치 플래그
+                    this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
+                    this._vbManual = true; // 카메라 고정
+                    this._skipLayout = true; // 레이아웃 재계산 방지
+                    this.render();
+                }
                 this._movingNodeId = null;
             } else { this._pan = { sx: t.clientX, sy: t.clientY, vx: this.vb.x, vy: this.vb.y }; }
         }
@@ -585,7 +609,7 @@ export class MapRenderer {
         if (e.touches.length === 1) { const t = e.touches[0]; if (this._longPress && this._touchInfo) { if (Math.abs(t.clientX - this._touchInfo.x) > 10 || Math.abs(t.clientY - this._touchInfo.y) > 10) { clearTimeout(this._longPress); this._longPress = null; } } if (this._pan) { e.preventDefault(); const dx = (t.clientX - this._pan.sx) * (this.vb.w / this.svg.getBoundingClientRect().width); const dy = (t.clientY - this._pan.sy) * (this.vb.h / this.svg.getBoundingClientRect().height); this.vb.x = this._pan.vx - dx; this.vb.y = this._pan.vy - dy; this._applyVB(); this._wasDrag = true; } }
     }
     _touchEnd() { clearTimeout(this._longPress); this._longPress = null; if (this._touchInfo && !this._wasDrag && this._touchInfo.nodeId && !this._movingNodeId) { if (Date.now() - this._touchInfo.time < 400) this.onLocationClick?.(this._touchInfo.nodeId); } this._pinch = null; this._pan = null; this._touchInfo = null; }
-    _onDown(e) { const pt = this._svgPt(e), hitId = this._hitTest(pt); this._wasDrag = false; if (this._movingNodeId) { e.preventDefault(); const loc = this.lm.locations.find(l => l.id === this._movingNodeId); if (loc) { loc.x = Math.round(pt.x); loc.y = Math.round(pt.y); this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y }); this.render(); } this._movingNodeId = null; return; } if (hitId) { e.preventDefault(); this._mouseClickId = hitId; } if (!hitId) { this._pan = { sx: e.clientX, sy: e.clientY, vx: this.vb.x, vy: this.vb.y }; } }
+    _onDown(e) { const pt = this._svgPt(e), hitId = this._hitTest(pt); this._wasDrag = false; if (this._movingNodeId) { e.preventDefault(); const loc = this.lm.locations.find(l => l.id === this._movingNodeId); if (loc) { loc.x = Math.round(pt.x); loc.y = Math.round(pt.y); loc._manualXY = true; this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y }); this._vbManual = true; this._skipLayout = true; this.render(); } this._movingNodeId = null; return; } if (hitId) { e.preventDefault(); this._mouseClickId = hitId; } if (!hitId) { this._pan = { sx: e.clientX, sy: e.clientY, vx: this.vb.x, vy: this.vb.y }; } }
     _onMove(e) { if (this._pan) { const dx = (e.clientX - this._pan.sx) * (this.vb.w / this.svg.getBoundingClientRect().width); const dy = (e.clientY - this._pan.sy) * (this.vb.h / this.svg.getBoundingClientRect().height); this.vb.x = this._pan.vx - dx; this.vb.y = this._pan.vy - dy; this._applyVB(); this._wasDrag = true; this._mouseClickId = null; } }
     _onUp() { this._pan = null; if (this._mouseClickId && !this._wasDrag) this.onLocationClick?.(this._mouseClickId); this._mouseClickId = null; }
     _zoom(f, e) { const r = this.svg.getBoundingClientRect(); const mx = (e.clientX - r.left) / r.width, my = (e.clientY - r.top) / r.height; const nw = Math.max(200, Math.min(1200, this.vb.w * f)); const nh = nw * (this.vb.h / this.vb.w); this.vb.x += (this.vb.w - nw) * mx; this.vb.y += (this.vb.h - nh) * my; this.vb.w = nw; this.vb.h = nh; this._applyVB(); }

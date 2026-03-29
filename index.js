@@ -31,7 +31,7 @@ export function toastSuccess(msg) { wtNotify(msg, 'move', 2000); }
 const defaults = {
     enabled:true, autoDetect:true, showDetectToast:true,
     aiInjection:true, memoryMode:'natural', memorySummaryDays:7, panelOpacity:100,
-    debugMode:false, mapMode:'node',
+    debugMode:false, mapMode:'node', fantasyTheme:false,
 };
 
 let db, lm, det, pi, ui;

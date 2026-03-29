@@ -122,3 +122,55 @@
 .wt-divider{height:1px;background:var(--wt-border);margin:4px 0}
 .wt-select{max-width:160px;font-size:12px}.wt-select-full{max-width:100%!important;width:100%}.wt-open-btn{width:100%}
 #wt-wand-btn{cursor:pointer}#wt-wand-btn:hover{background:rgba(0,0,0,.05)}
+
+/* 🏰 Fantasy Map Theme */
+.wt-fantasy-theme{background:radial-gradient(ellipse at 30% 20%,#F4E4C1,transparent 60%),radial-gradient(ellipse at 70% 80%,#E8D5A3,transparent 50%),linear-gradient(135deg,#D4C5A0 0%,#E8D5A3 25%,#F4E4C1 50%,#E8D5A3 75%,#C4A87C 100%)!important;border-color:#8B6914!important}
+.wt-fantasy-theme .wt-map-svg{cursor:grab}
+.wt-fantasy-theme .wt-map-svg:active{cursor:grabbing}
+
+/* 🏰 Fantasy Panel Full Theme */
+.wt-panel-fantasy{--wt-bg:#E8D5A3;--wt-surface:#F4E4C1;--wt-border:#8B6914;--wt-text:#3E2723;--wt-text-dim:#5D4037;--wt-brown:#8B4513;--wt-brown-l:#6B3A2A;--wt-brown-f:#A0825C;--wt-cream:#F4E4C1;--wt-yellow:#DAA520;--wt-yellow-d:#8B6914;--wt-pink:#8B0000;--wt-mint:#6B8BA4;--wt-r:12px;--wt-rs:8px}
+.wt-panel-fantasy{background:linear-gradient(180deg,#E8D5A3 0%,#D4C5A0 50%,#C4A87C 100%)!important}
+.wt-panel-fantasy .wt-panel-header{background:linear-gradient(135deg,#C4A87C,#B89B6A)!important;border-bottom:2px solid #8B6914!important}
+.wt-panel-fantasy .wt-panel-title{color:#3E2723!important;font-family:'Georgia',serif!important}
+.wt-panel-fantasy .wt-panel-body{background:transparent!important}
+.wt-panel-fantasy .wt-scene-loc{background:rgba(244,228,193,0.6)!important;border-color:#8B6914!important}
+.wt-panel-fantasy .wt-scene-name{color:#8B4513!important;font-family:'Georgia',serif!important}
+.wt-panel-fantasy .wt-scene-label{color:#5D4037!important}
+.wt-panel-fantasy .wt-map-toggle,.wt-panel-fantasy .wt-add-toggle,.wt-panel-fantasy .wt-section-toggle{background:rgba(244,228,193,0.5)!important;border-color:#A0825C!important;color:#5D4037!important}
+.wt-panel-fantasy .wt-map-toggle:active,.wt-panel-fantasy .wt-add-toggle:active,.wt-panel-fantasy .wt-section-toggle:active{background:#DAA520!important}
+.wt-panel-fantasy .wt-map-mode-bar{background:rgba(244,228,193,0.5)!important;border-color:#A0825C!important}
+.wt-panel-fantasy .wt-mode-btn{color:#5D4037!important}
+.wt-panel-fantasy .wt-mode-active{background:#DAA520!important;color:#3E2723!important;border-color:#8B6914!important}
+.wt-panel-fantasy .wt-map-container{background:linear-gradient(135deg,#D4C5A0,#E8D5A3,#F4E4C1,#E8D5A3,#C4A87C)!important;border-color:#8B6914!important}
+.wt-panel-fantasy .wt-input{background:rgba(244,228,193,0.7)!important;border-color:#A0825C!important;color:#3E2723!important}
+.wt-panel-fantasy .wt-input::placeholder{color:#A0825C!important}
+.wt-panel-fantasy .wt-input:focus{border-color:#8B6914!important}
+.wt-panel-fantasy .wt-btn-primary{background:#DAA520!important;color:#3E2723!important;border-color:#8B6914!important}
+.wt-panel-fantasy .wt-btn-accent{background:#6B8BA4!important;border-color:#5A7A93!important}
+.wt-panel-fantasy .wt-btn-danger{color:#8B0000!important;border-color:#8B0000!important}
+.wt-panel-fantasy .wt-btn-ghost{border-color:#A0825C!important;color:#5D4037!important}
+.wt-panel-fantasy .wt-btn-icon{color:#5D4037!important}
+.wt-panel-fantasy .wt-loc-item{background:rgba(244,228,193,0.5)!important}
+.wt-panel-fantasy .wt-loc-item:active{background:rgba(218,165,32,0.3)!important}
+.wt-panel-fantasy .wt-loc-active{border-color:#8B6914!important;background:rgba(218,165,32,0.2)!important}
+.wt-panel-fantasy .wt-loc-name{color:#3E2723!important;font-family:'Georgia',serif!important}
+.wt-panel-fantasy .wt-loc-visits{color:#5D4037!important}
+.wt-panel-fantasy .wt-badge{background:#DAA520!important;color:#3E2723!important}
+.wt-panel-fantasy .wt-section-title{color:#8B4513!important}
+.wt-panel-fantasy .wt-mv-item{background:rgba(244,228,193,0.4)!important}
+.wt-panel-fantasy .wt-mv-arrow{color:#8B0000!important}
+.wt-panel-fantasy .wt-mv-to{color:#8B4513!important}
+.wt-panel-fantasy .wt-empty{color:#A0825C!important}
+.wt-panel-fantasy .wt-popover-inline{background:rgba(244,228,193,0.95)!important;border-color:#8B6914!important}
+.wt-panel-fantasy .wt-pop-header{background:linear-gradient(135deg,#DAA520,#C4A87C)!important;border-bottom-color:#8B6914!important}
+.wt-panel-fantasy #wt-pop-title{color:#3E2723!important;font-family:'Georgia',serif!important}
+.wt-panel-fantasy .wt-pop-stats{color:#5D4037!important}
+.wt-panel-fantasy .wt-opacity-row{color:#5D4037!important}
+.wt-panel-fantasy .wt-opacity-row input[type=range]{background:#A0825C!important}
+.wt-panel-fantasy .wt-opacity-row input[type=range]::-webkit-slider-thumb{background:#DAA520!important}
+.wt-panel-fantasy .wt-search-results{background:rgba(244,228,193,0.95)!important;border-color:#A0825C!important}
+.wt-panel-fantasy .wt-search-item:active{background:#DAA520!important}
+.wt-panel-fantasy .wt-search-name{color:#3E2723!important;font-family:'Georgia',serif!important}
+.wt-panel-fantasy #wt-data-menu{background:rgba(212,197,160,0.95)!important;border-bottom-color:#8B6914!important}
+.wt-panel-fantasy .wt-panel-body::-webkit-scrollbar-thumb{background:#A0825C!important}

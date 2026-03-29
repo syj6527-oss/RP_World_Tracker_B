@@ -124,6 +124,7 @@ export class UIManager {
             <div class="wt-panel-header">
                 <div class="wt-panel-title"><span>🐶</span> World Tracker</div>
                 <div style="display:flex;gap:4px;align-items:center">
+                    <button id="wt-fantasy-btn" class="wt-btn-icon" style="font-size:16px" title="판타지 모드">🏰</button>
                     <button id="wt-data-btn" class="wt-btn-icon" style="font-size:16px">⚙️</button>
                     <button id="wt-close-btn" class="wt-btn-icon">✕</button>
                 </div>
@@ -139,28 +140,15 @@ export class UIManager {
                 <input type="file" id="wt-data-file" accept=".json" style="display:none"/>
             </div>
             <div class="wt-panel-body" id="wt-panel-body">
-                <!-- 자동 등록 알림 (인라인!) -->
-                <div id="wt-auto-toast" class="wt-auto-toast" style="display:none">
-                    <div class="wt-at-row"><span>🐶</span><strong id="wt-at-name"></strong><span>등록됨!</span></div>
-                    <div id="wt-at-similar" style="display:none">
-                        <div class="wt-at-sim-label">혹시 같은 장소?</div>
-                        <div id="wt-at-sim-list"></div>
-                    </div>
-                    <div class="wt-at-actions">
-                        <button id="wt-at-ok" class="wt-btn-accent wt-btn-s">✅ 추가</button>
-                        <button id="wt-at-edit" class="wt-btn-primary wt-btn-s">✏️ 수정</button>
-                        <button id="wt-at-undo" class="wt-btn-danger wt-btn-s">↩️ 취소</button>
-                    </div>
-                </div>
-
                 <div class="wt-opacity-row"><span>🔮</span><input type="range" id="wt-opacity" min="30" max="100" value="100"/><span id="wt-op-val">100%</span></div>
 
                 <div class="wt-map-toggle" id="wt-map-toggle">🗺️ 지도 ▾</div>
                 <div id="wt-map-section" style="display:none">
                     <div class="wt-map-mode-bar">
                         <button id="wt-mode-node" class="wt-mode-btn wt-mode-active">📊 노드</button>
-                        <button id="wt-mode-leaflet" class="wt-mode-btn">🌍 실제 지도</button>
-                        <button id="wt-btn-layout" class="wt-mode-btn" style="font-size:11px;flex:0.6">🗺️ 약도</button>
+                        <button id="wt-mode-leaflet" class="wt-mode-btn">🌍 실제</button>
+                        <button id="wt-mode-fantasy" class="wt-mode-btn">🏰 판타지</button>
+                        <button id="wt-btn-layout" class="wt-mode-btn" style="font-size:11px;flex:0.5">🗺️</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar">
                         <input type="search" id="wt-search-input" class="wt-input" placeholder="🔍 장소 검색..." autocomplete="off" inputmode="search"/>
@@ -267,6 +255,9 @@ export class UIManager {
     _bind() {
         $('#wt-close-btn').on('click', () => this.togglePanel(false));
 
+        // 🏰 판타지 모드 토글
+        $('#wt-fantasy-btn').on('click', () => this._toggleFantasyTheme());
+
         // 데이터 관리 메뉴
         $('#wt-data-btn').on('click', () => $('#wt-data-menu').toggle());
         $('#wt-data-export').on('click', () => this._exportChatData());
@@ -306,6 +297,7 @@ export class UIManager {
         // 맵 모드 토글
         $('#wt-mode-node').on('click', () => this._setMapMode('node'));
         $('#wt-mode-leaflet').on('click', () => this._setMapMode('leaflet'));
+        $('#wt-mode-fantasy').on('click', () => this._setMapMode('fantasy'));
         $('#wt-btn-layout').on('click', () => {
             if (this.mapRenderer) {
                 this.mapRenderer._layoutDirty = true;
@@ -322,31 +314,145 @@ export class UIManager {
         $('#wt-search-input').on('keydown', e => { if(e.key==='Enter') { clearTimeout(_searchTimer); this._doSearch(); } });
         // 모바일: 키보드 열릴 때 검색창 보이게
         $('#wt-search-input').on('focus', () => {
-            setTimeout(() => {
-                const el = document.getElementById('wt-search-input');
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 300);
-        });
-        $('#wt-search-input').on('focus', () => {
             setTimeout(() => { document.getElementById('wt-search-input')?.scrollIntoView({behavior:'smooth',block:'center'}); }, 300);
         });
         $('#wt-opacity').on('input', function(){ const v=$(this).val(); $('#wt-op-val').text(v+'%'); $('#wt-panel').css('opacity',v/100); extension_settings[EXTENSION_NAME].panelOpacity=+v; saveSettingsDebounced(); });
         const op = extension_settings[EXTENSION_NAME]?.panelOpacity ?? 100;
         $('#wt-opacity').val(op); $('#wt-op-val').text(op+'%');
+
+        // ========== Feature 2: 문장 드래그 → 이벤트 저장 ==========
+        this._setupTextSelection();
+    }
+
+    _setupTextSelection() {
+        let _selBtn = null;
+        const self = this;
+        const removeBtn = () => { if (_selBtn) { _selBtn.remove(); _selBtn = null; } };
+
+        $(document).on('mouseup touchend', '#chat .mes_text', function() {
+            setTimeout(() => {
+                const sel = window.getSelection();
+                const text = sel?.toString()?.trim();
+                removeBtn();
+                if (!text || text.length < 5 || text.length > 300) return;
+                if (!self.lm.currentLocationId && !self.lm.locations.length) return;
+                const s = extension_settings[EXTENSION_NAME];
+                if (!s?.enabled) return;
+
+                const range = sel.getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+                const top = Math.max(10, rect.top - 40);
+                const left = Math.min(window.innerWidth - 180, Math.max(10, rect.left));
+
+                _selBtn = $(`<div id="wt-sel-event-btn" style="position:fixed;top:${top}px;left:${left}px;z-index:2147483646;display:flex;gap:4px;background:rgba(245,244,237,0.98);border:1.5px solid #5E84E2;border-radius:10px;padding:5px 10px;box-shadow:0 4px 16px rgba(0,0,0,0.15);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                    <span style="font-size:13px">📝</span>
+                    <span style="font-size:12px;color:#775537;font-weight:600">이벤트 저장</span>
+                </div>`);
+
+                _selBtn.on('click', () => {
+                    self._saveSelectionAsEvent(text);
+                    removeBtn();
+                    try { sel.removeAllRanges(); } catch(_){}
+                });
+                $('body').append(_selBtn);
+                setTimeout(removeBtn, 5000);
+            }, 80);
+        });
+
+        $(document).on('mousedown touchstart', (e) => {
+            if (_selBtn && !$(e.target).closest('#wt-sel-event-btn').length) removeBtn();
+        });
+    }
+
+    _saveSelectionAsEvent(text) {
+        const curLoc = this.lm.locations.find(l => l.id === this.lm.currentLocationId);
+        if (!curLoc && !this.lm.locations.length) { toastWarn('장소를 먼저 등록해주세요'); return; }
+
+        if (this.lm.locations.length > 1) {
+            this._showEventLocationPicker(text);
+        } else {
+            this._doSaveEvent(curLoc || this.lm.locations[0], text);
+        }
+    }
+
+    _showEventLocationPicker(text) {
+        $('#wt-evpick-overlay').remove();
+        const locs = this.lm.locations;
+        const curId = this.lm.currentLocationId;
+        let items = locs.map(l => {
+            const cur = l.id === curId;
+            return `<button class="wt-evpick-btn" data-lid="${l.id}" style="padding:5px 10px;background:${cur?'#F7EC8D':'#fff'};border:1.5px solid ${cur?'#F6A93A':'#E8E4D8'};border-radius:6px;font-size:12px;color:#775537;cursor:pointer;font-family:inherit;font-weight:${cur?'700':'400'}">${l.name}${cur?' 🐾':''}</button>`;
+        }).join('');
+
+        const summary = text.length > 50 ? text.substring(0, 50) + '...' : text;
+        const overlay = $(`<div id="wt-evpick-overlay" style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:300px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #5E84E2;border-radius:14px;padding:10px 14px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
+            <div style="font-size:12px;font-weight:700;color:#775537;margin-bottom:4px">📝 이벤트 저장할 장소</div>
+            <div style="font-size:11px;color:#9A8A7A;margin-bottom:6px;word-break:break-all">"${summary}"</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">${items}</div>
+            <button id="wt-evpick-cancel" style="width:100%;margin-top:6px;padding:5px;background:transparent;border:1px solid #E8E4D8;border-radius:6px;font-size:11px;color:#9A8A7A;cursor:pointer;font-family:inherit">취소</button>
+        </div>`);
+        $('body').append(overlay);
+        const self = this;
+        overlay.find('.wt-evpick-btn').on('click', function() {
+            const loc = self.lm.locations.find(l => l.id === $(this).attr('data-lid'));
+            if (loc) self._doSaveEvent(loc, text);
+            overlay.remove();
+        });
+        overlay.find('#wt-evpick-cancel').on('click', () => overlay.remove());
+        setTimeout(() => overlay.remove(), 10000);
+    }
+
+    _doSaveEvent(loc, text) {
+        const events = loc.events || [];
+        const date = new Date().toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+        let summary = text.trim();
+        if (summary.length > 80) summary = summary.substring(0, 80) + '...';
+        events.push({ text: summary, date, timestamp: Date.now(), source: 'selection' });
+        this.lm.updateLocation(loc.id, { events });
+        toastSuccess(`📝 "${loc.name}"에 이벤트 저장!`);
     }
 
     togglePanel(show) {
         this.panelVisible = show ?? !this.panelVisible;
         if (this.panelVisible) {
             $('#wt-panel').addClass('wt-panel-open').css('opacity',(extension_settings[EXTENSION_NAME]?.panelOpacity??100)/100);
+            // 판타지 테마 상태 복원
+            const s = extension_settings[EXTENSION_NAME];
+            if (s?.fantasyTheme) {
+                $('#wt-panel').addClass('wt-panel-fantasy');
+                $('#wt-fantasy-btn').css({ background: '#DAA520', borderRadius: '6px' });
+            }
             this.refresh();
-            // 모바일: 패널 열림 애니메이션 후 강제 렌더 (container height=0 방지)
             setTimeout(() => {
                 if (this.mapRenderer) this.mapRenderer.render();
                 if (this.leafletRenderer?.map) this.leafletRenderer.invalidateSize();
             }, 350);
         }
         else { $('#wt-panel').removeClass('wt-panel-open'); this.hidePop(); }
+    }
+
+    // 🏰 판타지 모드 토글 (패널 전체 테마 + 맵 모드)
+    _toggleFantasyTheme() {
+        const s = extension_settings[EXTENSION_NAME];
+        const isFantasy = s.fantasyTheme = !s.fantasyTheme;
+        saveSettingsDebounced();
+
+        if (isFantasy) {
+            $('#wt-panel').addClass('wt-panel-fantasy');
+            $('#wt-fantasy-btn').css({ background: '#DAA520', borderRadius: '6px' });
+            // 이전 맵 모드 저장 후 판타지로 전환
+            if (s.mapMode !== 'fantasy') {
+                s._prevMapMode = s.mapMode || 'node';
+            }
+            this._setMapMode('fantasy');
+            wtNotify('🏰 판타지 모드!', 'move', 2000);
+        } else {
+            $('#wt-panel').removeClass('wt-panel-fantasy');
+            $('#wt-fantasy-btn').css({ background: 'none', borderRadius: '' });
+            // 이전 맵 모드로 복원
+            this._setMapMode(s._prevMapMode || 'node');
+            wtNotify('📊 일반 모드', 'info', 1500);
+        }
     }
 
     // 채팅 전환 시 지도 완전 리셋
@@ -366,10 +472,9 @@ export class UIManager {
         const s = extension_settings[EXTENSION_NAME];
         const mode = s?.mapMode || 'node';
 
-        // 노드 그래프
-        if (mode === 'node') {
+        // 노드 그래프 (node + fantasy 공유)
+        if (mode === 'node' || mode === 'fantasy') {
             const container = document.querySelector('#wt-map-container');
-            // SVG가 DOM에서 분리됐으면 재생성
             if (this.mapRenderer && (!this.mapRenderer.svg || !this.mapRenderer.svg.parentNode)) {
                 this.mapRenderer = null;
             }
@@ -380,7 +485,10 @@ export class UIManager {
                     wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
                 };
             }
-            if (this.mapRenderer) this.mapRenderer.render();
+            if (this.mapRenderer) {
+                this.mapRenderer.fantasyMode = (mode === 'fantasy');
+                this.mapRenderer.render();
+            }
         }
 
         // Leaflet
@@ -463,6 +571,32 @@ export class UIManager {
             [100, 300, 600, 1000].forEach(ms => {
                 setTimeout(() => this.leafletRenderer?.invalidateSize(), ms);
             });
+        } else if (mode === 'fantasy') {
+            // 🏰 판타지 모드: 노드 맵 + 판타지 테마
+            $('#wt-leaflet-wrap').hide();
+            $('#wt-map-wrap').show();
+            const container = document.querySelector('#wt-map-container');
+            if (container) container.classList.add('wt-fantasy-theme');
+            if (!this.mapRenderer) {
+                if (container) {
+                    this.mapRenderer = new MapRenderer(container, this.lm);
+                    this.mapRenderer.onLocationClick = id => this.showPop(id);
+                    this.mapRenderer.onMoveRequest = (id, name) => {
+                        wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
+                    };
+                }
+            }
+            if (this.mapRenderer) {
+                this.mapRenderer.fantasyMode = true;
+                this.mapRenderer._layoutDirty = true;
+                this.mapRenderer.render();
+            }
+        }
+
+        // 판타지 테마 토글: node 또는 leaflet 모드면 제거
+        if (mode !== 'fantasy') {
+            document.querySelector('#wt-map-container')?.classList.remove('wt-fantasy-theme');
+            if (this.mapRenderer) this.mapRenderer.fantasyMode = false;
         }
     }
 
@@ -558,47 +692,73 @@ export class UIManager {
     async _popDel() { const id=$('#wt-popover').attr('data-id'); const l=this.lm.locations.find(x=>x.id===id); if(!confirm(`"${l?.name}" 삭제?`))return; await this.lm.deleteLocation(id); this.hidePop(); this.pi?.inject(); this.refresh(); }
     async _popMove() { const id=$('#wt-popover').attr('data-id'); await this.lm.moveTo(id); this.hidePop(); this.pi?.inject(); this.refresh(); }
 
-    // ---- 자동 등록 토스트 (인라인) ----
+    // ---- 자동 등록 토스트 (플로팅 — 패널 밖 채팅창 위) ----
     showAutoToast(loc) {
-        $('#wt-auto-toast').hide(); // 이전 토스트 제거
-        $('#wt-at-name').text(loc.name);
+        $('#wt-register-overlay').remove(); // 이전 제거
+
         const sim = this._findSim(loc.name);
-        const sl = $('#wt-at-sim-list').empty();
+        let simHtml = '';
         if (sim.length) {
-            for (const s of sim) {
-                if (s.id === loc.id) continue;
-                const btn=$(`<button class="wt-btn-accent wt-btn-s">📎 "${s.name}"에 병합</button>`);
-                btn.on('click', async()=>{
-                    await this.lm.deleteLocation(loc.id);
-                    await this.lm.updateLocation(s.id,{aliases:[...(s.aliases||[]),loc.name]});
-                    await this.lm.moveTo(s.id);
-                    toastSuccess(`병합!`); this.pi?.inject(); this.refresh(); $('#wt-auto-toast').slideUp(200);
-                });
-                sl.append(btn);
-            }
-            $('#wt-at-similar').show();
-        } else { $('#wt-at-similar').hide(); }
+            const simBtns = sim.filter(s => s.id !== loc.id).map(s =>
+                `<button class="wt-reg-merge" data-sid="${s.id}" data-sname="${s.name}" style="padding:4px 10px;background:#5E84E2;border:none;border-radius:6px;font-size:11px;color:#fff;cursor:pointer;font-family:inherit">📎 "${s.name}"에 병합</button>`
+            ).join('');
+            if (simBtns) simHtml = `<div style="margin-top:4px"><div style="font-size:10px;color:#9A8A7A;margin-bottom:3px">혹시 같은 장소?</div>${simBtns}</div>`;
+        }
 
-        // ✅ 추가 (확인) — 토스트만 닫기
-        $('#wt-at-ok').off('click').on('click', () => {
-            $('#wt-auto-toast').slideUp(200);
+        const overlay = $(`<div id="wt-register-overlay" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);width:320px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #F6A93A;border-radius:14px;padding:10px 14px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="font-size:16px">🐶</span>
+                <strong style="font-size:14px;color:#775537">${loc.name}</strong>
+                <span style="font-size:12px;color:#9A8A7A">등록됨!</span>
+            </div>
+            ${simHtml}
+            <div style="display:flex;gap:6px;margin-top:8px">
+                <button id="wt-reg-ok" style="flex:1;padding:7px;background:#F7EC8D;border:1.5px solid #F6A93A;border-radius:8px;font-size:12px;font-weight:600;color:#775537;cursor:pointer;font-family:inherit">✅ 추가</button>
+                <button id="wt-reg-edit" style="flex:1;padding:7px;background:#fff;border:1.5px solid #E8E4D8;border-radius:8px;font-size:12px;color:#775537;cursor:pointer;font-family:inherit">✏️ 수정</button>
+                <button id="wt-reg-undo" style="flex:1;padding:7px;background:#fff;border:1.5px solid #F5A8A8;border-radius:8px;font-size:12px;color:#8B6EC7;cursor:pointer;font-family:inherit">↩️ 취소</button>
+            </div>
+        </div>`);
+
+        $('body').append(overlay);
+        const self = this;
+
+        // 병합 버튼
+        overlay.find('.wt-reg-merge').on('click', async function() {
+            const sid = $(this).attr('data-sid');
+            const sname = $(this).attr('data-sname');
+            await self.lm.deleteLocation(loc.id);
+            const target = self.lm.locations.find(l => l.id === sid);
+            if (target) await self.lm.updateLocation(sid, { aliases: [...(target.aliases || []), loc.name] });
+            await self.lm.moveTo(sid);
+            toastSuccess(`📎 "${sname}"에 병합!`);
+            self.pi?.inject(); self.refresh();
+            overlay.remove();
         });
 
-        // ✏️ 수정
-        $('#wt-at-edit').off('click').on('click', ()=>{
-            $('#wt-auto-toast').slideUp(200);
-            $('#wt-add-form').slideDown(200); $('#wt-add-arrow').text('▴');
-            $('#wt-input-name').val(loc.name).focus();
-            this.lm.deleteLocation(loc.id).then(()=>{ this.pi?.inject(); this.refresh(); });
+        // ✅ 추가 확인
+        overlay.find('#wt-reg-ok').on('click', () => overlay.remove());
+
+        // ✏️ 수정 — 패널 열고 수정 폼
+        overlay.find('#wt-reg-edit').on('click', () => {
+            overlay.remove();
+            self.togglePanel(true);
+            setTimeout(() => {
+                $('#wt-add-form').slideDown(200); $('#wt-add-arrow').text('▴');
+                $('#wt-input-name').val(loc.name).focus();
+                self.lm.deleteLocation(loc.id).then(() => { self.pi?.inject(); self.refresh(); });
+            }, 350);
         });
 
-        $('#wt-at-undo').off('click').on('click', async()=>{
-            await this.lm.deleteLocation(loc.id);
-            this.pi?.inject(); this.refresh(); $('#wt-auto-toast').slideUp(200);
+        // ↩️ 취소
+        overlay.find('#wt-reg-undo').on('click', async () => {
+            await self.lm.deleteLocation(loc.id);
+            self.pi?.inject(); self.refresh();
+            overlay.remove();
+            toastSuccess('↩️ 취소됨');
         });
 
-        $('#wt-auto-toast').slideDown(200);
-        // 자동 사라짐 없음 — 유저가 버튼 누를 때까지 유지!
+        // 15초 후 자동 제거 (유저가 안 누르면)
+        setTimeout(() => overlay.remove(), 15000);
     }
 
     _findSim(name) {
@@ -633,17 +793,29 @@ export class UIManager {
             item.on('click', () => {
                 $('#wt-search-results').hide();
                 $('#wt-search-input').val('');
-                this.showPop(loc.id);
-                // Leaflet 모드면 해당 위치로 이동
-                if (this.leafletRenderer?.map && loc.lat && loc.lng) {
-                    this.leafletRenderer.map.setView([loc.lat, loc.lng], 16);
+                const s = extension_settings[EXTENSION_NAME];
+                const mode = s?.mapMode || 'node';
+
+                // Leaflet/판타지 모드 → 지도에서 해당 장소 포커스 + 하이라이트
+                if ((mode === 'leaflet' || mode === 'fantasy') && this.leafletRenderer?.map && loc.lat && loc.lng) {
+                    this.leafletRenderer.map.flyTo([loc.lat, loc.lng], 16, { duration: 0.5 });
+                    // 마커 하이라이트: 팝업 열기
+                    const marker = this.leafletRenderer.markers[loc.id];
+                    if (marker) marker.openPopup();
                 }
-                // 노드 맵이면 해당 노드로 ViewBox 이동
-                if (this.mapRenderer?.svg && loc.x && loc.y) {
-                    this.mapRenderer.vb.x = loc.x - this.mapRenderer.vb.w / 2;
-                    this.mapRenderer.vb.y = loc.y - this.mapRenderer.vb.h / 2;
+                // 노드 맵 → ViewBox 센터링
+                else if (this.mapRenderer?.svg) {
+                    this.mapRenderer.vb.x = (loc.x || 300) - this.mapRenderer.vb.w / 2;
+                    this.mapRenderer.vb.y = (loc.y || 250) - this.mapRenderer.vb.h / 2;
                     this.mapRenderer._applyVB();
+                    // 노드 하이라이트: 잠깐 깜빡임
+                    const node = this.mapRenderer.svg.querySelector(`g[data-id="${loc.id}"] circle`);
+                    if (node) {
+                        node.setAttribute('stroke', '#FF6B6B'); node.setAttribute('stroke-width', '4');
+                        setTimeout(() => { node.setAttribute('stroke', loc.id === this.lm.currentLocationId ? '#775537' : '#9e8e7e'); node.setAttribute('stroke-width', loc.id === this.lm.currentLocationId ? '3' : '1.5'); }, 1500);
+                    }
                 }
+                toastSuccess(`📍 ${loc.name}`);
             });
             list.append(item);
         }

@@ -186,12 +186,10 @@ async function scanContext() {
         const ctx = getContext();
         if (!ctx?.characterId) return;
 
-        // Bug G: 채팅 화면이 활성 상태인지 체크 (캐릭터 설정/선택 화면 방지)
-        const chatVisible = document.querySelector('#sheld')?.style.display !== 'none';
-        const charEditing = document.querySelector('#character_popup')?.style.display !== 'none'
-            || document.querySelector('.zoomed_avatar[style*="display: block"]')
-            || document.querySelector('#rm_ch_create_block')?.style.display !== 'none';
-        if (!chatVisible || charEditing) return;
+        // Bug I: 채팅 화면 활성 체크 (send 버튼이 보이는 경우만 = 채팅 중)
+        const sendBtn = document.querySelector('#send_but');
+        const isChatActive = sendBtn && sendBtn.offsetParent !== null;
+        if (!isChatActive) return;
 
         // Task 2: 장소가 1개라도 있으면 재스캔 스킵
         if (lm.locations.length > 0) return;

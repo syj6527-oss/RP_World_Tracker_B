@@ -179,30 +179,32 @@ export class MapRenderer {
             if (!merged.has(`${r}_${c}`) && rng() < 0.06 && `${r}_${c}` !== parkCell && r !== riverRow) plaza.add(`${r}_${c}`);
         }
 
-        // ===== 레이어 2: 강 ±5000 (clipPath가 잘라줌) =====
+        // ===== 레이어 2: 강 — 일직선 (±5000, clipPath가 잘라줌) =====
         const riverLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         if (seed % 3 !== 0) {
             let ry = oy;
             for (let r = 0; r <= riverRow; r++) ry += rh[r];
             ry -= rh[riverRow] * 0.5;
-            const w1 = (rng() - 0.5) * 35, w2 = (rng() - 0.5) * 30;
-            const rP = `M${-5000},${ry + w1} C${ox + W * 0.2},${ry + w1 + 40} ${ox + W * 0.5},${ry + w2 - 35} ${ox + W * 0.75},${ry + w2 + 25} S${5000},${ry + w2 - 10}`;
-            riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 42, 'stroke-linecap': 'round', opacity: '0.50' }));
-            riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 16, 'stroke-linecap': 'round', opacity: '0.40' }));
+            // 본체 (두꺼운 수평 직선)
+            riverLayer.appendChild(this._el('line', { x1: -5000, y1: ry, x2: 5000, y2: ry, stroke: '#9CC8E0', 'stroke-width': 42, opacity: '0.50' }));
+            // 하이라이트
+            riverLayer.appendChild(this._el('line', { x1: -5000, y1: ry, x2: 5000, y2: ry, stroke: '#BDE0F0', 'stroke-width': 16, opacity: '0.40' }));
         }
         g.appendChild(riverLayer);
 
-        // ===== 레이어 2.5: 주황 대로 (가로 1개 + 세로 1개) =====
+        // ===== 레이어 2.5: 간선도로 십자가 (가로 오렌지 + 세로 노랑, 딱 2개) =====
         const roadAccent = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        { // 가로 대로
-            const mri = 1 + (seed % (rows - 2));
+        { // 가로 간선도로 1개 (오렌지)
+            const mri = 1 + ((seed * 3) % (rows - 2));
             let mry = oy; for (let r = 0; r < mri; r++) mry += rh[r];
-            if (mri !== riverRow) roadAccent.appendChild(this._el('line', { x1: -5000, y1: mry, x2: 5000, y2: mry, stroke: '#F0D8A8', 'stroke-width': 22, 'stroke-linecap': 'round', opacity: '0.40' }));
+            if (mri !== riverRow) {
+                roadAccent.appendChild(this._el('line', { x1: -5000, y1: mry, x2: 5000, y2: mry, stroke: '#F8C471', 'stroke-width': 20, opacity: '0.55' }));
+            }
         }
-        { // 세로 대로
-            const mci = 1 + (seed % (cols - 2));
+        { // 세로 간선도로 1개 (노랑)
+            const mci = 1 + ((seed * 7) % (cols - 2));
             let mcx = ox; for (let c = 0; c < mci; c++) mcx += cw[c];
-            roadAccent.appendChild(this._el('line', { x1: mcx, y1: -5000, x2: mcx, y2: 5000, stroke: '#F0D8A8', 'stroke-width': 20, 'stroke-linecap': 'round', opacity: '0.35' }));
+            roadAccent.appendChild(this._el('line', { x1: mcx, y1: -5000, x2: mcx, y2: 5000, stroke: '#F9E79F', 'stroke-width': 18, opacity: '0.50' }));
         }
         g.appendChild(roadAccent);
 

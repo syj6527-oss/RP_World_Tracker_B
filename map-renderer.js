@@ -53,16 +53,58 @@ export class MapRenderer {
         // 🏰 판타지 모드
         if (this.fantasyMode) { this._renderFantasy(); return; }
 
+        // ========== SVG Defs ==========
         this.svg.innerHTML = `<defs>
-            <filter id="wt-glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            <filter id="wt-shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.2"/></filter>
+            <filter id="wt-shadow"><feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000" flood-opacity="0.22"/></filter>
+            <filter id="wt-shadow-sm"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.12"/></filter>
         </defs>`;
         const { locations, movements, currentLocationId } = this.lm;
 
         // 거리 기반 약도 자동 배치
         if (locations.length >= 2) this._autoLayout();
 
-        // 경로선 + 거리 pill 뱃지
+        // ViewBox 먼저 계산 (배경 렌더링에 필요)
+        if (locations.length) {
+            const pad = 90;
+            const xs = locations.map(l => l.x), ys = locations.map(l => l.y);
+            const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
+            const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
+            this.vb = { x: minX, y: minY, w: Math.max(350, maxX - minX), h: Math.max(280, maxY - minY) };
+        } else {
+            this.vb = { x: 0, y: 0, w: 600, h: 500 };
+        }
+        this._applyVB();
+
+        // ========== 배경: 도로 + 건물 (약도 느낌) ==========
+        const vb = this.vb;
+        const roadC = '#fff', roadB = '#E0DCD0';
+        // 가로 도로
+        for (let i = 0; i < 4; i++) {
+            const ry = vb.y + vb.h * (0.18 + i * 0.22);
+            const rw = vb.w * (0.5 + (i * 17 % 50) / 100);
+            const rx = vb.x + (i * 31 % 50) / 100 * (vb.w - rw);
+            const main = i === 1;
+            this.svg.appendChild(this._el('rect', { x: rx, y: ry, width: rw, height: main ? 10 : 7, rx: 2, fill: main ? '#FDE68A' : roadC, stroke: main ? '#F5D56A' : roadB, 'stroke-width': 0.5, opacity: main ? 0.5 : 0.35 }));
+        }
+        // 세로 도로
+        for (let i = 0; i < 3; i++) {
+            const rx = vb.x + vb.w * (0.25 + i * 0.25);
+            const rh = vb.h * (0.4 + (i * 23 % 40) / 100);
+            const ry = vb.y + (i * 19 % 60) / 100 * (vb.h - rh);
+            const main = i === 1;
+            this.svg.appendChild(this._el('rect', { x: rx, y: ry, width: main ? 10 : 7, height: rh, rx: 2, fill: main ? '#FDBA74' : roadC, stroke: main ? '#F5A05A' : roadB, 'stroke-width': 0.5, opacity: main ? 0.4 : 0.3 }));
+        }
+        // 건물 블록
+        const seed = (locations.length * 7 + 13) % 100;
+        for (let i = 0; i < 7; i++) {
+            const bx = vb.x + ((seed + i * 67) % 80) / 100 * vb.w;
+            const by = vb.y + ((seed + i * 43) % 85) / 100 * vb.h;
+            this.svg.appendChild(this._el('rect', { x: bx, y: by, width: 22 + (i * 13 % 25), height: 16 + (i * 11 % 18), rx: 2, fill: '#E6E2D8', stroke: '#D4D0C4', 'stroke-width': 0.5, opacity: 0.4 }));
+        }
+        // 공원
+        this.svg.appendChild(this._el('rect', { x: vb.x + vb.w * 0.05, y: vb.y + vb.h * 0.72, width: 35, height: 25, rx: 5, fill: '#D4EDBC', stroke: '#B8D89E', 'stroke-width': 0.5, opacity: 0.35 }));
+
+        // ========== 경로선 + 거리 pill ==========
         const drawn = new Set();
         for (const m of movements) {
             const f = locations.find(l => l.id === m.fromId), t = locations.find(l => l.id === m.toId);
@@ -70,100 +112,97 @@ export class MapRenderer {
             const k = [m.fromId, m.toId].sort().join('-'); if (drawn.has(k)) continue; drawn.add(k);
             this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, class: 'wt-path-line' }));
 
-            // 거리 pill 뱃지 (흰 배경 + 텍스트)
             const dist = this.lm.getDistanceBetween(m.fromId, m.toId);
             if (dist?.distanceText) {
                 const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
-                const textLen = dist.distanceText.length * 6 + 16;
-                const pill = this._el('g', { transform: `translate(${mx},${my - 8})` });
-                pill.appendChild(this._el('rect', { x: -textLen/2, y: -9, width: textLen, height: 18, rx: 9, fill: '#fff', stroke: '#E0E0E0', 'stroke-width': 1, filter: 'url(#wt-shadow)' }));
-                pill.appendChild(this._el('text', { x: 0, y: 4, 'text-anchor': 'middle', fill: '#5E84E2', 'font-size': '10', 'font-weight': '600' }, dist.distanceText));
+                const tl = dist.distanceText.length * 5.5 + 14;
+                const pill = this._el('g', { transform: `translate(${mx},${my - 10})` });
+                pill.appendChild(this._el('rect', { x: -tl/2, y: -8, width: tl, height: 16, rx: 8, fill: '#fff', stroke: '#E0E0E0', 'stroke-width': 0.8, filter: 'url(#wt-shadow-sm)' }));
+                pill.appendChild(this._el('text', { x: 0, y: 4, 'text-anchor': 'middle', fill: '#5E84E2', 'font-size': '9', 'font-weight': '600' }, dist.distanceText));
                 this.svg.appendChild(pill);
             }
         }
 
-        // 노드 색상
-        const nodeColor = (loc) => {
-            if (loc.id === currentLocationId) return '#8B6EC7';
-            const v = loc.visitCount || 0;
-            if (v >= 5) return '#5E84E2';
-            if (v >= 2) return '#F6A93A';
-            return '#F7EC8D';
-        };
-
-        // 노드 렌더링
+        // ========== 핀 마커 렌더링 ==========
         for (const loc of locations) {
             const cur = loc.id === currentLocationId;
-            const r = cur ? 24 : 17;
-            const color = nodeColor(loc);
+            const ps = this._pinStyle(loc.name);
             const g = this._el('g', { class: 'wt-location-node', 'data-id': loc.id, transform: `translate(${loc.x},${loc.y})` });
 
-            // GPS 펄스 (현재 위치만)
+            // GPS 펄스 (현재 위치)
             if (cur) {
-                const pulse = this._el('circle', { r: r + 12, fill: 'none', stroke: color, 'stroke-width': 2, opacity: '0.4' });
-                const anim = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
-                anim.setAttribute('attributeName', 'r'); anim.setAttribute('from', String(r + 4)); anim.setAttribute('to', String(r + 20));
-                anim.setAttribute('dur', '2s'); anim.setAttribute('repeatCount', 'indefinite');
-                pulse.appendChild(anim);
-                const animOp = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
-                animOp.setAttribute('attributeName', 'opacity'); animOp.setAttribute('from', '0.5'); animOp.setAttribute('to', '0');
-                animOp.setAttribute('dur', '2s'); animOp.setAttribute('repeatCount', 'indefinite');
-                pulse.appendChild(animOp);
+                const pulse = this._el('circle', { r: 20, fill: 'none', stroke: ps.color, 'stroke-width': 2, opacity: '0.4' });
+                const aR = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+                aR.setAttribute('attributeName', 'r'); aR.setAttribute('from', '14'); aR.setAttribute('to', '28');
+                aR.setAttribute('dur', '2s'); aR.setAttribute('repeatCount', 'indefinite'); pulse.appendChild(aR);
+                const aO = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+                aO.setAttribute('attributeName', 'opacity'); aO.setAttribute('from', '0.5'); aO.setAttribute('to', '0');
+                aO.setAttribute('dur', '2s'); aO.setAttribute('repeatCount', 'indefinite'); pulse.appendChild(aO);
                 g.appendChild(pulse);
             }
 
-            // 드롭섀도 + 메인 원
-            g.appendChild(this._el('circle', {
-                r, fill: color, class: 'wt-node-circle',
-                stroke: cur ? '#fff' : '#fff',
-                'stroke-width': cur ? 3 : 2,
-                filter: 'url(#wt-shadow)',
-            }));
+            // 핀 물방울
+            const sz = cur ? 16 : 13;
+            const ph = cur ? 22 : 18;
+            const pin = this._el('g', { transform: `translate(0,${-ph})`, filter: 'url(#wt-shadow)' });
+            pin.appendChild(this._el('path', { d: `M0,${ph}C0,${ph},${-sz},${ph*0.35},${-sz},${-sz*0.15}A${sz},${sz},0,1,1,${sz},${-sz*0.15}C${sz},${ph*0.35},0,${ph},0,${ph}Z`, fill: ps.color, stroke: ps.border, 'stroke-width': 0.8 }));
+            pin.appendChild(this._el('text', { x: 0, y: -sz * 0.1 + 5, 'text-anchor': 'middle', 'font-size': cur ? '13' : '11' }, ps.emoji));
+            g.appendChild(pin);
 
-            // 방문 횟수 (원 안에)
+            // 방문 뱃지
             if (loc.visitCount > 0) {
-                g.appendChild(this._el('text', {
-                    class: 'wt-visit-badge', y: 5,
-                    fill: (color === '#F7EC8D') ? '#5A4030' : '#fff',
-                    'font-size': cur ? '13' : '11',
-                }, loc.visitCount));
+                const bx = sz * 0.55, by = -(ph + sz * 0.45);
+                const bg = this._el('g', { transform: `translate(${bx},${by})` });
+                bg.appendChild(this._el('circle', { r: 7.5, fill: '#fff', stroke: ps.color, 'stroke-width': 1.5 }));
+                bg.appendChild(this._el('text', { 'text-anchor': 'middle', y: 3.5, 'font-size': '8', 'font-weight': '700', fill: ps.color }, loc.visitCount));
+                g.appendChild(bg);
             }
 
-            // 장소명 라벨 (흰 배경 pill)
-            const nameLen = loc.name.length * 8 + 14;
-            const labelG = this._el('g', { transform: `translate(0,${r + 14})` });
-            labelG.appendChild(this._el('rect', { x: -nameLen/2, y: -10, width: nameLen, height: 18, rx: 9, fill: '#fff', stroke: '#E8E4D8', 'stroke-width': 1, filter: 'url(#wt-shadow)' }));
-            labelG.appendChild(this._el('text', { class: 'wt-location-label', y: 3 }, loc.name));
-            g.appendChild(labelG);
+            // 장소명 pill
+            const nl = loc.name.length * 7 + 12;
+            const lg = this._el('g', { transform: 'translate(0,10)' });
+            lg.appendChild(this._el('rect', { x: -nl/2, y: -8, width: nl, height: 16, rx: 8, fill: '#fff', stroke: '#E8E4D8', 'stroke-width': 0.7, filter: 'url(#wt-shadow-sm)' }));
+            lg.appendChild(this._el('text', { class: 'wt-location-label', y: 3, 'font-size': '10' }, loc.name));
+            g.appendChild(lg);
 
-            // 🐾 현재 위치 마커 (바운스 애니메이션)
+            // 🐾 바운스
             if (cur) {
-                const paw = this._el('text', { class: 'wt-paw-marker', y: -(r + 8) }, '🐾');
-                const pawAnim = document.createElementNS('http://www.w3.org/2000/svg', 'animateTransform');
-                pawAnim.setAttribute('attributeName', 'transform'); pawAnim.setAttribute('type', 'translate');
-                pawAnim.setAttribute('values', '0 0; 0 -4; 0 0'); pawAnim.setAttribute('dur', '1.2s');
-                pawAnim.setAttribute('repeatCount', 'indefinite');
-                paw.appendChild(pawAnim);
+                const paw = this._el('text', { 'text-anchor': 'middle', y: -(ph + sz + 6), 'font-size': '14' }, '🐾');
+                const pa = document.createElementNS('http://www.w3.org/2000/svg', 'animateTransform');
+                pa.setAttribute('attributeName', 'transform'); pa.setAttribute('type', 'translate');
+                pa.setAttribute('values', '0 0;0 -4;0 0'); pa.setAttribute('dur', '1.2s');
+                pa.setAttribute('repeatCount', 'indefinite'); paw.appendChild(pa);
                 g.appendChild(paw);
             }
-
             this.svg.appendChild(g);
         }
 
         if (!locations.length) this.svg.appendChild(this._el('text', { x: 300, y: 250, class: 'wt-empty-text' }, 'RP를 시작해보세요! 🐶'));
 
-        // ViewBox 자동 맞춤
-        if (locations.length) {
-            const pad = 80;
-            const xs = locations.map(l => l.x), ys = locations.map(l => l.y);
-            const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
-            const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
-            this.vb = { x: minX, y: minY, w: Math.max(300, maxX - minX), h: Math.max(250, maxY - minY) };
-        } else {
-            this.vb = { x: 0, y: 0, w: 600, h: 500 };
-        }
-        this._applyVB();
     }
+
+    // ========== 핀 스타일 (카테고리별) ==========
+    _pinStyle(name) {
+        const lo = name.toLowerCase();
+        if (/카페|cafe|coffee|커피/i.test(lo)) return { color: '#E74C3C', emoji: '🐱', border: '#C0392B' };
+        if (/서점|book|도서|library|서재/i.test(lo)) return { color: '#3498DB', emoji: '📚', border: '#2980B9' };
+        if (/집|home|house|숙소|기숙|방/i.test(lo)) return { color: '#27AE60', emoji: '🏠', border: '#1E8449' };
+        if (/공원|park|정원|garden|광장/i.test(lo)) return { color: '#2ECC71', emoji: '🌳', border: '#27AE60' };
+        if (/편의|convenience|마트|mart|가게|shop|store|문구/i.test(lo)) return { color: '#F39C12', emoji: '🏪', border: '#D68910' };
+        if (/식당|restaurant|음식|레스토랑/i.test(lo)) return { color: '#E67E22', emoji: '🍽️', border: '#CA6F1E' };
+        if (/학교|school|학원|academy/i.test(lo)) return { color: '#9B59B6', emoji: '🎓', border: '#7D3C98' };
+        if (/병원|hospital|의원|clinic/i.test(lo)) return { color: '#1ABC9C', emoji: '🏥', border: '#17A589' };
+        if (/역|station|지하철|subway|버스|bus/i.test(lo)) return { color: '#34495E', emoji: '🚉', border: '#2C3E50' };
+        if (/술집|bar|pub|tavern|주점|주막/i.test(lo)) return { color: '#8E44AD', emoji: '🍺', border: '#6C3483' };
+        if (/체육|gym|운동|fitness|arena/i.test(lo)) return { color: '#E74C3C', emoji: '💪', border: '#C0392B' };
+        if (/성|castle|궁|palace|요새/i.test(lo)) return { color: '#7F8C8D', emoji: '🏰', border: '#616A6B' };
+        if (/숲|forest|산|mountain/i.test(lo)) return { color: '#1E8449', emoji: '🌲', border: '#145A32' };
+        if (/해변|beach|바다|sea|강|river|호수|lake/i.test(lo)) return { color: '#2980B9', emoji: '🌊', border: '#1F618D' };
+        if (/동굴|cave|dungeon|던전|지하|underground/i.test(lo)) return { color: '#5D6D7E', emoji: '🕳️', border: '#4A5568' };
+        if (/항구|port|harbor|dock|부두/i.test(lo)) return { color: '#2471A3', emoji: '⚓', border: '#1A5276' };
+        return { color: '#F6A93A', emoji: '📍', border: '#D68910' };
+    }
+
 
     // ========== 거리 기반 약도 자동 배치 ==========
     _autoLayout() {

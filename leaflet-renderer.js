@@ -115,7 +115,7 @@ export class LeafletRenderer {
             const size = isCur ? 32 : 26;
             const shadow = isCur ? 'box-shadow:0 0 12px rgba(139,110,199,0.6);' : 'box-shadow:0 2px 6px rgba(0,0,0,0.25);';
 
-            const iconHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${style.color};border:${isCur?'3px solid #775537':'2px solid '+style.border};display:flex;align-items:center;justify-content:center;font-size:${isCur?16:13}px;${shadow}position:relative"><span style="pointer-events:none">${style.emoji}</span>${isCur?'<span style="position:absolute;top:-14px;font-size:12px;pointer-events:none">🐾</span>':''}</div>`;
+            const iconHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${style.color};border:${isCur?'3px solid #fff':'2px solid #fff'};display:flex;align-items:center;justify-content:center;${shadow}position:relative"><span style="pointer-events:none;color:#fff;font-size:${isCur?12:10}px;font-weight:700">${(loc.visitCount||0) > 0 ? loc.visitCount : ''}</span>${isCur?'<span style="position:absolute;top:-14px;font-size:12px;pointer-events:none">🐾</span>':''}</div>`;
             const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
             const marker = L.marker([loc.lat, loc.lng], { icon });
 

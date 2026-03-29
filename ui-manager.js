@@ -157,6 +157,7 @@ export class UIManager {
                             <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px">📍 주소</button>
                         </div>
                         <input type="search" id="wt-search-input" class="wt-input" placeholder="🔍 등록된 장소 검색..." autocomplete="off" inputmode="search"/>
+                        <button id="wt-btn-refresh" style="border:none;background:none;font-size:16px;cursor:pointer;opacity:.5;padding:2px 4px" title="약도 재배치">🔄</button>
                         <div id="wt-search-results" class="wt-search-results" style="display:none"></div>
                     </div>
                     <div id="wt-map-wrap" class="wt-map-wrap">
@@ -326,7 +327,15 @@ export class UIManager {
         $('#wt-mode-leaflet').on('click', () => this._setMapMode('leaflet'));
         $('#wt-mode-fantasy').on('click', () => this._setMapMode('fantasy'));
         // 검색 탭 전환 (Bug K: 장소/주소 분리)
-        this._searchMode = 'loc'; // 기본: 장소 검색
+        this._searchMode = 'loc';
+        // 🔄 약도 재배치
+        $('#wt-btn-refresh').on('click', () => {
+            if (this.mapRenderer) {
+                this.mapRenderer._layoutDirty = true;
+                this.mapRenderer.render();
+                toastSuccess('🗺️ 약도 재배치!');
+            }
+        }); // 기본: 장소 검색
         $('#wt-search-tab-loc').on('click', () => {
             this._searchMode = 'loc';
             $('#wt-search-tab-loc').addClass('wt-mode-active'); $('#wt-search-tab-addr').removeClass('wt-mode-active');

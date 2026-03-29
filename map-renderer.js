@@ -56,150 +56,129 @@ export class MapRenderer {
 
         // ========== SVG Defs ==========
         this.svg.innerHTML = `<defs>
-            <filter id="wt-shadow"><feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000" flood-opacity="0.22"/></filter>
-            <filter id="wt-shadow-sm"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.12"/></filter>
+            <filter id="wt-shadow"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.2"/></filter>
+            <filter id="wt-shadow-sm"><feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000" flood-opacity="0.1"/></filter>
         </defs>`;
         const { locations, movements, currentLocationId } = this.lm;
         if (locations.length >= 2) this._autoLayout();
 
-        // ViewBox 계산 (패딩 축소 → 꽉 차게)
-        if (locations.length) {
-            const pad = 55;
-            const xs = locations.map(l => l.x), ys = locations.map(l => l.y);
-            this.vb = { x: Math.min(...xs) - pad, y: Math.min(...ys) - pad - 20, w: Math.max(300, Math.max(...xs) - Math.min(...xs) + pad * 2), h: Math.max(250, Math.max(...ys) - Math.min(...ys) + pad * 2 + 20) };
-        } else {
-            this.vb = { x: 0, y: 0, w: 600, h: 500 };
-        }
+        // ========== ViewBox (컨테이너 비율 기반) ==========
+        const cW = this.container?.offsetWidth || 360;
+        const cH = this.container?.offsetHeight || 480;
+        const aspect = cW / cH;
+        let vbW = 500, vbH = Math.round(vbW / aspect);
+        const cx = 300, cy = Math.round(vbH / 2); // 중앙
+        this.vb = { x: cx - vbW / 2, y: cy - vbH / 2, w: vbW, h: vbH };
         this._applyVB();
         const vb = this.vb;
+        const ex = 30; // 화면 밖 확장값
 
-        // ========== v5 배경: 절차적 도시 생성 ==========
+        // ========== ① 배경 베이스 ==========
+        this.svg.appendChild(this._el('rect', { x: vb.x - ex, y: vb.y - ex, width: vb.w + ex * 2, height: vb.h + ex * 2, fill: '#F2EEE4' }));
+
+        // ========== ② 건물 블록 (도로 사이 공간) ==========
         const seed = (locations.length * 7 + 13) % 97;
-        const bg = this._el('g', { class: 'wt-bg', opacity: '1' });
-
-        // 배경 전체 (베이지)
-        bg.appendChild(this._el('rect', { x: vb.x - 10, y: vb.y - 10, width: vb.w + 20, height: vb.h + 20, fill: '#F2EEE4' }));
-
-        // 건물 블록 생성 (도로 사이 공간)
+        const cols = 5, rows = 6;
+        const bw = (vb.w + ex * 2) / cols, bh = (vb.h + ex * 2) / rows;
+        const gap = 8;
         const blockG = this._el('g', { fill: '#E4E0D6' });
-        const cols = 4 + (seed % 2), rows = 5 + (seed % 2);
-        const cw = vb.w / cols, rh = vb.h / rows;
-        const roadW = 8, mainRoadW = 14;
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-                const bx = vb.x + c * cw + roadW / 2 + ((seed + r * 3 + c * 7) % 5);
-                const by = vb.y + r * rh + roadW / 2 + ((seed + r * 5 + c * 3) % 5);
-                const bw = cw - roadW - ((seed + r + c) % 8);
-                const bh = rh - roadW - ((seed + r * 2 + c) % 8);
-                if (bw > 15 && bh > 15) {
-                    blockG.appendChild(this._el('rect', { x: bx, y: by, width: bw, height: bh, rx: 2 }));
-                }
+                const bx = vb.x - ex + c * bw + gap / 2 + ((seed + r + c) % 3);
+                const by = vb.y - ex + r * bh + gap / 2 + ((seed + r * 2 + c) % 3);
+                blockG.appendChild(this._el('rect', { x: bx, y: by, width: bw - gap, height: bh - gap, rx: 2 }));
             }
         }
-        bg.appendChild(blockG);
+        this.svg.appendChild(blockG);
 
-        // 공원 (2~3개)
+        // ========== ③ 공원 (블록 위에 덮어쓰기) ==========
         const parkG = this._el('g', { fill: '#C5E0A8' });
-        const parkCount = 2 + (seed % 2);
-        for (let i = 0; i < parkCount; i++) {
-            const pi2 = (seed + i * 37) % (cols * rows);
-            const pc = pi2 % cols, pr = Math.floor(pi2 / cols) % rows;
-            const px = vb.x + pc * cw + roadW / 2;
-            const py = vb.y + pr * rh + roadW / 2;
-            parkG.appendChild(this._el('rect', { x: px, y: py, width: cw - roadW, height: rh - roadW, rx: 4 }));
+        const parkSlots = [[0, rows - 1], [cols - 1, 0], [Math.floor(cols / 2), rows - 1]];
+        for (let i = 0; i < 2 + (seed % 2); i++) {
+            const [pc, pr] = parkSlots[i % parkSlots.length];
+            parkG.appendChild(this._el('rect', {
+                x: vb.x - ex + pc * bw + gap / 2, y: vb.y - ex + pr * bh + gap / 2,
+                width: bw - gap, height: bh - gap, rx: 4,
+            }));
         }
-        bg.appendChild(parkG);
+        this.svg.appendChild(parkG);
 
-        // 강 (곡선)
-        const riverY = vb.y + vb.h * (0.3 + (seed % 30) / 100);
-        const rMid = vb.x + vb.w * 0.5 + ((seed % 40) - 20);
-        const rCurve = 30 + (seed % 20);
-        bg.appendChild(this._el('path', { d: `M${vb.x - 5},${riverY} Q${rMid},${riverY + rCurve} ${vb.x + vb.w + 5},${riverY - rCurve / 2}`, fill: 'none', stroke: '#9CC5E0', 'stroke-width': 16, 'stroke-linecap': 'round' }));
-        bg.appendChild(this._el('path', { d: `M${vb.x - 5},${riverY} Q${rMid},${riverY + rCurve} ${vb.x + vb.w + 5},${riverY - rCurve / 2}`, fill: 'none', stroke: '#B8D9F0', 'stroke-width': 12, 'stroke-linecap': 'round' }));
-
-        // 소도로 (가는 선)
-        const smallRoadG = this._el('g', { stroke: '#F2EEE4', 'stroke-width': roadW, 'stroke-linecap': 'round', fill: 'none' });
+        // ========== ④ 소도로 (흰 가는 선 — 블록 경계) ==========
+        const sRoadG = this._el('g', { stroke: '#F2EEE4', 'stroke-width': gap, 'stroke-linecap': 'square', fill: 'none' });
         for (let r = 1; r < rows; r++) {
-            const ry = vb.y + r * rh + ((seed + r) % 6 - 3);
-            smallRoadG.appendChild(this._el('line', { x1: vb.x, y1: ry, x2: vb.x + vb.w, y2: ry }));
+            const ry = vb.y - ex + r * bh;
+            sRoadG.appendChild(this._el('line', { x1: vb.x - ex, y1: ry, x2: vb.x + vb.w + ex, y2: ry }));
         }
         for (let c = 1; c < cols; c++) {
-            const rx = vb.x + c * cw + ((seed + c) % 6 - 3);
-            smallRoadG.appendChild(this._el('line', { x1: rx, y1: vb.y, x2: rx, y2: vb.y + vb.h }));
+            const rx = vb.x - ex + c * bw;
+            sRoadG.appendChild(this._el('line', { x1: rx, y1: vb.y - ex, x2: rx, y2: vb.y + vb.h + ex }));
         }
-        bg.appendChild(smallRoadG);
+        this.svg.appendChild(sRoadG);
 
-        // 큰 도로 (굵은 선 — 대각선 가능)
-        const mainRoadG = this._el('g', { stroke: '#F2EEE4', 'stroke-width': mainRoadW, 'stroke-linecap': 'round', fill: 'none' });
-        const mry = vb.y + vb.h * (0.4 + (seed % 20) / 100);
-        mainRoadG.appendChild(this._el('line', { x1: vb.x, y1: mry, x2: vb.x + vb.w, y2: mry + ((seed % 2) ? 15 : -15) }));
-        const mrx = vb.x + vb.w * (0.45 + (seed % 15) / 100);
-        mainRoadG.appendChild(this._el('line', { x1: mrx, y1: vb.y, x2: mrx + ((seed % 3) ? 10 : -10), y2: vb.y + vb.h }));
-        bg.appendChild(mainRoadG);
+        // ========== ⑤ 큰도로 (노란 굵은 선 — 대각선) ==========
+        const mainRG = this._el('g', { fill: 'none' });
+        const mry = vb.y + vb.h * (0.4 + (seed % 15) / 100);
+        const mrTilt = ((seed % 2) ? 1 : -1) * (10 + seed % 15);
+        // 가로 대로
+        mainRG.appendChild(this._el('line', { x1: vb.x - ex, y1: mry, x2: vb.x + vb.w + ex, y2: mry + mrTilt, stroke: '#F5DD8A', 'stroke-width': 14, 'stroke-linecap': 'round' }));
+        // 세로 대로
+        const mrx = vb.x + vb.w * (0.4 + (seed % 20) / 100);
+        const mrTilt2 = ((seed % 3) ? 1 : -1) * (8 + seed % 12);
+        mainRG.appendChild(this._el('line', { x1: mrx, y1: vb.y - ex, x2: mrx + mrTilt2, y2: vb.y + vb.h + ex, stroke: '#F5DD8A', 'stroke-width': 14, 'stroke-linecap': 'round' }));
+        this.svg.appendChild(mainRG);
 
-        this.svg.appendChild(bg);
+        // ========== ⑥ 강 (도로 위! 양 끝 확장) ==========
+        const riverY = vb.y + vb.h * (0.28 + (seed % 25) / 100);
+        const rCurve = 30 + (seed % 25);
+        const rMid = cx + ((seed % 40) - 20);
+        this.svg.appendChild(this._el('path', {
+            d: `M${vb.x - ex - 20},${riverY} Q${rMid},${riverY + rCurve} ${vb.x + vb.w + ex + 20},${riverY - rCurve / 3}`,
+            fill: 'none', stroke: '#9CC5E0', 'stroke-width': 16, 'stroke-linecap': 'round',
+        }));
+        this.svg.appendChild(this._el('path', {
+            d: `M${vb.x - ex - 20},${riverY} Q${rMid},${riverY + rCurve} ${vb.x + vb.w + ex + 20},${riverY - rCurve / 3}`,
+            fill: 'none', stroke: '#B8D9F0', 'stroke-width': 12, 'stroke-linecap': 'round',
+        }));
 
-        // ========== 중심점 필터링 (현재 위치 기준 거리) ==========
-        const curId = currentLocationId;
-        const getLevel = (locId) => {
-            if (!curId || locId === curId) return 0; // 현재 위치 = level 0
-            const d = this.lm.getDistanceBetween(curId, locId);
-            return d?.level || 99; // 거리 미설정 = 99 (표시는 하되 흐리게)
-        };
-
-        // ========== 거리 점선 (모든 거리 데이터 있는 쌍) ==========
+        // ========== ⑦ 거리 점선 (모든 distance 쌍) ==========
         const drawnDist = new Set();
-        const allDists = this.lm.distances || [];
-        for (const d of allDists) {
+        for (const d of (this.lm.distances || [])) {
             const f = locations.find(l => l.id === d.fromId), t = locations.find(l => l.id === d.toId);
             if (!f || !t) continue;
             const k = [d.fromId, d.toId].sort().join('-');
             if (drawnDist.has(k)) continue; drawnDist.add(k);
-
-            // level별 선 스타일
             const lvl = d.level || 5;
-            const lineOp = lvl <= 2 ? 0.6 : lvl <= 4 ? 0.45 : lvl <= 6 ? 0.35 : 0.2;
-            const lineW = lvl <= 2 ? 3 : lvl <= 4 ? 2.5 : lvl <= 6 ? 2 : 1.5;
-            const dash = lvl <= 4 ? '6 3' : '7 5';
-
-            this.svg.appendChild(this._el('line', {
-                x1: f.x, y1: f.y, x2: t.x, y2: t.y,
-                stroke: '#B0A898', 'stroke-width': lineW,
-                'stroke-dasharray': dash, 'stroke-linecap': 'round', opacity: lineOp,
-            }));
-
+            const lw = lvl <= 3 ? 2.5 : lvl <= 6 ? 2 : 1.5;
+            const lo = lvl <= 3 ? 0.5 : lvl <= 6 ? 0.4 : 0.25;
+            this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, stroke: '#B0A898', 'stroke-width': lw, 'stroke-dasharray': '7 4', 'stroke-linecap': 'round', opacity: lo }));
             if (d.distanceText) {
                 const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
                 const tl = d.distanceText.length * 5.5 + 14;
                 const pill = this._el('g', { transform: `translate(${mx},${my - 10})` });
-                pill.appendChild(this._el('rect', { x: -tl / 2, y: -8, width: tl, height: 16, rx: 8, fill: '#fff', stroke: '#E0E0E0', 'stroke-width': 0.8, filter: 'url(#wt-shadow-sm)', opacity: lvl <= 6 ? 1 : 0.5 }));
-                pill.appendChild(this._el('text', { x: 0, y: 4, 'text-anchor': 'middle', fill: lvl <= 6 ? '#5E84E2' : '#A0A0A0', 'font-size': '9', 'font-weight': '600' }, d.distanceText));
+                pill.appendChild(this._el('rect', { x: -tl / 2, y: -8, width: tl, height: 16, rx: 8, fill: '#fff', stroke: '#E0E0E0', 'stroke-width': 0.8, filter: 'url(#wt-shadow-sm)' }));
+                pill.appendChild(this._el('text', { x: 0, y: 4, 'text-anchor': 'middle', fill: '#5E84E2', 'font-size': '9', 'font-weight': '600' }, d.distanceText));
                 this.svg.appendChild(pill);
             }
         }
-        // movement만 있고 distance 없는 경우도 점선
         for (const m of movements) {
             const f = locations.find(l => l.id === m.fromId), t = locations.find(l => l.id === m.toId);
             if (!f || !t) continue;
             const k = [m.fromId, m.toId].sort().join('-');
             if (drawnDist.has(k)) continue; drawnDist.add(k);
-            this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, stroke: '#B0A898', 'stroke-width': 2, 'stroke-dasharray': '7 5', 'stroke-linecap': 'round', opacity: 0.3 }));
+            this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, stroke: '#B0A898', 'stroke-width': 2, 'stroke-dasharray': '7 4', 'stroke-linecap': 'round', opacity: 0.3 }));
         }
 
-        // ========== 핀 마커 (범위별 투명도) ==========
+        // ========== ⑧ 핀 마커 (통일 크기) ==========
         for (const loc of locations) {
             const cur = loc.id === currentLocationId;
-            const lvl = getLevel(loc.id);
-            const inRange = lvl <= 6; // ~15분 이내
-            const nodeOp = cur ? 1 : inRange ? 1 : (lvl === 99 ? 0.6 : 0.3);
             const ps = this._pinStyle(loc.name);
-            const g = this._el('g', { class: 'wt-location-node', 'data-id': loc.id, transform: `translate(${loc.x},${loc.y})`, opacity: nodeOp });
+            const g = this._el('g', { class: 'wt-location-node', 'data-id': loc.id, transform: `translate(${loc.x},${loc.y})` });
 
-            // GPS 펄스
+            // GPS 펄스 (현재 위치)
             if (cur) {
-                const pulse = this._el('circle', { r: 20, fill: 'none', stroke: ps.color, 'stroke-width': 2, opacity: '0.4' });
+                const pulse = this._el('circle', { r: 18, fill: 'none', stroke: ps.color, 'stroke-width': 2, opacity: '0.4' });
                 const aR = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
-                aR.setAttribute('attributeName', 'r'); aR.setAttribute('from', '14'); aR.setAttribute('to', '28');
+                aR.setAttribute('attributeName', 'r'); aR.setAttribute('from', '12'); aR.setAttribute('to', '26');
                 aR.setAttribute('dur', '2s'); aR.setAttribute('repeatCount', 'indefinite'); pulse.appendChild(aR);
                 const aO = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
                 aO.setAttribute('attributeName', 'opacity'); aO.setAttribute('from', '0.5'); aO.setAttribute('to', '0');
@@ -207,43 +186,42 @@ export class MapRenderer {
                 g.appendChild(pulse);
             }
 
-            // 핀 크기 (범위 밖이면 작게)
-            const sz = cur ? 16 : (inRange ? 13 : 10);
-            const ph = cur ? 22 : (inRange ? 18 : 14);
+            // 핀 물방울 (통일 크기: 현재=약간 큼, 나머지=동일)
+            const sz = cur ? 15 : 13, ph = cur ? 20 : 17;
             const pin = this._el('g', { transform: `translate(0,${-ph})`, filter: 'url(#wt-shadow)' });
             pin.appendChild(this._el('path', { d: `M0,${ph}C0,${ph},${-sz},${ph * 0.35},${-sz},${-sz * 0.15}A${sz},${sz},0,1,1,${sz},${-sz * 0.15}C${sz},${ph * 0.35},0,${ph},0,${ph}Z`, fill: ps.color, stroke: ps.border, 'stroke-width': 0.8 }));
-            pin.appendChild(this._el('text', { x: 0, y: -sz * 0.1 + 5, 'text-anchor': 'middle', 'font-size': cur ? '13' : (inRange ? '11' : '9') }, ps.emoji));
+            pin.appendChild(this._el('text', { x: 0, y: -sz * 0.1 + 5, 'text-anchor': 'middle', 'font-size': cur ? '12' : '11' }, ps.emoji));
             g.appendChild(pin);
 
-            // 방문 뱃지
+            // 방문 뱃지 (우상단)
             if (loc.visitCount > 0) {
-                const bx = sz * 0.55, by = -(ph + sz * 0.45);
+                const bx = sz * 0.5, by = -(ph + sz * 0.4);
                 const bdg = this._el('g', { transform: `translate(${bx},${by})` });
-                bdg.appendChild(this._el('circle', { r: inRange ? 7.5 : 6, fill: '#fff', stroke: ps.color, 'stroke-width': 1.5 }));
-                bdg.appendChild(this._el('text', { 'text-anchor': 'middle', y: 3.5, 'font-size': inRange ? '8' : '7', 'font-weight': '700', fill: ps.color }, loc.visitCount));
+                bdg.appendChild(this._el('circle', { r: 7, fill: '#fff', stroke: ps.color, 'stroke-width': 1.5 }));
+                bdg.appendChild(this._el('text', { 'text-anchor': 'middle', y: 3, 'font-size': '8', 'font-weight': '700', fill: ps.color }, loc.visitCount));
                 g.appendChild(bdg);
             }
 
-            // 장소명 pill
-            const nl = loc.name.length * (inRange ? 7 : 6) + 12;
-            const lg = this._el('g', { transform: `translate(0,${inRange ? 10 : 8})` });
-            lg.appendChild(this._el('rect', { x: -nl / 2, y: -8, width: nl, height: inRange ? 16 : 14, rx: 8, fill: '#fff', stroke: '#E8E4D8', 'stroke-width': 0.7, filter: 'url(#wt-shadow-sm)' }));
-            lg.appendChild(this._el('text', { class: 'wt-location-label', y: 3, 'font-size': inRange ? '10' : '8' }, loc.name));
+            // 장소명 라벨 (핀 바로 아래 4px gap)
+            const nl = loc.name.length * 7 + 12;
+            const lg = this._el('g', { transform: 'translate(0,4)' });
+            lg.appendChild(this._el('rect', { x: -nl / 2, y: -8, width: nl, height: 16, rx: 8, fill: '#fff', stroke: '#E8E4D8', 'stroke-width': 0.7, filter: 'url(#wt-shadow-sm)' }));
+            lg.appendChild(this._el('text', { class: 'wt-location-label', y: 3, 'font-size': '10' }, loc.name));
             g.appendChild(lg);
 
-            // 🐾 바운스
+            // 🐾 바운스 (현재 위치)
             if (cur) {
-                const paw = this._el('text', { 'text-anchor': 'middle', y: -(ph + sz + 6), 'font-size': '14' }, '🐾');
+                const paw = this._el('text', { 'text-anchor': 'middle', y: -(ph + sz + 4), 'font-size': '13' }, '🐾');
                 const pa = document.createElementNS('http://www.w3.org/2000/svg', 'animateTransform');
                 pa.setAttribute('attributeName', 'transform'); pa.setAttribute('type', 'translate');
-                pa.setAttribute('values', '0 0;0 -4;0 0'); pa.setAttribute('dur', '1.2s');
+                pa.setAttribute('values', '0 0;0 -3;0 0'); pa.setAttribute('dur', '1.2s');
                 pa.setAttribute('repeatCount', 'indefinite'); paw.appendChild(pa);
                 g.appendChild(paw);
             }
             this.svg.appendChild(g);
         }
 
-        if (!locations.length) this.svg.appendChild(this._el('text', { x: 300, y: 250, class: 'wt-empty-text' }, 'RP를 시작해보세요! 🐶'));
+        if (!locations.length) this.svg.appendChild(this._el('text', { x: cx, y: cy, class: 'wt-empty-text' }, 'RP를 시작해보세요! 🐶'));
 
     }
 
@@ -268,72 +246,57 @@ export class MapRenderer {
         return { color: '#F6A93A', emoji: '📍', border: '#D68910' };
     }
 
-
-    // ========== 거리 기반 약도 자동 배치 ==========
+    // ========== 약도 원형 배치 (현재 위치 중심) ==========
     _autoLayout() {
         const locs = this.lm.locations;
         const dists = this.lm.distances || [];
         if (locs.length < 2) return;
 
-        // 거리 level → 픽셀 거리 매핑 (1~10)
-        const levelToPx = { 1: 60, 2: 80, 3: 100, 4: 130, 5: 160, 6: 200, 7: 240, 8: 280, 9: 330, 10: 400 };
-
-        // 첫 노드가 (0,0)이면 초기 배치 필요
         const needsInit = locs.some(l => l.x === 0 && l.y === 0);
-        // 🐛 Bug1 Fix: 첫 렌더링(_layoutDone 미설정)이면 무조건 실행
         if (!needsInit && !this._layoutDirty && this._layoutDone) return;
         this._layoutDirty = false;
         this._layoutDone = true;
 
-        // 현재 위치를 중심에
+        const levelToPx = { 1: 55, 2: 75, 3: 95, 4: 115, 5: 135, 6: 160, 7: 190, 8: 220, 9: 260, 10: 300 };
+
+        // 현재 위치 → 화면 중앙 (300, vbH/2)
         const curId = this.lm.currentLocationId;
         const curLoc = locs.find(l => l.id === curId) || locs[0];
-        curLoc.x = 300; curLoc.y = 250;
+        const cW = this.container?.offsetWidth || 360;
+        const cH = this.container?.offsetHeight || 480;
+        const centerX = 300, centerY = Math.round((500 / (cW / cH)) / 2);
 
-        // 거리 데이터 없는 노드는 원형 배치
-        let angle = 0;
-        const angleStep = (2 * Math.PI) / Math.max(locs.length - 1, 1);
+        curLoc.x = centerX;
+        curLoc.y = centerY;
 
-        for (const loc of locs) {
-            if (loc.id === curLoc.id) continue;
-            // 거리 데이터 확인
+        // 나머지 → 거리 기반 원형 배치
+        const others = locs.filter(l => l.id !== curLoc.id);
+        const angleStep = (2 * Math.PI) / Math.max(others.length, 1);
+        // 시작 각도를 살짝 랜덤하게 (매번 다른 배치)
+        let angle = ((this.lm.locations.length * 37 + 11) % 360) * Math.PI / 180;
+
+        for (const loc of others) {
             const dist = dists.find(d =>
                 (d.fromId === curLoc.id && d.toId === loc.id) ||
                 (d.toId === curLoc.id && d.fromId === loc.id)
             );
-            const level = dist?.level || 3;
-            const px = levelToPx[level] || 160;
+            const level = dist?.level || 5;
+            const px = levelToPx[level] || 135;
 
-            loc.x = Math.round(300 + px * Math.cos(angle));
-            loc.y = Math.round(250 + px * Math.sin(angle));
+            loc.x = Math.round(centerX + px * Math.cos(angle));
+            loc.y = Math.round(centerY + px * Math.sin(angle));
             angle += angleStep;
         }
 
-        // 스프링 시뮬레이션 (5회 반복)
-        for (let iter = 0; iter < 5; iter++) {
-            for (const d of dists) {
-                const a = locs.find(l => l.id === d.fromId);
-                const b = locs.find(l => l.id === d.toId);
-                if (!a || !b) continue;
-
-                const ideal = levelToPx[d.level || 5] || 160;
-                const dx = b.x - a.x, dy = b.y - a.y;
-                const actual = Math.sqrt(dx * dx + dy * dy) || 1;
-                const force = (actual - ideal) * 0.15;
-                const fx = (dx / actual) * force, fy = (dy / actual) * force;
-
-                if (a.id !== curLoc.id) { a.x += Math.round(fx); a.y += Math.round(fy); }
-                if (b.id !== curLoc.id) { b.x -= Math.round(fx); b.y -= Math.round(fy); }
-            }
-
-            // 겹침 방지 (최소 60px)
+        // 겹침 방지 (3회 반복)
+        for (let iter = 0; iter < 3; iter++) {
             for (let i = 0; i < locs.length; i++) {
                 for (let j = i + 1; j < locs.length; j++) {
                     const dx = locs[j].x - locs[i].x, dy = locs[j].y - locs[i].y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < 60) {
-                        const push = (60 - dist) / 2;
-                        const nx = dx / (dist || 1), ny = dy / (dist || 1);
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d < 70) {
+                        const push = (70 - d) / 2;
+                        const nx = dx / (d || 1), ny = dy / (d || 1);
                         if (locs[i].id !== curLoc.id) { locs[i].x -= Math.round(push * nx); locs[i].y -= Math.round(push * ny); }
                         if (locs[j].id !== curLoc.id) { locs[j].x += Math.round(push * nx); locs[j].y += Math.round(push * ny); }
                     }
@@ -341,7 +304,6 @@ export class MapRenderer {
             }
         }
 
-        // DB에 위치 저장
         for (const loc of locs) {
             this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
         }

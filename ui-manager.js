@@ -332,8 +332,9 @@ export class UIManager {
         $('#wt-btn-refresh').on('click', () => {
             if (this.mapRenderer) {
                 this.mapRenderer._layoutDirty = true;
+                this.mapRenderer._layoutDone = false;
                 this.mapRenderer.render();
-                toastSuccess('🗺️ 약도 재배치!');
+                toastSuccess('🗺️ 약도 재생성!');
             }
         }); // 기본: 장소 검색
         $('#wt-search-tab-loc').on('click', () => {
@@ -698,9 +699,11 @@ export class UIManager {
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
+        if (locId === this.lm.currentLocationId) return; // 이미 현재 위치면 스킵
         await this.lm.moveTo(locId);
         if (this.mapRenderer) {
             this.mapRenderer._layoutDirty = true;
+            this.mapRenderer._layoutDone = false; // 강제 재계산
             this.mapRenderer.render();
         }
         this.pi?.inject();

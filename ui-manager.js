@@ -47,8 +47,6 @@ export class UIManager {
                     <button id="wt-s-delete-all" class="menu_button" style="flex:1;font-size:11px;padding:6px;color:#e74c3c">🗑️ 전체 삭제</button>
                 </div>
                 <input type="file" id="wt-s-import-file" accept=".json" style="display:none"/>
-                <div class="wt-divider"></div>
-                <div class="wt-s-row"><button id="wt-open-panel" class="menu_button wt-open-btn">🐶 World Tracker</button></div>
             </div></div></div>`;
         const containers = ['#extensions_settings2','#extensions_settings','.extensions_block'];
         let target = null;
@@ -75,8 +73,6 @@ export class UIManager {
             toastSuccess(`🧠 감지 모델: ${name}`);
             setTimeout(() => $('#wt-s-profile-status').text(''), 3000);
         });
-        $('#wt-open-panel').on('click', () => this.togglePanel());
-
         // 전체 데이터 관리 (설정 패널)
         $('#wt-s-export-all').on('click', () => this._exportAllData());
         $('#wt-s-import-all').on('click', () => $('#wt-s-import-file').click());
@@ -701,19 +697,18 @@ export class UIManager {
         }
     }
 
-    // ========== 약도: 장소 클릭 → 카메라 팬 + 팝오버 (위치 이동 X) ==========
+    // ========== 약도: 장소 클릭 → 해당 핀 중심 약도 재생성 (팝오버 X, 이동 X) ==========
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
-        // 카메라 팬 (핀 위치는 변경하지 않음!)
+        if (locId === this.lm.currentLocationId) return; // 현재 위치 터치 → 무시
+        // 해당 핀 중심으로 ViewBox 이동 + 배경 재생성
         if (this.mapRenderer) {
             this.mapRenderer._vbManual = true;
             this.mapRenderer.vb.x = loc.x - (this.mapRenderer.vb?.w || 500) / 2;
             this.mapRenderer.vb.y = loc.y - (this.mapRenderer.vb?.h || 600) / 2;
             this.mapRenderer.render();
         }
-        // 팝오버 표시 (이동 없이 상세 정보만)
-        this.showPop(locId);
     }
 
     // ========== 장소 목록 / 이동 히스토리 ==========
@@ -791,7 +786,9 @@ export class UIManager {
         if (l.address) { $('#wt-pop-cur-addr').show(); $('#wt-pop-addr-text').text(l.address); } else { $('#wt-pop-cur-addr').hide(); }
         this._updDistSection(id);
         this._updEventsList(id);
-        if ($('#wt-map-section').is(':visible')) {
+        // 지도 섹션 상태 저장 후 숨김
+        this._mapWasVisible = $('#wt-map-section').is(':visible');
+        if (this._mapWasVisible) {
             $('#wt-map-section').hide();
             $('#wt-map-toggle').text('🗺️ 지도 ▾');
         }
@@ -800,7 +797,19 @@ export class UIManager {
         const body = document.getElementById('wt-panel-body');
         if (pop && body) body.scrollTop = pop.offsetTop - 10;
     }
-    hidePop() { $('#wt-popover').hide(); }
+    hidePop() {
+        $('#wt-popover').hide();
+        // 약도가 열려있었으면 복원
+        if (this._mapWasVisible) {
+            $('#wt-map-section').show();
+            $('#wt-map-toggle').text('🗺️ 지도 ▴');
+            // 렌더링 갱신 (패널 크기 변경 후)
+            setTimeout(() => {
+                if (this.mapRenderer) this.mapRenderer.render();
+                if (this.leafletRenderer?.map) this.leafletRenderer.invalidateSize();
+            }, 100);
+        }
+    }
 
     async _popSave() {
         const id=$('#wt-popover').attr('data-id');
@@ -1172,7 +1181,8 @@ export class UIManager {
             item.on('click', async function() {
                     const lat = parseFloat($(this).attr('data-lat'));
                     const lng = parseFloat($(this).attr('data-lng'));
-                    await self.lm.updateLocation(locId, { lat, lng });
+                    const addrText = $(this).text().replace('📍 ', '').trim();
+                    await self.lm.updateLocation(locId, { lat, lng, address: addrText });
 
                     // 앵커 포인트 기반 원형 분포 — 좌표 없는 다른 장소들도 배치
                     const others = self.lm.locations.filter(l => l.id !== locId && !l.lat && !l.lng);

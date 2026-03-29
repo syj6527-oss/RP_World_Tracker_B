@@ -140,15 +140,20 @@ export class MapRenderer {
         bgLayer.appendChild(this._el('rect', { x: ox - 60, y: oy - 60, width: W + 120, height: H + 120, fill: '#F0EDE5' }));
         g.appendChild(bgLayer);
 
-        // 그리드 계산
+        // 그리드 계산 (비대칭 열/행)
         const cols = 5, rows = 6;
-        const margin = 6;
         const cw = [], rh = [];
         let twc = 0, thr = 0;
         for (let c = 0; c < cols; c++) { cw[c] = 0.5 + rng() * 1.0; twc += cw[c]; }
         for (let r = 0; r < rows; r++) { rh[r] = 0.5 + rng() * 1.0; thr += rh[r]; }
         cw.forEach((_, i) => cw[i] = Math.round((cw[i] / twc) * W));
         rh.forEach((_, i) => rh[i] = Math.round((rh[i] / thr) * H));
+
+        // 대로 vs 골목 — 3번째 경계마다 대로(26px), 나머지 골목(8px)
+        const xGap = []; // cols+1개 경계
+        for (let c = 0; c <= cols; c++) xGap[c] = (c > 0 && c < cols && c % 3 === 0) ? 13 : 4;
+        const yGap = [];
+        for (let r = 0; r <= rows; r++) yGap[r] = (r > 0 && r < rows && r % 3 === 0) ? 13 : 4;
 
         const parkCell = `${1 + (seed % 2)}_${1 + (seed % (cols - 1))}`;
         const riverRow = 2 + (seed % 2);
@@ -174,37 +179,36 @@ export class MapRenderer {
         }
         g.appendChild(riverLayer);
 
-        // ===== 레이어 3: 블록 (강 위에 덮어씀) =====
+        // ===== 레이어 3: 블록 (대로/골목 차등 gap) =====
         const blocksLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         let yy = oy;
         for (let r = 0; r < rows; r++) {
             let xx = ox;
+            const gT = yGap[r], gB = yGap[r + 1]; // 위/아래 gap
             for (let c = 0; c < cols; c++) {
+                const gL = xGap[c], gR = xGap[c + 1]; // 좌/우 gap
                 const ck = `${r}_${c}`;
                 if (merged.has(ck)) { xx += cw[c]; continue; }
 
-                // 광장 셀 → 호수 또는 미니 공원으로 채우기 (빈 공간 방지)
+                // 광장 → 호수/공원
                 if (plaza.has(ck)) {
-                    const px = xx + margin, py = yy + margin;
-                    const pw = cw[c] - margin * 2, ph = rh[r] - margin * 2;
+                    const px = xx + gL, py = yy + gT;
+                    const pw = cw[c] - gL - gR, ph = rh[r] - gT - gB;
                     if (pw > 20 && ph > 16) {
-                        if (rng() < 0.5) {
-                            // 호수
-                            blocksLayer.appendChild(this._el('ellipse', { cx: px + pw / 2, cy: py + ph / 2, rx: pw * 0.42, ry: ph * 0.38, fill: '#9CC5E0', opacity: '0.35' }));
-                        } else {
-                            this._drawPark(blocksLayer, px, py, pw, ph, rng);
-                        }
+                        if (rng() < 0.5) blocksLayer.appendChild(this._el('ellipse', { cx: px + pw / 2, cy: py + ph / 2, rx: pw * 0.42, ry: ph * 0.38, fill: '#9CC5E0', opacity: '0.35' }));
+                        else this._drawPark(blocksLayer, px, py, pw, ph, rng);
                     }
                     xx += cw[c]; continue;
                 }
 
                 const isMg = merged.has(`${r}_${c + 1}`);
-                const bx = xx + margin, by = yy + margin;
-                const bw = (isMg ? cw[c] + cw[c + 1] : cw[c]) - margin * 2;
-                const bh = rh[r] - margin * 2;
+                const gR2 = isMg ? xGap[c + 2] || gR : gR; // 병합 시 오른쪽 gap
+                const bx = xx + gL, by = yy + gT;
+                const bw = (isMg ? cw[c] + cw[c + 1] : cw[c]) - gL - gR2;
+                const bh = rh[r] - gT - gB;
                 if (bw < 20 || bh < 16) { xx += cw[c]; continue; }
 
-                // 강 행 → 블록 분할 (강 위아래로 나눔, 25px 간격)
+                // 강 행 → 분할
                 if (seed % 3 !== 0 && r === riverRow) {
                     const ry2 = yy + rh[r] * 0.5;
                     const aH = (ry2 - 25) - by, bY = ry2 + 25, bH2 = (by + bh) - bY;

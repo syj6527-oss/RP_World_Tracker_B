@@ -136,8 +136,8 @@ export class LeafletRenderer {
         }
 
         // 뷰 조정 (첫 렌더링만 — 롱프레스 후 줌아웃 방지)
+        const curLoc = locations.find(l => l.id === currentLocationId);
         if (!this._viewSet && latlngs.length > 0) {
-            const curLoc = locations.find(l => l.id === currentLocationId);
             if (curLoc?.lat && curLoc?.lng) {
                 this.map.setView([curLoc.lat, curLoc.lng], 15);
             } else if (latlngs.length > 1) {

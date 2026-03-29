@@ -13,6 +13,8 @@ export class MapRenderer {
 
     _init() {
         if (!this.container) { console.error('[MAP] Container is null!'); return; }
+        // 🐛 Bug1 Fix: 기존 SVG 제거 → 중복 방지 (overflow:hidden에서 밀려나는 문제)
+        this.container.querySelectorAll('svg.wt-map-svg').forEach(el => el.remove());
         this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         this.svg.setAttribute('class', 'wt-map-svg');
         this.svg.setAttribute('width', '100%');
@@ -148,8 +150,10 @@ export class MapRenderer {
 
         // 첫 노드가 (0,0)이면 초기 배치 필요
         const needsInit = locs.some(l => l.x === 0 && l.y === 0);
-        if (!needsInit && !this._layoutDirty) return;
+        // 🐛 Bug1 Fix: 첫 렌더링(_layoutDone 미설정)이면 무조건 실행
+        if (!needsInit && !this._layoutDirty && this._layoutDone) return;
         this._layoutDirty = false;
+        this._layoutDone = true;
 
         // 현재 위치를 중심에
         const curId = this.lm.currentLocationId;
@@ -211,7 +215,6 @@ export class MapRenderer {
         for (const loc of locs) {
             this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
         }
-        this._layoutDirty = false;
     }
 
     // ========== Touch Handling (롱프레스 이동) ==========

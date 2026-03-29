@@ -162,7 +162,7 @@ export class UIManager {
                         <button id="wt-mode-leaflet" class="wt-mode-btn">🌍 실제 지도</button>
                         <button id="wt-btn-layout" class="wt-mode-btn" style="font-size:11px;flex:0.6">🗺️ 약도</button>
                     </div>
-                    <div id="wt-search-bar" class="wt-search-bar" style="display:none">
+                    <div id="wt-search-bar" class="wt-search-bar">
                         <input type="search" id="wt-search-input" class="wt-input" placeholder="🔍 장소 검색..." autocomplete="off" inputmode="search"/>
                         <div id="wt-search-results" class="wt-search-results" style="display:none"></div>
                     </div>
@@ -351,8 +351,13 @@ export class UIManager {
 
     // 채팅 전환 시 지도 완전 리셋
     resetMap() {
+        // 🐛 Bug1 Fix: 컨테이너 DOM도 클리어 → SVG 잔존 방지
+        const nodeContainer = document.querySelector('#wt-map-container');
+        if (nodeContainer) nodeContainer.innerHTML = '';
         this.mapRenderer = null;
         if (this.leafletRenderer) { this.leafletRenderer.destroy(); this.leafletRenderer = null; }
+        const leafletContainer = document.querySelector('#wt-leaflet-container');
+        if (leafletContainer) leafletContainer.innerHTML = '';
         $('#wt-scan-overlay').remove();
     }
 
@@ -399,7 +404,6 @@ export class UIManager {
 
         if (mode === 'node') {
             $('#wt-leaflet-wrap').hide();
-            $('#wt-search-bar').hide();
             $('#wt-map-wrap').show();
             if (!this.mapRenderer) {
                 const container = document.querySelector('#wt-map-container');
@@ -415,7 +419,6 @@ export class UIManager {
         } else if (mode === 'leaflet') {
             $('#wt-map-wrap').hide();
             $('#wt-leaflet-wrap').show();
-            $('#wt-search-bar').show();
             if (!this.leafletRenderer) {
                 const ok = await loadLeaflet();
                 if (!ok) { toastWarn('Leaflet CDN 로드 실패!'); this._setMapMode('node'); return; }
@@ -605,32 +608,41 @@ export class UIManager {
         for(const g of mg){if(ns.some(n=>g.some(w=>n.includes(w)))){r.push(loc);break;}}} return r.slice(0,3);
     }
 
-    // ---- Nominatim 검색 ----
+    // ---- 🐛 Bug2 Fix: 로컬 장소 검색 (Nominatim → 등록된 장소 필터링) ----
     async _doSearch() {
-        const q = $('#wt-search-input').val().trim();
-        if (!q || q.length < 2) { $('#wt-search-results').hide(); return; }
-        if (!this.leafletRenderer) return;
+        const q = $('#wt-search-input').val().trim().toLowerCase();
+        if (!q || q.length < 1) { $('#wt-search-results').hide(); return; }
 
-        const results = await this.leafletRenderer.search(q);
+        // 등록된 장소에서 이름/별칭 매칭
+        const matches = this.lm.locations.filter(loc => {
+            const names = [loc.name, ...(loc.aliases || [])].map(n => n.toLowerCase());
+            return names.some(n => n.includes(q));
+        });
+
         const list = $('#wt-search-results').empty();
-        if (!results.length) { list.html('<div class="wt-search-empty">결과 없음</div>').show(); return; }
+        if (!matches.length) { list.html('<div class="wt-search-empty">일치하는 장소 없음</div>').show(); return; }
 
-        for (const r of results) {
-            const item = $(`<div class="wt-search-item"><span class="wt-search-name">${r.name}</span></div>`);
+        for (const loc of matches) {
+            const isCur = loc.id === this.lm.currentLocationId;
+            const visits = loc.visitCount || 0;
+            const badge = isCur ? ' 🐾' : '';
+            const item = $(`<div class="wt-search-item">
+                <span class="wt-search-name">${loc.name}${badge}</span>
+                <span style="font-size:11px;color:#9A8A7A;margin-left:6px">${visits}회</span>
+            </div>`);
             item.on('click', () => {
-                // 지도 이동 + 임시 마커
-                this.leafletRenderer.showSearchResult(r.lat, r.lng, r.name);
                 $('#wt-search-results').hide();
-                // 좌표 없는 장소 중 이름 비슷한 거 있으면 자동 매칭
-                const match = this.lm.locations.find(l => !l.lat && l.name.toLowerCase().includes(q.toLowerCase()));
-                if (match) {
-                    if (confirm(`"${match.name}"에 이 좌표를 배치할까요?`)) {
-                        this.lm.updateLocation(match.id, { lat: r.lat, lng: r.lng }).then(() => {
-                            this.leafletRenderer.clearSearchMarker();
-                            this.leafletRenderer.render();
-                            toastSuccess(`📍 ${match.name} 배치!`);
-                        });
-                    }
+                $('#wt-search-input').val('');
+                this.showPop(loc.id);
+                // Leaflet 모드면 해당 위치로 이동
+                if (this.leafletRenderer?.map && loc.lat && loc.lng) {
+                    this.leafletRenderer.map.setView([loc.lat, loc.lng], 16);
+                }
+                // 노드 맵이면 해당 노드로 ViewBox 이동
+                if (this.mapRenderer?.svg && loc.x && loc.y) {
+                    this.mapRenderer.vb.x = loc.x - this.mapRenderer.vb.w / 2;
+                    this.mapRenderer.vb.y = loc.y - this.mapRenderer.vb.h / 2;
+                    this.mapRenderer._applyVB();
                 }
             });
             list.append(item);
@@ -689,7 +701,7 @@ export class UIManager {
             </div>`;
         });
 
-        const overlay = $(`<div id="wt-scan-overlay" style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);width:320px;max-width:90vw;background:rgba(245,244,237,0.97);border:2px solid #F6A93A;border-radius:14px;padding:12px;z-index:99998;box-shadow:0 8px 30px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
+        const overlay = $(`<div id="wt-scan-overlay" style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:320px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #F6A93A;border-radius:14px;padding:12px;z-index:2147483646;box-shadow:0 8px 30px rgba(0,0,0,0.25);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
             <div style="font-size:13px;font-weight:700;color:#775537;margin-bottom:6px">🐶 장소 감지됨!</div>
             <div style="font-size:11px;color:#9A8A7A;margin-bottom:6px">이름 수정 가능 · 체크 해제 시 제외</div>
             <div id="wt-scan-items" style="display:flex;flex-direction:column;gap:3px;max-height:150px;overflow-y:auto">${items}</div>
@@ -946,7 +958,7 @@ export class UIManager {
     // 자동 이벤트 기록 — AI 응답에서 키워드 추출 후 플로팅 알림
     showEventNotify(locName, summary, locId) {
         $('#wt-event-overlay').remove();
-        const overlay = $(`<div id="wt-event-overlay" style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);width:300px;max-width:90vw;background:rgba(245,244,237,0.97);border:2px solid #5E84E2;border-radius:14px;padding:10px 12px;z-index:99998;box-shadow:0 6px 24px rgba(0,0,0,0.15);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
+        const overlay = $(`<div id="wt-event-overlay" style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:300px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #5E84E2;border-radius:14px;padding:10px 12px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
             <div style="font-size:12px;font-weight:700;color:#775537;margin-bottom:4px">📝 이벤트 감지 — ${locName}</div>
             <input type="text" id="wt-event-edit" value="${summary}" style="width:100%;border:1px solid #E8E4D8;border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;box-sizing:border-box"/>
             <div style="display:flex;gap:6px;margin-top:6px">

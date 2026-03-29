@@ -150,7 +150,7 @@ export class MapRenderer {
 
         // ===== 레이어 1: 배경 =====
         const bgLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        bgLayer.appendChild(this._el('rect', { x: ox - 60, y: oy - 60, width: W + 120, height: H + 120, fill: '#F0EDE5' }));
+        bgLayer.appendChild(this._el('rect', { x: ox - 60, y: oy - 60, width: W + 120, height: H + 120, fill: '#FDFCF8' }));
         g.appendChild(bgLayer);
 
         // 그리드 계산 (비대칭 열/행)

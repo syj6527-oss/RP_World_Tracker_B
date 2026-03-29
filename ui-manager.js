@@ -158,20 +158,6 @@ export class UIManager {
                     </div>
                     <div id="wt-map-wrap" class="wt-map-wrap">
                         <div id="wt-map-container" class="wt-map-container"></div>
-                        <div class="wt-compass-overlay">
-                            <svg width="44" height="44" viewBox="0 0 44 44">
-                                <circle cx="22" cy="22" r="18" stroke="#A08060" stroke-width="1.5" fill="none"/>
-                                <circle cx="22" cy="22" r="2.5" fill="#A08060"/>
-                                <polygon points="22,6 19,16 25,16" fill="#F5A8A8" stroke="#A08060" stroke-width="0.5"/>
-                                <polygon points="22,38 19,28 25,28" fill="#A8D8EA" stroke="#A08060" stroke-width="0.5"/>
-                                <polygon points="6,22 16,19 16,25" fill="#FCE7AE" stroke="#A08060" stroke-width="0.5"/>
-                                <polygon points="38,22 28,19 28,25" fill="#FCE7AE" stroke="#A08060" stroke-width="0.5"/>
-                                <text x="22" y="4" text-anchor="middle" font-weight="700" font-size="7" fill="#F5A8A8">N</text>
-                                <text x="22" y="44" text-anchor="middle" font-weight="700" font-size="7" fill="#A8D8EA">S</text>
-                                <text x="3" y="24" text-anchor="middle" font-weight="700" font-size="7" fill="#C4A882">W</text>
-                                <text x="41" y="24" text-anchor="middle" font-weight="700" font-size="7" fill="#C4A882">E</text>
-                            </svg>
-                        </div>
                     </div>
                     <div id="wt-leaflet-wrap" class="wt-map-wrap" style="display:none">
                         <div id="wt-leaflet-container" class="wt-map-container wt-leaflet-map"></div>
@@ -241,10 +227,10 @@ export class UIManager {
                         <div class="wt-pop-actions"><button id="wt-pop-save" class="wt-btn-primary">💾 저장</button><button id="wt-pop-del" class="wt-btn-danger">🗑️</button></div>
                         <button id="wt-pop-move" class="wt-btn-ghost wt-btn-sm">📍 위치 수정</button>
                         <button id="wt-pop-moveto" class="wt-btn-accent wt-btn-sm" style="opacity:1;font-size:12px">🐾 여기로 이동</button>
-                        <div id="wt-pop-geo-section" style="margin-top:6px">
+                        <div id="wt-pop-geo-section" style="margin-top:6px;text-align:left">
                             <div id="wt-pop-geo-notice" style="display:none;padding:8px 10px;background:rgba(94,132,226,0.1);border:1px solid #5E84E2;border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2;text-align:center">📍 이 장소에 좌표가 없어요 — 아래에서 주소를 검색해보세요!</div>
-                            <div id="wt-pop-cur-addr" style="display:none;padding:6px 10px;background:rgba(94,132,226,0.06);border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2">📍 <span id="wt-pop-addr-text"></span></div>
-                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📍 실제 주소 설정</div>
+                            <div id="wt-pop-cur-addr" style="display:none;padding:6px 10px;background:rgba(94,132,226,0.06);border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2;text-align:left">📍 <span id="wt-pop-addr-text"></span></div>
+                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px;text-align:left">📍 실제 주소 설정</div>
                             <div style="display:flex;gap:4px">
                                 <input type="text" id="wt-pop-geo-input" class="wt-input" placeholder="주소 또는 랜드마크..." style="flex:1;font-size:12px;padding:6px 8px"/>
                                 <button id="wt-pop-geo-btn" class="wt-btn-accent wt-btn-s">🔍</button>

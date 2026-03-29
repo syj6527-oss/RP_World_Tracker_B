@@ -96,17 +96,17 @@ export class MapRenderer {
     }
 
     // ================================================================
-    //  도시 배경 (레퍼런스 이미지 기반)
+    //  도시 배경 (GPT 디자인 조언 반영: 블록=배경, 핀=주인공)
     // ================================================================
     _drawCityBackground(vb, ex, seed, cx, cy) {
         const rng = this._srand(seed * 31337);
         const W = vb.w + ex * 2, H = vb.h + ex * 2;
         const ox = vb.x - ex, oy = vb.y - ex;
 
-        // ① 베이스 (도로 색 = 배경)
-        this.svg.appendChild(this._el('rect', { x: ox, y: oy, width: W, height: H, fill: '#EDEBE3' }));
+        // ① 베이스 (도로 색 — 아주 연한 회백색)
+        this.svg.appendChild(this._el('rect', { x: ox, y: oy, width: W, height: H, fill: '#F0EDE6' }));
 
-        // ② 격자 생성 (불규칙 간격 + 미세 교란)
+        // ② 격자 생성 (불규칙 간격)
         const cols = 6, rows = 8;
         const cw = [], rh = [];
         let tw = 0, th = 0;
@@ -115,157 +115,121 @@ export class MapRenderer {
         cw.forEach((_, i) => cw[i] = cw[i] / tw * W);
         rh.forEach((_, i) => rh[i] = rh[i] / th * H);
 
-        // 격자 교차점 (미세 교란 — 도로는 거의 직선, 블록만 불규칙)
+        // 격자 교차점
         const pts = [];
         let py = oy;
         for (let r = 0; r <= rows; r++) {
-            pts[r] = [];
-            let px = ox;
+            pts[r] = []; let px = ox;
             for (let c = 0; c <= cols; c++) {
-                const jitter = 8; // 교란 크기 (작을수록 직선에 가까움)
-                const jx = (r > 0 && r < rows && c > 0 && c < cols) ? (rng() - 0.5) * jitter : 0;
-                const jy = (r > 0 && r < rows && c > 0 && c < cols) ? (rng() - 0.5) * jitter : 0;
+                const j = 6;
+                const jx = (r > 0 && r < rows && c > 0 && c < cols) ? (rng() - 0.5) * j : 0;
+                const jy = (r > 0 && r < rows && c > 0 && c < cols) ? (rng() - 0.5) * j : 0;
                 pts[r][c] = { x: px + jx, y: py + jy };
                 if (c < cols) px += cw[c];
             }
             if (r < rows) py += rh[r];
         }
 
-        // ③ 블록 폴리곤 (교차점 사이 — 축소해서 도로 갭 생성)
-        const road = 4; // 소도로 폭 (half)
+        // 구역 타입 결정 (seed 기반)
         const parkCells = new Set();
-        // 공원 후보 (2~3개)
         const parkCount = 2 + (seed % 2);
         for (let i = 0; i < parkCount; i++) {
-            const pr = 1 + Math.floor(rng() * (rows - 2));
-            const pc = Math.floor(rng() * cols);
-            parkCells.add(`${pr}_${pc}`);
+            parkCells.add(`${1 + Math.floor(rng() * (rows - 2))}_${Math.floor(rng() * cols)}`);
         }
 
+        // ③ 블록 (rect + 라운딩 — 채도 낮게, 구역별 색상)
+        const gap = 0.07; // 도로 갭 비율
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-                const tl = pts[r][c], tr = pts[r][c + 1];
-                const bl = pts[r + 1][c], br = pts[r + 1][c + 1];
-                const cxb = (tl.x + tr.x + bl.x + br.x) / 4;
-                const cyb = (tl.y + tr.y + bl.y + br.y) / 4;
-
-                // 축소 (도로 갭)
-                const shrink = (p) => ({ x: p.x + (cxb - p.x) * 0.06, y: p.y + (cyb - p.y) * 0.06 });
-                const s = [shrink(tl), shrink(tr), shrink(br), shrink(bl)];
-                const polyStr = s.map(p => `${p.x},${p.y}`).join(' ');
+                const tl = pts[r][c], tr = pts[r][c + 1], bl = pts[r + 1][c], br = pts[r + 1][c + 1];
+                const bx = Math.min(tl.x, bl.x), by = Math.min(tl.y, tr.y);
+                const bw = Math.max(tr.x, br.x) - bx, bh = Math.max(bl.y, br.y) - by;
+                const gx = bw * gap, gy = bh * gap;
 
                 const isPark = parkCells.has(`${r}_${c}`);
-                const blockColor = isPark ? '#C5E0A8' : '#E4E0D6';
-
-                // 블록 폴리곤
-                this.svg.appendChild(this._el('polygon', { points: polyStr, fill: blockColor }));
-
-                // 건물 디테일 (공원이 아닌 블록의 85%)
-                if (!isPark && rng() < 0.85) {
-                    this._drawBuildingDetails(s, rng);
+                // 구역 색상: 공원=연초록, 나머지=연회색 (미세 톤 변동)
+                let fill;
+                if (isPark) {
+                    fill = '#D4E8C2';
+                } else {
+                    const tone = rng();
+                    fill = tone < 0.6 ? '#E6E2DA' : tone < 0.85 ? '#E2DED5' : '#EAE6DE';
                 }
 
-                // 공원 내 연못 (50%)
-                if (isPark && rng() < 0.5) {
-                    const lx = cxb + (rng() - 0.5) * 15;
-                    const ly = cyb + (rng() - 0.5) * 10;
-                    const bw = (Math.abs(tr.x - tl.x) + Math.abs(br.x - bl.x)) / 2;
-                    const bh = (Math.abs(bl.y - tl.y) + Math.abs(br.y - tr.y)) / 2;
-                    const lr = Math.min(bw, bh) * 0.15;
-                    this.svg.appendChild(this._el('ellipse', { cx: lx, cy: ly, rx: lr * 1.4, ry: lr, fill: '#9CC5E0', opacity: 0.5 }));
+                this.svg.appendChild(this._el('rect', {
+                    x: bx + gx, y: by + gy,
+                    width: Math.max(4, bw - gx * 2), height: Math.max(4, bh - gy * 2),
+                    rx: 5, fill,
+                }));
+
+                // 건물 디테일 (공원 아닌 블록 70% — 채도 낮게, 적게)
+                if (!isPark && rng() < 0.7) {
+                    this._drawBuildingDetails(bx + gx, by + gy, bw - gx * 2, bh - gy * 2, rng);
+                }
+
+                // 공원 연못
+                if (isPark && rng() < 0.45) {
+                    const lx = (bx + bw / 2) + (rng() - 0.5) * 10;
+                    const ly = (by + bh / 2) + (rng() - 0.5) * 8;
+                    const lr = Math.min(bw, bh) * 0.12;
+                    this.svg.appendChild(this._el('ellipse', { cx: lx, cy: ly, rx: lr * 1.3, ry: lr * 0.9, fill: '#B8D9EE', opacity: 0.4 }));
                 }
             }
         }
 
-        // ④ 메인 도로 (노란 굵은 선 — 직선, 약간의 각도)
-        const mW = 12;
-        // 가로 대로 (격자 행 하나를 따라감)
-        const mainR = 2 + (seed % 3); // 2~4행
+        // ④ 메인 도로 (연한 노란색, 얇게 — 배경 도구)
+        const mW = 8;
+        const roadColor = '#F0E4A8';
+        const mainR = 2 + (seed % 3);
         if (mainR < rows) {
             const ml = pts[mainR][0], mr = pts[mainR][cols];
-            this.svg.appendChild(this._el('line', { x1: ml.x - 20, y1: ml.y, x2: mr.x + 20, y2: mr.y, stroke: '#F5DD8A', 'stroke-width': mW, 'stroke-linecap': 'round' }));
+            this.svg.appendChild(this._el('line', { x1: ml.x - 20, y1: ml.y, x2: mr.x + 20, y2: mr.y, stroke: roadColor, 'stroke-width': mW, 'stroke-linecap': 'round' }));
         }
-        // 세로 대로
-        const mainC = 2 + (seed % 2); // 2~3열
+        const mainC = 2 + (seed % 2);
         if (mainC < cols) {
             const mt = pts[0][mainC], mb = pts[rows][mainC];
-            this.svg.appendChild(this._el('line', { x1: mt.x, y1: mt.y - 20, x2: mb.x, y2: mb.y + 20, stroke: '#F5DD8A', 'stroke-width': mW, 'stroke-linecap': 'round' }));
-        }
-        // 대각선 대로 (seed 기반)
-        if (seed % 3 !== 0) {
-            const dt = pts[0][Math.min(cols, 3 + (seed % 3))];
-            const db = pts[rows][Math.max(0, 1 + (seed % 2))];
-            this.svg.appendChild(this._el('line', { x1: dt.x, y1: dt.y - 10, x2: db.x, y2: db.y + 10, stroke: '#F5DD8A', 'stroke-width': mW - 2, 'stroke-linecap': 'round', opacity: '0.85' }));
+            this.svg.appendChild(this._el('line', { x1: mt.x, y1: mt.y - 20, x2: mb.x, y2: mb.y + 20, stroke: roadColor, 'stroke-width': mW, 'stroke-linecap': 'round' }));
         }
 
-        // ⑤ 강 (부드러운 곡선 — seed 기반 on/off)
+        // ⑤ 강 (seed 기반 — 연한 파랑)
         if (seed % 4 !== 0) {
             const ry = oy + H * (0.25 + (seed % 20) / 100);
             const rMid = cx + (rng() - 0.5) * 80;
-            const rCurve = 30 + rng() * 30;
+            const rCurve = 25 + rng() * 25;
             this.svg.appendChild(this._el('path', {
                 d: `M${ox - 20},${ry} Q${rMid},${ry + rCurve} ${ox + W + 20},${ry - rCurve / 3}`,
-                fill: 'none', stroke: '#A8D4E8', 'stroke-width': 18, 'stroke-linecap': 'round',
-            }));
-            this.svg.appendChild(this._el('path', {
-                d: `M${ox - 20},${ry} Q${rMid},${ry + rCurve} ${ox + W + 20},${ry - rCurve / 3}`,
-                fill: 'none', stroke: '#BDE0F0', 'stroke-width': 14, 'stroke-linecap': 'round',
+                fill: 'none', stroke: '#C4DFF0', 'stroke-width': 14, 'stroke-linecap': 'round',
             }));
         }
     }
 
-    // ========== 건물 디테일 (블록 내 다양한 크기 — 겹침 없이 간격 배치) ==========
-    _drawBuildingDetails(quad, rng) {
-        const cx = (quad[0].x + quad[2].x) / 2;
-        const cy = (quad[0].y + quad[2].y) / 2;
-        const bw = Math.abs(quad[1].x - quad[0].x);
-        const bh = Math.abs(quad[3].y - quad[0].y);
-        if (bw < 20 || bh < 20) return;
-
+    // ========== 건물 디테일 (적게, 연하게 — 배경 역할만) ==========
+    _drawBuildingDetails(bx, by, bw, bh, rng) {
+        if (bw < 22 || bh < 22) return;
         const area = bw * bh;
-        const maxCount = area > 3000 ? 5 : area > 1500 ? 4 : 2;
-        const margin = 0.12; // 블록 가장자리 여백
-        const gap = 3; // 건물 간 최소 간격
-        const placed = []; // { x, y, w, h }
+        const maxCount = area > 2500 ? 3 : area > 1200 ? 2 : 1;
+        const margin = 0.15;
+        const placed = [];
 
-        for (let attempt = 0; attempt < maxCount * 3; attempt++) {
+        for (let att = 0; att < maxCount * 3; att++) {
             if (placed.length >= maxCount) break;
-
-            // 크기 다양성
-            const sizeRoll = rng();
+            const sr = rng();
             let w, h;
-            if (sizeRoll < 0.25) {
-                w = bw * (0.35 + rng() * 0.15); h = bh * (0.2 + rng() * 0.15);
-            } else if (sizeRoll < 0.55) {
-                w = bw * (0.15 + rng() * 0.12); h = bh * (0.3 + rng() * 0.2);
-            } else if (sizeRoll < 0.8) {
-                w = bw * (0.2 + rng() * 0.1); h = bh * (0.15 + rng() * 0.1);
-            } else {
-                w = bw * (0.1 + rng() * 0.08); h = bh * (0.1 + rng() * 0.1);
-            }
+            if (sr < 0.3) { w = bw * (0.3 + rng() * 0.15); h = bh * (0.2 + rng() * 0.12); }
+            else if (sr < 0.65) { w = bw * (0.12 + rng() * 0.12); h = bh * (0.25 + rng() * 0.2); }
+            else { w = bw * (0.15 + rng() * 0.1); h = bh * (0.12 + rng() * 0.1); }
 
-            const xMin = cx - bw / 2 + bw * margin;
-            const yMin = cy - bh / 2 + bh * margin;
-            const xRange = bw * (1 - margin * 2) - w;
-            const yRange = bh * (1 - margin * 2) - h;
-            if (xRange < 0 || yRange < 0) continue;
-
-            const x = xMin + rng() * xRange;
-            const y = yMin + rng() * yRange;
-
-            // 겹침 체크 (gap 포함)
-            const overlaps = placed.some(p =>
-                x < p.x + p.w + gap && x + w + gap > p.x &&
-                y < p.y + p.h + gap && y + h + gap > p.y
-            );
-            if (overlaps) continue;
-
+            const xMin = bx + bw * margin, yMin = by + bh * margin;
+            const xR = bw * (1 - margin * 2) - w, yR = bh * (1 - margin * 2) - h;
+            if (xR < 0 || yR < 0) continue;
+            const x = xMin + rng() * xR, y = yMin + rng() * yR;
+            if (placed.some(p => x < p.x + p.w + 3 && x + w + 3 > p.x && y < p.y + p.h + 3 && y + h + 3 > p.y)) continue;
             placed.push({ x, y, w, h });
-            const shade = rng() < 0.4 ? '#D2CDC5' : rng() < 0.7 ? '#C8C3BB' : '#DAD5CD';
-            const rx = (h > w * 1.5 || w > h * 1.5) ? 3 : 1;
+
             this.svg.appendChild(this._el('rect', {
-                x, y, width: w, height: h, rx,
-                fill: shade, opacity: (0.5 + rng() * 0.15).toFixed(2),
+                x, y, width: w, height: h,
+                rx: (h > w * 1.4 || w > h * 1.4) ? 3 : 2,
+                fill: '#D8D3CB', opacity: (0.35 + rng() * 0.1).toFixed(2),
             }));
         }
     }
@@ -336,7 +300,7 @@ export class MapRenderer {
                 g.appendChild(pulse);
             }
 
-            const sz = cur ? 16 : 13, ph = cur ? 22 : 18;
+            const sz = cur ? 19 : 13, ph = cur ? 26 : 18;
             const pin = this._el('g', { transform: `translate(0,${-ph})`, filter: 'url(#wt-sh-p)' });
             pin.appendChild(this._el('path', {
                 d: `M0,${ph}C0,${ph},${-sz},${ph * 0.35},${-sz},${-sz * 0.15}A${sz},${sz},0,1,1,${sz},${-sz * 0.15}C${sz},${ph * 0.35},0,${ph},0,${ph}Z`,
@@ -464,6 +428,7 @@ export class MapRenderer {
         curLoc.x = centerX; curLoc.y = centerY;
         for (const loc of locs) {
             if (loc.id === curLoc.id) continue;
+            if (loc._manualXY) continue; // 수동 배치 보존
             if (loc.lat != null && loc.lng != null) {
                 const { mx, my } = toMeters(loc.lat, loc.lng);
                 loc.x = Math.round(centerX + mx * scale);
@@ -482,17 +447,18 @@ export class MapRenderer {
         }
     }
 
-    // ========== 기존 원형 배치 (거리 레벨 기반) ==========
+    // ========== 기존 원형 배치 (거리 레벨 기반 — 15분 반경) ==========
     _circularLayout(locs, dists, curLoc, centerX, centerY) {
-        const levelToPx = { 1: 55, 2: 75, 3: 95, 4: 115, 5: 135, 6: 160, 7: 190, 8: 220, 9: 260, 10: 300 };
+        // 도보 15분(level 6) 이내 = 화면 안, 그 밖 = 화면 밖으로 밀어냄
+        const levelToPx = { 1:50, 2:70, 3:90, 4:115, 5:140, 6:170, 7:350, 8:500, 9:750, 10:1000 };
         curLoc.x = centerX; curLoc.y = centerY;
-        const others = locs.filter(l => l.id !== curLoc.id);
+        const others = locs.filter(l => l.id !== curLoc.id && !l._manualXY);
         const angleStep = (2 * Math.PI) / Math.max(others.length, 1);
         let angle = ((locs.length * 37 + 11) % 360) * Math.PI / 180;
         for (const loc of others) {
             const dist = dists.find(d => (d.fromId === curLoc.id && d.toId === loc.id) || (d.toId === curLoc.id && d.fromId === loc.id));
             const level = dist?.level || 5;
-            const px = levelToPx[level] || 135;
+            const px = levelToPx[level] || 140;
             loc.x = Math.round(centerX + px * Math.cos(angle));
             loc.y = Math.round(centerY + px * Math.sin(angle));
             angle += angleStep;
@@ -595,7 +561,7 @@ export class MapRenderer {
                 if (loc) {
                     loc.x = Math.round(pt.x); loc.y = Math.round(pt.y);
                     loc._manualXY = true; // 수동 배치 플래그
-                    this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
+                    this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y, _manualXY: true });
                     this._vbManual = true; // 카메라 고정
                     this._skipLayout = true; // 레이아웃 재계산 방지
                     this.render();
@@ -609,7 +575,7 @@ export class MapRenderer {
         if (e.touches.length === 1) { const t = e.touches[0]; if (this._longPress && this._touchInfo) { if (Math.abs(t.clientX - this._touchInfo.x) > 10 || Math.abs(t.clientY - this._touchInfo.y) > 10) { clearTimeout(this._longPress); this._longPress = null; } } if (this._pan) { e.preventDefault(); const dx = (t.clientX - this._pan.sx) * (this.vb.w / this.svg.getBoundingClientRect().width); const dy = (t.clientY - this._pan.sy) * (this.vb.h / this.svg.getBoundingClientRect().height); this.vb.x = this._pan.vx - dx; this.vb.y = this._pan.vy - dy; this._applyVB(); this._wasDrag = true; } }
     }
     _touchEnd() { clearTimeout(this._longPress); this._longPress = null; if (this._touchInfo && !this._wasDrag && this._touchInfo.nodeId && !this._movingNodeId) { if (Date.now() - this._touchInfo.time < 400) this.onLocationClick?.(this._touchInfo.nodeId); } this._pinch = null; this._pan = null; this._touchInfo = null; }
-    _onDown(e) { const pt = this._svgPt(e), hitId = this._hitTest(pt); this._wasDrag = false; if (this._movingNodeId) { e.preventDefault(); const loc = this.lm.locations.find(l => l.id === this._movingNodeId); if (loc) { loc.x = Math.round(pt.x); loc.y = Math.round(pt.y); loc._manualXY = true; this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y }); this._vbManual = true; this._skipLayout = true; this.render(); } this._movingNodeId = null; return; } if (hitId) { e.preventDefault(); this._mouseClickId = hitId; } if (!hitId) { this._pan = { sx: e.clientX, sy: e.clientY, vx: this.vb.x, vy: this.vb.y }; } }
+    _onDown(e) { const pt = this._svgPt(e), hitId = this._hitTest(pt); this._wasDrag = false; if (this._movingNodeId) { e.preventDefault(); const loc = this.lm.locations.find(l => l.id === this._movingNodeId); if (loc) { loc.x = Math.round(pt.x); loc.y = Math.round(pt.y); loc._manualXY = true; this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y, _manualXY: true }); this._vbManual = true; this._skipLayout = true; this.render(); } this._movingNodeId = null; return; } if (hitId) { e.preventDefault(); this._mouseClickId = hitId; } if (!hitId) { this._pan = { sx: e.clientX, sy: e.clientY, vx: this.vb.x, vy: this.vb.y }; } }
     _onMove(e) { if (this._pan) { const dx = (e.clientX - this._pan.sx) * (this.vb.w / this.svg.getBoundingClientRect().width); const dy = (e.clientY - this._pan.sy) * (this.vb.h / this.svg.getBoundingClientRect().height); this.vb.x = this._pan.vx - dx; this.vb.y = this._pan.vy - dy; this._applyVB(); this._wasDrag = true; this._mouseClickId = null; } }
     _onUp() { this._pan = null; if (this._mouseClickId && !this._wasDrag) this.onLocationClick?.(this._mouseClickId); this._mouseClickId = null; }
     _zoom(f, e) { const r = this.svg.getBoundingClientRect(); const mx = (e.clientX - r.left) / r.width, my = (e.clientY - r.top) / r.height; const nw = Math.max(200, Math.min(1200, this.vb.w * f)); const nh = nw * (this.vb.h / this.vb.w); this.vb.x += (this.vb.w - nw) * mx; this.vb.y += (this.vb.h - nh) * my; this.vb.w = nw; this.vb.h = nh; this._applyVB(); }

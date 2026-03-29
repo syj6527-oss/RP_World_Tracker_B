@@ -316,11 +316,21 @@ export class UIManager {
         $('#wt-mode-fantasy').on('click', () => this._setMapMode('fantasy'));
         // 검색 탭 전환 (Bug K: 장소/주소 분리)
         this._searchMode = 'loc';
-        // 🔄 약도 재배치
+        // 🔄 약도 재배치 (수동 위치 리셋 + 전체 재배치)
         $('#wt-btn-refresh').on('click', () => {
             if (this.mapRenderer) {
+                // 수동 배치 플래그 전부 리셋
+                for (const loc of this.lm.locations) {
+                    if (loc._manualXY) {
+                        loc._manualXY = false;
+                        loc.x = 0; loc.y = 0; // 재배치 트리거
+                        this.lm.updateLocation(loc.id, { _manualXY: false, x: 0, y: 0 });
+                    }
+                }
                 this.mapRenderer._layoutDirty = true;
                 this.mapRenderer._layoutDone = false;
+                this.mapRenderer._skipLayout = false;
+                this.mapRenderer._vbManual = false;
                 this.mapRenderer.render();
                 toastSuccess('🗺️ 약도 재생성!');
             }

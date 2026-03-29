@@ -195,9 +195,7 @@ async function scanContext() {
         if (!ctx?.characterId) return;
 
         // Bug I: 채팅 화면 활성 체크 (send 버튼이 보이는 경우만 = 채팅 중)
-        const sendBtn = document.querySelector('#send_but');
-        const isChatActive = sendBtn && sendBtn.offsetParent !== null;
-        if (!isChatActive) return;
+        if (!isChatActive()) return;
 
         // Task 2: 장소가 1개라도 있으면 재스캔 스킵
         if (lm.locations.length > 0) return;

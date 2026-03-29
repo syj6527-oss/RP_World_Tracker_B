@@ -1022,6 +1022,9 @@ export class UIManager {
     // ========== 스캔 승인 (플로팅 오버레이) ==========
     showScanApproval(candidates) {
         if (!candidates.length) return;
+        // 채팅 화면이 아니면 표시 안 함
+        const sendBtn = document.querySelector('#send_but');
+        if (!sendBtn || sendBtn.offsetParent === null) return;
         $('#wt-scan-overlay').remove();
 
         let items = '';

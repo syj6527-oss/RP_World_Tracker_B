@@ -245,34 +245,12 @@ export class MapRenderer {
             this.vb = { x: 0, y: 0, w: 600, h: Math.max(400, Math.round(600 / aspect)) };
         }
         this._applyVB();
-        // SVG가 컨테이너를 꽉 채우도록
-        this.svg.setAttribute('preserveAspectRatio', 'xMidYMid slice');
 
         const vb = this.vb;
+        // 배경은 CSS로 처리 (.wt-fantasy-theme), SVG는 콘텐츠만
         let svg = `<defs>
             <filter id="wt-glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            <filter id="wt-parchment-noise"><feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" result="n"/><feColorMatrix type="saturate" values="0" in="n" result="ng"/><feBlend in="SourceGraphic" in2="ng" mode="multiply" result="b"/><feComposite in="b" in2="SourceGraphic" operator="in"/></filter>
         </defs>`;
-
-        // 양피지 배경
-        svg += `<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="#E8D5A3" filter="url(#wt-parchment-noise)"/>`;
-        // 얼룩/낡은 느낌
-        const cx1 = vb.x + vb.w * 0.2, cy1 = vb.y + vb.h * 0.3;
-        const cx2 = vb.x + vb.w * 0.7, cy2 = vb.y + vb.h * 0.7;
-        const cx3 = vb.x + vb.w * 0.5, cy3 = vb.y + vb.h * 0.15;
-        svg += `<circle cx="${cx1}" cy="${cy1}" r="${vb.w*0.12}" fill="rgba(196,168,124,0.15)"/>`;
-        svg += `<circle cx="${cx2}" cy="${cy2}" r="${vb.w*0.15}" fill="rgba(180,150,100,0.12)"/>`;
-        svg += `<circle cx="${cx3}" cy="${cy3}" r="${vb.w*0.08}" fill="rgba(160,130,92,0.1)"/>`;
-
-        // 테두리
-        const bx = vb.x + 6, by = vb.y + 6, bw = vb.w - 12, bh = vb.h - 12;
-        svg += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="none" stroke="#8B6914" stroke-width="1.5" stroke-dasharray="4 2" opacity="0.3" rx="2"/>`;
-
-        // 모서리 장식
-        svg += this._cornerOrnament(bx, by, 1, 1);
-        svg += this._cornerOrnament(bx + bw, by, -1, 1);
-        svg += this._cornerOrnament(bx, by + bh, 1, -1);
-        svg += this._cornerOrnament(bx + bw, by + bh, -1, -1);
 
         // 경로선 (빨간/갈색 점선 — 보물지도 스타일)
         const drawn = new Set();

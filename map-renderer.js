@@ -135,13 +135,14 @@ export class MapRenderer {
         const ox = vb.x - extra, oy = vb.y - extra;
         const W = vb.w + extra * 2, H = vb.h + extra * 2;
 
-        // ① 배경
-        g.appendChild(this._el('rect', { x: ox - 60, y: oy - 60, width: W + 120, height: H + 120, fill: '#F0EDE5' }));
+        // ===== 레이어 1: 배경 =====
+        const bgLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        bgLayer.appendChild(this._el('rect', { x: ox - 60, y: oy - 60, width: W + 120, height: H + 120, fill: '#F0EDE5' }));
+        g.appendChild(bgLayer);
 
-        // ② 비대칭 그리드 (5열 × 6행 — 화면 꽉 채움)
+        // 그리드 계산
         const cols = 5, rows = 6;
-        const margin = 6; // 도로 반폭 = 블록 간 12px 틈
-
+        const margin = 6;
         const cw = [], rh = [];
         let twc = 0, thr = 0;
         for (let c = 0; c < cols; c++) { cw[c] = 0.5 + rng() * 1.0; twc += cw[c]; }
@@ -152,7 +153,6 @@ export class MapRenderer {
         const parkCell = `${1 + (seed % 2)}_${1 + (seed % (cols - 1))}`;
         const riverRow = 2 + (seed % 2);
 
-        // 병합(12%)/광장(6%)
         const merged = new Set(), plaza = new Set();
         for (let r = 0; r < rows; r++) for (let c = 0; c < cols - 1; c++) {
             if (!merged.has(`${r}_${c}`) && rng() < 0.12 && r !== riverRow) merged.add(`${r}_${c + 1}`);
@@ -161,18 +161,21 @@ export class MapRenderer {
             if (!merged.has(`${r}_${c}`) && rng() < 0.06 && `${r}_${c}` !== parkCell && r !== riverRow) plaza.add(`${r}_${c}`);
         }
 
-        // ③ 강 먼저! (블록 아래 레이어)
+        // ===== 레이어 2: 강 (블록보다 먼저 → 블록 밑에 깔림) =====
+        const riverLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         if (seed % 3 !== 0) {
             let ry = oy;
             for (let r = 0; r <= riverRow; r++) ry += rh[r];
             ry -= rh[riverRow] * 0.5;
             const w1 = (rng() - 0.5) * 35, w2 = (rng() - 0.5) * 30;
-            const rP = `M${ox - 40},${ry + w1} C${ox + W * 0.25},${ry + w1 + 38} ${ox + W * 0.55},${ry + w2 - 32} ${ox + W * 0.78},${ry + w2 + 22} S${ox + W + 40},${ry + w2 - 8}`;
-            g.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 35, 'stroke-linecap': 'round', opacity: '0.50' }));
-            g.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 12, 'stroke-linecap': 'round', opacity: '0.40' }));
+            const rP = `M${ox - 50},${ry + w1} C${ox + W * 0.25},${ry + w1 + 40} ${ox + W * 0.5},${ry + w2 - 35} ${ox + W * 0.75},${ry + w2 + 25} S${ox + W + 50},${ry + w2 - 10}`;
+            riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 42, 'stroke-linecap': 'round', opacity: '0.50' }));
+            riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 16, 'stroke-linecap': 'round', opacity: '0.40' }));
         }
+        g.appendChild(riverLayer);
 
-        // ④ 블록 배치 (강 위에 덮어씀 → 블록이 강 위)
+        // ===== 레이어 3: 블록 (강 위에 덮어씀) =====
+        const blocksLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         let yy = oy;
         for (let r = 0; r < rows; r++) {
             let xx = ox;
@@ -186,23 +189,24 @@ export class MapRenderer {
                 const bh = rh[r] - margin * 2;
                 if (bw < 20 || bh < 16) { xx += cw[c]; continue; }
 
-                // 강 행 → 분할
+                // 강 행 → 블록 분할 (강 위아래로 나눔, 25px 간격)
                 if (seed % 3 !== 0 && r === riverRow) {
                     const ry2 = yy + rh[r] * 0.5;
-                    const aH = (ry2 - 20) - by, bY = ry2 + 20, bH2 = (by + bh) - bY;
-                    if (aH > 12) this._drawBlock(g, bx, by, bw, aH, rng);
-                    if (bH2 > 12) this._drawBlock(g, bx, bY, bw, bH2, rng);
+                    const aH = (ry2 - 25) - by, bY = ry2 + 25, bH2 = (by + bh) - bY;
+                    if (aH > 12) this._drawBlock(blocksLayer, bx, by, bw, aH, rng);
+                    if (bH2 > 12) this._drawBlock(blocksLayer, bx, bY, bw, bH2, rng);
                     xx += cw[c]; continue;
                 }
 
-                if (ck === parkCell) this._drawPark(g, bx, by, bw, bh, rng);
-                else this._drawBlock(g, bx, by, bw, bh, rng);
+                if (ck === parkCell) this._drawPark(blocksLayer, bx, by, bw, bh, rng);
+                else this._drawBlock(blocksLayer, bx, by, bw, bh, rng);
                 xx += cw[c];
             }
             yy += rh[r];
         }
+        g.appendChild(blocksLayer);
 
-        // ⑤ 구역 이름
+        // 구역 이름 (최상단)
         const zn = ['DOWNTOWN','WEST SIDE','CENTRAL','RIVERSIDE','PARK AREA','HILLSIDE','HARBOR','OLD TOWN'];
         g.appendChild(this._el('text', { x: ox + W * 0.3, y: oy + H * 0.48, fill: '#B8B0A0', 'font-size': '11', 'font-weight': '600', 'letter-spacing': '3', opacity: '0.30' }, zn[seed % zn.length]));
 

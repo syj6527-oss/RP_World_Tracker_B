@@ -131,111 +131,80 @@ export class MapRenderer {
         const rng = this._srand(seed * 31337);
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-        // ★ ViewBox 영역 + 마진 = 도시 생성 범위 (화면 꽉 채움 보장)
-        const margin = 80;
-        const ox = vb.x - margin, oy = vb.y - margin;
-        const W = vb.w + margin * 2, H = vb.h + margin * 2;
+        const extra = 80;
+        const ox = vb.x - extra, oy = vb.y - extra;
+        const W = vb.w + extra * 2, H = vb.h + extra * 2;
 
         // ① 배경
-        g.appendChild(this._el('rect', { x: ox - 100, y: oy - 100, width: W + 200, height: H + 200, fill: '#F0EDE5' }));
+        g.appendChild(this._el('rect', { x: ox - 60, y: oy - 60, width: W + 120, height: H + 120, fill: '#F0EDE5' }));
 
-        // ② 비대칭 그리드 (열/행 크기 극단적 랜덤)
-        const cols = 4, rows = 5;
-        const gap = 10;
+        // ② 비대칭 그리드 (5열 × 6행 — 화면 꽉 채움)
+        const cols = 5, rows = 6;
+        const margin = 6; // 도로 반폭 = 블록 간 12px 틈
 
-        // 열 너비: 50~200px 수준의 큰 편차
-        const cw = [];
-        let twc = 0;
+        const cw = [], rh = [];
+        let twc = 0, thr = 0;
         for (let c = 0; c < cols; c++) { cw[c] = 0.5 + rng() * 1.0; twc += cw[c]; }
-        cw.forEach((_, i) => cw[i] = Math.round((cw[i] / twc) * W));
-
-        // 행 높이: 마찬가지 큰 편차
-        const rh = [];
-        let thr = 0;
         for (let r = 0; r < rows; r++) { rh[r] = 0.5 + rng() * 1.0; thr += rh[r]; }
+        cw.forEach((_, i) => cw[i] = Math.round((cw[i] / twc) * W));
         rh.forEach((_, i) => rh[i] = Math.round((rh[i] / thr) * H));
 
         const parkCell = `${1 + (seed % 2)}_${1 + (seed % (cols - 1))}`;
         const riverRow = 2 + (seed % 2);
 
-        // 병합/광장 맵 생성 (15% 가로 병합, 8% 광장)
-        const merged = new Set();  // 병합되어 스킵할 셀
-        const plaza = new Set();   // 빈 광장
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols - 1; c++) {
-                if (merged.has(`${r}_${c}`)) continue;
-                if (rng() < 0.15 && r !== riverRow) {
-                    // 가로 2칸 병합
-                    merged.add(`${r}_${c + 1}`);
-                }
-            }
+        // 병합(12%)/광장(6%)
+        const merged = new Set(), plaza = new Set();
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols - 1; c++) {
+            if (!merged.has(`${r}_${c}`) && rng() < 0.12 && r !== riverRow) merged.add(`${r}_${c + 1}`);
         }
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                if (merged.has(`${r}_${c}`)) continue;
-                if (rng() < 0.08 && `${r}_${c}` !== parkCell && r !== riverRow) {
-                    plaza.add(`${r}_${c}`);
-                }
-            }
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+            if (!merged.has(`${r}_${c}`) && rng() < 0.06 && `${r}_${c}` !== parkCell && r !== riverRow) plaza.add(`${r}_${c}`);
         }
 
-        // ③ 블록 배치
+        // ③ 강 먼저! (블록 아래 레이어)
+        if (seed % 3 !== 0) {
+            let ry = oy;
+            for (let r = 0; r <= riverRow; r++) ry += rh[r];
+            ry -= rh[riverRow] * 0.5;
+            const w1 = (rng() - 0.5) * 35, w2 = (rng() - 0.5) * 30;
+            const rP = `M${ox - 40},${ry + w1} C${ox + W * 0.25},${ry + w1 + 38} ${ox + W * 0.55},${ry + w2 - 32} ${ox + W * 0.78},${ry + w2 + 22} S${ox + W + 40},${ry + w2 - 8}`;
+            g.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 35, 'stroke-linecap': 'round', opacity: '0.50' }));
+            g.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 12, 'stroke-linecap': 'round', opacity: '0.40' }));
+        }
+
+        // ④ 블록 배치 (강 위에 덮어씀 → 블록이 강 위)
         let yy = oy;
         for (let r = 0; r < rows; r++) {
             let xx = ox;
             for (let c = 0; c < cols; c++) {
-                const cellKey = `${r}_${c}`;
+                const ck = `${r}_${c}`;
+                if (merged.has(ck) || plaza.has(ck)) { xx += cw[c]; continue; }
 
-                if (merged.has(cellKey)) { xx += cw[c]; continue; }  // 병합된 셀 스킵
-                if (plaza.has(cellKey)) { xx += cw[c]; continue; }   // 광장 = 빈 공간
-
-                // 병합 블록이면 다음 셀 너비까지 합침
-                const isMerged = merged.has(`${r}_${c + 1}`);
-                const bw = isMerged ? (cw[c] + cw[c + 1] - gap * 2) : (cw[c] - gap * 2);
-                const bh = rh[r] - gap * 2;
-                const bx = xx + gap;
-                const by = yy + gap;
-
-                if (bw < 25 || bh < 20) { xx += cw[c]; continue; }
+                const isMg = merged.has(`${r}_${c + 1}`);
+                const bx = xx + margin, by = yy + margin;
+                const bw = (isMg ? cw[c] + cw[c + 1] : cw[c]) - margin * 2;
+                const bh = rh[r] - margin * 2;
+                if (bw < 20 || bh < 16) { xx += cw[c]; continue; }
 
                 // 강 행 → 분할
-                const riverY = yy + rh[r] * 0.5;
                 if (seed % 3 !== 0 && r === riverRow) {
-                    const aboveH = (riverY - 14) - by;
-                    const belowY = riverY + 14;
-                    const belowH = (by + bh) - belowY;
-                    if (aboveH > 18) this._drawBlock(g, bx, by, bw, aboveH, rng);
-                    if (belowH > 18) this._drawBlock(g, bx, belowY, bw, belowH, rng);
+                    const ry2 = yy + rh[r] * 0.5;
+                    const aH = (ry2 - 20) - by, bY = ry2 + 20, bH2 = (by + bh) - bY;
+                    if (aH > 12) this._drawBlock(g, bx, by, bw, aH, rng);
+                    if (bH2 > 12) this._drawBlock(g, bx, bY, bw, bH2, rng);
                     xx += cw[c]; continue;
                 }
 
-                if (cellKey === parkCell) {
-                    this._drawPark(g, bx, by, bw, bh, rng);
-                } else {
-                    this._drawBlock(g, bx, by, bw, bh, rng);
-                }
+                if (ck === parkCell) this._drawPark(g, bx, by, bw, bh, rng);
+                else this._drawBlock(g, bx, by, bw, bh, rng);
                 xx += cw[c];
             }
             yy += rh[r];
         }
 
-        // ④ 강 (과감한 S자 — 두께 25px, 다이나믹 곡선)
-        if (seed % 3 !== 0) {
-            let riverY = oy;
-            for (let r = 0; r <= riverRow; r++) riverY += rh[r];
-            riverY -= rh[riverRow] * 0.5;
-            const w1 = (rng() - 0.5) * 35, w2 = (rng() - 0.5) * 30;
-            const rPath = `M${ox - 30},${riverY + w1} C${ox + W * 0.25},${riverY + w1 + 35} ${ox + W * 0.55},${riverY + w2 - 30} ${ox + W * 0.78},${riverY + w2 + 18} S${ox + W + 30},${riverY + w2 - 10}`;
-            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 25, 'stroke-linecap': 'round', opacity: '0.50' }));
-            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 9, 'stroke-linecap': 'round', opacity: '0.40' }));
-            // 물결 디테일
-            const rPath2 = `M${ox - 30},${riverY + w1 + 4} C${ox + W * 0.25},${riverY + w1 + 39} ${ox + W * 0.55},${riverY + w2 - 26} ${ox + W * 0.78},${riverY + w2 + 22} S${ox + W + 30},${riverY + w2 - 6}`;
-            g.appendChild(this._el('path', { d: rPath2, fill: 'none', stroke: '#D4ECF6', 'stroke-width': 2, 'stroke-linecap': 'round', opacity: '0.30' }));
-        }
-
         // ⑤ 구역 이름
-        const zoneNames = ['DOWNTOWN', 'WEST SIDE', 'CENTRAL', 'RIVERSIDE', 'PARK AREA', 'HILLSIDE', 'HARBOR', 'OLD TOWN'];
-        g.appendChild(this._el('text', { x: ox + W * 0.3, y: oy + H * 0.48, fill: '#B8B0A0', 'font-size': '11', 'font-weight': '600', 'letter-spacing': '3', opacity: '0.35' }, zoneNames[seed % zoneNames.length]));
+        const zn = ['DOWNTOWN','WEST SIDE','CENTRAL','RIVERSIDE','PARK AREA','HILLSIDE','HARBOR','OLD TOWN'];
+        g.appendChild(this._el('text', { x: ox + W * 0.3, y: oy + H * 0.48, fill: '#B8B0A0', 'font-size': '11', 'font-weight': '600', 'letter-spacing': '3', opacity: '0.30' }, zn[seed % zn.length]));
 
         this._cityBgEl = g;
     }
@@ -243,64 +212,32 @@ export class MapRenderer {
     // ========== 블록 (rect + rx + 건물) ==========
     _drawBlock(parent, x, y, w, h, rng) {
         parent.appendChild(this._el('rect', { x, y, width: w, height: h, rx: 6, fill: '#E4E0D6', filter: 'url(#wt-bs)' }));
-        if (w > 50 && h > 40) this._drawBuildings(parent, x, y, w, h, rng);
+        if (w > 35 && h > 28) this._drawBuildings(parent, x, y, w, h, rng);
     }
 
-    // ========== 건물 (ㄱ자/ㄴ자/T자/rect 혼합) ==========
+    // ========== 건물 (단순 rect 1~2개, 여백 넉넉히) ==========
     _drawBuildings(parent, bx, by, bw, bh, rng) {
-        const margin = bw * 0.08;
-        const ix = bx + margin, iy = by + margin;
-        const iw = bw - margin * 2, ih = bh - margin * 2;
+        const m = bw * 0.12; // 여백
+        const count = 1 + Math.floor(rng() * 2); // 1~2개
+        const tones = ['#D0CBC0', '#C8C3B8', '#D5D0C6', '#CCC7BC'];
         const placed = [];
-        const maxB = Math.min(6, Math.floor((iw * ih) / 600) + 2);
-        const tones = ['#D0CBC0', '#C8C3B8', '#D5D0C6', '#CCC7BC', '#D2CEC4'];
 
-        for (let att = 0; att < maxB * 5; att++) {
-            if (placed.length >= maxB) break;
-            const type = rng();
-            const fill = tones[Math.floor(rng() * tones.length)];
-            const opacity = 0.38 + rng() * 0.14;
-            let path = null, bx2, by2, bw2, bh2;
-
-            if (type < 0.25 && iw > 40 && ih > 35) {
-                // ㄱ자 (L-shape)
-                const w1 = 14 + rng() * (iw * 0.25);
-                const h1 = 12 + rng() * (ih * 0.3);
-                const w2 = w1 + 10 + rng() * (iw * 0.15);
-                const h2 = 10 + rng() * 8;
-                bx2 = ix + rng() * (iw - w2); by2 = iy + rng() * (ih - h1 - h2);
-                bw2 = w2; bh2 = h1 + h2;
-                path = `M${bx2},${by2} h${w2} v${h2} h${-(w2 - w1)} v${h1} h${-w1} z`;
-            } else if (type < 0.45 && iw > 40 && ih > 35) {
-                // ㄴ자 (reverse-L)
-                const w1 = 12 + rng() * 8;
-                const h1 = 15 + rng() * (ih * 0.3);
-                const w2 = w1 + 12 + rng() * (iw * 0.15);
-                const h2 = 10 + rng() * 8;
-                bx2 = ix + rng() * (iw - w2); by2 = iy + rng() * (ih - h1 - h2);
-                bw2 = w2; bh2 = h1 + h2;
-                path = `M${bx2},${by2} h${w1} v${h1} h${w2 - w1} v${h2} h${-w2} z`;
-            } else {
-                // 일반 직사각형 (다양한 비율)
-                const sr = rng();
-                if (sr < 0.3) { bw2 = 12 + rng() * (iw * 0.35); bh2 = 8 + rng() * (ih * 0.15); } // 가로 넓은
-                else if (sr < 0.55) { bw2 = 8 + rng() * (iw * 0.12); bh2 = 15 + rng() * (ih * 0.35); } // 세로 긴
-                else if (sr < 0.75) { const s = 8 + rng() * 14; bw2 = s; bh2 = s; } // 정사각
-                else { bw2 = 15 + rng() * (iw * 0.25); bh2 = 12 + rng() * (ih * 0.2); } // 중간
-                bx2 = ix + rng() * Math.max(0, iw - bw2);
-                by2 = iy + rng() * Math.max(0, ih - bh2);
-            }
-
-            // 겹침 체크
-            const gap = 4;
-            if (placed.some(p => bx2 < p.x + p.w + gap && bx2 + bw2 + gap > p.x && by2 < p.y + p.h + gap && by2 + bh2 + gap > p.y)) continue;
-            placed.push({ x: bx2, y: by2, w: bw2, h: bh2 });
-
-            if (path) {
-                parent.appendChild(this._el('path', { d: path, fill, opacity }));
-            } else {
-                parent.appendChild(this._el('rect', { x: bx2, y: by2, width: bw2, height: bh2, rx: 1.5, fill, opacity }));
-            }
+        for (let i = 0; i < count * 4; i++) {
+            if (placed.length >= count) break;
+            // 다양한 비율
+            const wr = 0.2 + rng() * 0.35; // 블록 대비 20~55%
+            const hr = 0.2 + rng() * 0.35;
+            const w = bw * wr, h = bh * hr;
+            const x = bx + m + rng() * Math.max(0, bw - m * 2 - w);
+            const y = by + m + rng() * Math.max(0, bh - m * 2 - h);
+            // 겹침 방지
+            if (placed.some(p => x < p.x + p.w + 4 && x + w + 4 > p.x && y < p.y + p.h + 4 && y + h + 4 > p.y)) continue;
+            placed.push({ x, y, w, h });
+            parent.appendChild(this._el('rect', {
+                x, y, width: w, height: h, rx: 1.5,
+                fill: tones[Math.floor(rng() * tones.length)],
+                opacity: 0.40 + rng() * 0.12,
+            }));
         }
     }
 

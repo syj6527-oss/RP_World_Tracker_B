@@ -247,6 +247,7 @@ export class UIManager {
                         <button id="wt-pop-moveto" class="wt-btn-accent wt-btn-sm" style="opacity:1;font-size:12px">🐾 여기로 이동</button>
                         <div id="wt-pop-geo-section" style="margin-top:6px">
                             <div id="wt-pop-geo-notice" style="display:none;padding:8px 10px;background:rgba(94,132,226,0.1);border:1px solid #5E84E2;border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2;text-align:center">📍 이 장소에 좌표가 없어요 — 아래에서 주소를 검색해보세요!</div>
+                            <div id="wt-pop-cur-addr" style="display:none;padding:6px 10px;background:rgba(94,132,226,0.06);border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2">📍 <span id="wt-pop-addr-text"></span></div>
                             <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📍 실제 주소 설정</div>
                             <div style="display:flex;gap:4px">
                                 <input type="text" id="wt-pop-geo-input" class="wt-input" placeholder="주소 또는 랜드마크..." style="flex:1;font-size:12px;padding:6px 8px"/>
@@ -306,6 +307,11 @@ export class UIManager {
             const locId = $('#wt-popover').attr('data-id');
             if (!locId) return;
             await this.lm.moveTo(locId);
+            // 약도 재생성 (새 장소 중심)
+            if (this.mapRenderer) {
+                this.mapRenderer._layoutDirty = true;
+                this.mapRenderer._layoutDone = false;
+            }
             this.pi?.inject();
             this.refresh();
             this.hidePop();
@@ -781,6 +787,8 @@ export class UIManager {
         if (s2?.fantasyTheme) { $('#wt-pop-icon-type').closest('div').show(); } else { $('#wt-pop-icon-type').closest('div').hide(); }
         // Task 6: 좌표 없으면 안내 표시
         if (!l.lat && !l.lng) { $('#wt-pop-geo-notice').show(); } else { $('#wt-pop-geo-notice').hide(); }
+        // 현재 주소 표시
+        if (l.address) { $('#wt-pop-cur-addr').show(); $('#wt-pop-addr-text').text(l.address); } else { $('#wt-pop-cur-addr').hide(); }
         this._updDistSection(id);
         this._updEventsList(id);
         if ($('#wt-map-section').is(':visible')) {

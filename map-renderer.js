@@ -334,152 +334,33 @@ export class MapRenderer {
     }
 
     // 판타지 아이콘 SVG
+    // Bug C: 이모지 기반 판타지 아이콘 (SVG path → 이모지 <text>)
     _fantasyIcon(x, y, type, isCurrent, visits, locId) {
-        const s = isCurrent ? 1.2 : 1; // 현재 위치는 좀 더 크게
+        const s = isCurrent ? 1.15 : 1;
         const stroke = '#5D4037';
-        const fill1 = '#C4A87C'; // 밝은 갈색
-        const fill2 = '#8B6914'; // 어두운 갈색
         let svg = `<g transform="translate(${x},${y}) scale(${s})" class="wt-location-node" data-id="${locId}">`;
 
-        switch (type) {
-            case 'castle':
-                // 성 — 탑 3개 + 벽
-                svg += `<rect x="-10" y="-4" width="20" height="14" fill="${fill1}" stroke="${stroke}" stroke-width="1.2"/>`;
-                svg += `<rect x="-12" y="-12" width="6" height="10" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<rect x="6" y="-12" width="6" height="10" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<rect x="-3" y="-16" width="6" height="14" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                // 성벽 톱니
-                svg += `<rect x="-13" y="-14" width="2" height="3" fill="${stroke}"/><rect x="-9" y="-14" width="2" height="3" fill="${stroke}"/>`;
-                svg += `<rect x="7" y="-14" width="2" height="3" fill="${stroke}"/><rect x="11" y="-14" width="2" height="3" fill="${stroke}"/>`;
-                svg += `<rect x="-2" y="-18" width="2" height="3" fill="${stroke}"/><rect x="2" y="-18" width="2" height="3" fill="${stroke}"/>`;
-                // 문
-                svg += `<rect x="-3" y="3" width="6" height="7" rx="3" fill="${stroke}" opacity="0.5"/>`;
-                break;
+        const emojiMap = {
+            castle: '🏰', mountain: '⛰️', forest: '🌲', temple: '⛪',
+            village: '🏘️', house: '🏠', shop: '🏪', tavern: '🍺',
+            cave: '🕳️', port: '⚓', water: '💧', library: '📚',
+            arena: '⚔️', flag: '🪧',
+        };
+        const emoji = emojiMap[type] || '📍';
+        const size = isCurrent ? 28 : 22;
 
-            case 'mountain':
-                // 산 — 봉우리 2개 + 눈
-                svg += `<polygon points="0,-18 -18,8 18,8" fill="#8B7355" stroke="${stroke}" stroke-width="1.2"/>`;
-                svg += `<polygon points="10,-10 -4,8 24,8" fill="#9B8365" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<polygon points="0,-18 -5,-8 5,-8" fill="#E8D5A3" opacity="0.7"/>`;
-                svg += `<polygon points="10,-10 7,-4 13,-4" fill="#E8D5A3" opacity="0.5"/>`;
-                break;
-
-            case 'forest':
-                // 숲 — 나무 3그루
-                svg += `<polygon points="-8,-10 -14,4 -2,4" fill="#4A6741" stroke="#3D5A35" stroke-width="1"/>`;
-                svg += `<polygon points="0,-16 -8,2 8,2" fill="#3D5A35" stroke="#2E4A28" stroke-width="1"/>`;
-                svg += `<polygon points="8,-8 2,6 14,6" fill="#5B7A4A" stroke="#4A6741" stroke-width="1"/>`;
-                svg += `<rect x="-1" y="2" width="2" height="5" fill="#5D4037"/>`;
-                break;
-
-            case 'temple':
-                // 신전 — 뾰족 지붕 + 기둥
-                svg += `<polygon points="0,-18 -12,-4 12,-4" fill="${fill2}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<rect x="-10" y="-4" width="20" height="12" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<line x1="0" y1="-22" x2="0" y2="-18" stroke="${fill2}" stroke-width="1.5"/>`;
-                svg += `<circle cx="0" cy="-23" r="2" fill="${fill2}"/>`;
-                // 기둥
-                svg += `<rect x="-8" y="-4" width="2" height="12" fill="${stroke}" opacity="0.4"/>`;
-                svg += `<rect x="6" y="-4" width="2" height="12" fill="${stroke}" opacity="0.4"/>`;
-                break;
-
-            case 'village':
-                // 마을 — 오두막 2~3개
-                svg += `<rect x="-12" y="-2" width="10" height="8" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<polygon points="-12,-2 -7,-8 -2,-2" fill="#A0825C" stroke="${stroke}" stroke-width="0.8"/>`;
-                svg += `<rect x="2" y="0" width="8" height="6" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<polygon points="2,0 6,-6 10,0" fill="#A0825C" stroke="${stroke}" stroke-width="0.8"/>`;
-                svg += `<rect x="-4" y="-6" width="6" height="10" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<polygon points="-4,-6 -1,-11 2,-6" fill="#A0825C" stroke="${stroke}" stroke-width="0.8"/>`;
-                break;
-
-            case 'house':
-                // 집 — 심플 하우스
-                svg += `<rect x="-8" y="-2" width="16" height="12" fill="${fill1}" stroke="${stroke}" stroke-width="1.2"/>`;
-                svg += `<polygon points="0,-10 -10,-2 10,-2" fill="#A0825C" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<rect x="-2" y="3" width="4" height="7" fill="${stroke}" opacity="0.4"/>`;
-                svg += `<rect x="4" y="0" width="3" height="3" fill="#6B8BA4" opacity="0.4"/>`;
-                break;
-
-            case 'shop':
-                // 상점 — 차양 달린 건물
-                svg += `<rect x="-8" y="-2" width="16" height="12" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<polygon points="-10,-2 10,-2 8,-8 -8,-8" fill="#B8860B" stroke="${stroke}" stroke-width="0.8"/>`;
-                svg += `<path d="M-10,-2 Q-7,-5 -4,-2 Q-1,-5 2,-2 Q5,-5 8,-2" fill="none" stroke="${stroke}" stroke-width="0.8"/>`;
-                svg += `<rect x="-2" y="3" width="4" height="7" fill="${stroke}" opacity="0.3"/>`;
-                break;
-
-            case 'tavern':
-                // 술집 — 건물 + 매달린 간판
-                svg += `<rect x="-8" y="-2" width="16" height="12" fill="${fill1}" stroke="${stroke}" stroke-width="1.2"/>`;
-                svg += `<polygon points="0,-8 -10,-2 10,-2" fill="#A0825C" stroke="${stroke}" stroke-width="1"/>`;
-                // 간판
-                svg += `<line x1="10" y1="-4" x2="16" y2="-4" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<rect x="12" y="-2" width="7" height="5" rx="1" fill="#DAA520" stroke="${stroke}" stroke-width="0.8"/>`;
-                svg += `<text x="15.5" y="2" text-anchor="middle" font-size="4" fill="${stroke}">🍺</text>`;
-                break;
-
-            case 'cave':
-                // 동굴 — 어두운 입구
-                svg += `<ellipse cx="0" cy="2" rx="14" ry="10" fill="#8B7355" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<ellipse cx="0" cy="4" rx="8" ry="7" fill="#3E2723" opacity="0.7"/>`;
-                svg += `<ellipse cx="0" cy="5" rx="4" ry="4" fill="#1a1410" opacity="0.6"/>`;
-                // 암석
-                svg += `<polygon points="-14,-4 -10,-10 -6,-2" fill="#8B7355" stroke="${stroke}" stroke-width="0.8"/>`;
-                svg += `<polygon points="10,-3 14,-8 16,0" fill="#8B7355" stroke="${stroke}" stroke-width="0.8"/>`;
-                break;
-
-            case 'port':
-                // 항구 — 파도 + 닻
-                svg += `<path d="M-14,4 Q-7,-2 0,4 Q7,-2 14,4" fill="none" stroke="#6B8BA4" stroke-width="1.5"/>`;
-                svg += `<path d="M-12,8 Q-5,2 2,8 Q9,2 16,8" fill="none" stroke="#6B8BA4" stroke-width="1" opacity="0.5"/>`;
-                // 닻
-                svg += `<line x1="0" y1="-14" x2="0" y2="2" stroke="${stroke}" stroke-width="1.5"/>`;
-                svg += `<line x1="-5" y1="-12" x2="5" y2="-12" stroke="${stroke}" stroke-width="1.5"/>`;
-                svg += `<path d="M-6,0 Q0,6 6,0" fill="none" stroke="${stroke}" stroke-width="1.5"/>`;
-                svg += `<circle cx="0" cy="-14" r="2" fill="none" stroke="${stroke}" stroke-width="1.2"/>`;
-                break;
-
-            case 'water':
-                // 강/호수 — 파도 패턴
-                svg += `<ellipse cx="0" cy="0" rx="16" ry="10" fill="#6B8BA4" opacity="0.3" stroke="#5A7A93" stroke-width="1"/>`;
-                svg += `<path d="M-10,-2 Q-5,-6 0,-2 Q5,-6 10,-2" fill="none" stroke="#5A7A93" stroke-width="1"/>`;
-                svg += `<path d="M-8,3 Q-3,-1 2,3 Q7,-1 12,3" fill="none" stroke="#5A7A93" stroke-width="0.8" opacity="0.6"/>`;
-                break;
-
-            case 'library':
-                // 도서관 — 책 + 건물
-                svg += `<rect x="-9" y="-4" width="18" height="14" fill="${fill1}" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<polygon points="0,-10 -11,-4 11,-4" fill="#A0825C" stroke="${stroke}" stroke-width="1"/>`;
-                svg += `<rect x="-4" y="-1" width="3" height="8" fill="#8B4513" opacity="0.5"/>`;
-                svg += `<rect x="-1" y="0" width="3" height="7" fill="#B8860B" opacity="0.5"/>`;
-                svg += `<rect x="2" y="-1" width="3" height="8" fill="#CD853F" opacity="0.5"/>`;
-                break;
-
-            case 'arena':
-                // 투기장 — 교차 검
-                svg += `<circle cx="0" cy="0" rx="12" ry="12" fill="${fill1}" stroke="${stroke}" stroke-width="1" opacity="0.5"/>`;
-                svg += `<line x1="-10" y1="10" x2="10" y2="-10" stroke="${stroke}" stroke-width="2"/>`;
-                svg += `<line x1="10" y1="10" x2="-10" y2="-10" stroke="${stroke}" stroke-width="2"/>`;
-                svg += `<polygon points="-12,12 -10,10 -8,12" fill="${stroke}"/>`;
-                svg += `<polygon points="12,12 10,10 8,12" fill="${stroke}"/>`;
-                svg += `<polygon points="-12,-12 -10,-10 -8,-12" fill="${stroke}"/>`;
-                svg += `<polygon points="12,-12 10,-10 8,-12" fill="${stroke}"/>`;
-                break;
-
-            default: // flag — 나무 이정표(팻말)
-                svg += `<line x1="0" y1="-8" x2="0" y2="10" stroke="${stroke}" stroke-width="2.5" stroke-linecap="round"/>`;
-                svg += `<rect x="-14" y="-14" width="28" height="12" rx="2" fill="${fill1}" stroke="${stroke}" stroke-width="1.2"/>`;
-                svg += `<line x1="-10" y1="-8" x2="10" y2="-8" stroke="${stroke}" stroke-width="0.6" opacity="0.3"/>`;
-                svg += `<circle cx="-10" cy="-10" r="1" fill="${stroke}" opacity="0.3"/>`;
-                svg += `<circle cx="10" cy="-10" r="1" fill="${stroke}" opacity="0.3"/>`;
-                break;
+        // 현재 위치 글로우 배경
+        if (isCurrent) {
+            svg += `<circle r="20" fill="#CD853F" opacity="0.2" filter="url(#wt-glow)"/>`;
         }
+
+        // 이모지 아이콘
+        svg += `<text y="6" text-anchor="middle" font-size="${size}" style="cursor:pointer">${emoji}</text>`;
 
         // 방문 횟수 뱃지
         if (visits > 0) {
-            svg += `<circle cx="12" cy="-10" r="7" fill="#DAA520" stroke="${stroke}" stroke-width="0.8"/>`;
-            svg += `<text x="12" y="-7" text-anchor="middle" fill="#3E2723" font-size="8" font-weight="700">${visits}</text>`;
+            svg += `<circle cx="14" cy="-8" r="7" fill="#DAA520" stroke="${stroke}" stroke-width="0.8"/>`;
+            svg += `<text x="14" y="-5" text-anchor="middle" fill="#3E2723" font-size="8" font-weight="700">${visits}</text>`;
         }
 
         svg += '</g>';
@@ -661,7 +542,7 @@ export class MapRenderer {
     _hitTest(pt) {
         for (const loc of this.lm.locations) {
             const dx = pt.x - loc.x, dy = pt.y - loc.y;
-            if (Math.sqrt(dx * dx + dy * dy) < 55) return loc.id;
+            if (Math.sqrt(dx * dx + dy * dy) < 30) return loc.id;
         }
         return null;
     }

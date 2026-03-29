@@ -561,6 +561,8 @@ export class UIManager {
         if (mode === 'node') {
             $('#wt-leaflet-wrap').hide();
             $('#wt-map-wrap').show();
+            // Bug B: 판타지 플래그 먼저 해제 (render 전에!)
+            if (this.mapRenderer) this.mapRenderer.fantasyMode = false;
             if (!this.mapRenderer) {
                 const container = document.querySelector('#wt-map-container');
                 if (container) {
@@ -623,6 +625,8 @@ export class UIManager {
             // 🏰 판타지 모드: 노드 맵 + 판타지 테마
             $('#wt-leaflet-wrap').hide();
             $('#wt-map-wrap').show();
+            // Bug B: HTML 나침반 숨김 (판타지는 SVG 내장 나침반 사용)
+            $('.wt-compass-overlay').hide();
             const container = document.querySelector('#wt-map-container');
             if (container) container.classList.add('wt-fantasy-theme');
             if (!this.mapRenderer) {
@@ -645,6 +649,8 @@ export class UIManager {
         if (mode !== 'fantasy') {
             document.querySelector('#wt-map-container')?.classList.remove('wt-fantasy-theme');
             if (this.mapRenderer) this.mapRenderer.fantasyMode = false;
+            // Bug B: HTML 나침반 복원
+            $('.wt-compass-overlay').show();
         }
     }
 
@@ -714,6 +720,9 @@ export class UIManager {
         $('#wt-pop-aliases').val((l.aliases||[]).join(', '));
         // Task 5: 아이콘 타입 선택 복원
         $('#wt-pop-icon-type').val(l.locationType || '');
+        // Bug D: 아이콘 선택은 판타지 모드에서만 표시
+        const s2 = extension_settings[EXTENSION_NAME];
+        if (s2?.fantasyTheme) { $('#wt-pop-icon-type').closest('div').show(); } else { $('#wt-pop-icon-type').closest('div').hide(); }
         // Task 6: 좌표 없으면 안내 표시
         if (!l.lat && !l.lng) { $('#wt-pop-geo-notice').show(); } else { $('#wt-pop-geo-notice').hide(); }
         this._updDistSection(id);
@@ -745,11 +754,26 @@ export class UIManager {
         toastSuccess('저장!'); this.pi?.inject(); this.refresh();
     }
     async _popDel() { const id=$('#wt-popover').attr('data-id'); const l=this.lm.locations.find(x=>x.id===id); if(!confirm(`"${l?.name}" 삭제?`))return; await this.lm.deleteLocation(id); this.hidePop(); this.pi?.inject(); this.refresh(); }
-    async _popMove() { const id=$('#wt-popover').attr('data-id'); await this.lm.moveTo(id); this.hidePop(); this.pi?.inject(); this.refresh(); }
+    // Bug E: 위치 수정 → 노드 이동모드 진입 (캐릭터 이동이 아닌 노드 좌표 이동)
+    async _popMove() {
+        const id = $('#wt-popover').attr('data-id');
+        const loc = this.lm.locations.find(l => l.id === id);
+        if (!loc) return;
+        this.hidePop();
+        // 맵 모드면 노드 이동모드 진입
+        if (this.mapRenderer) {
+            this.mapRenderer._movingNodeId = id;
+            wtNotify(`📍 "${loc.name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
+        }
+    }
 
     // ========== 등록 알림 (플로팅 오버레이) ==========
     showAutoToast(loc) {
         $('#wt-register-overlay').remove(); // 이전 제거
+
+        // Bug G: 채팅 화면이 아니면 알림 안 띄움
+        const chatArea = document.querySelector('#sheld');
+        if (chatArea && chatArea.style.display === 'none') return;
 
         const sim = this._findSim(loc.name);
         let simHtml = '';

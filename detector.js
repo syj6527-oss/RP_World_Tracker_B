@@ -300,11 +300,14 @@ export class LocationDetector {
         const clean = this._strip(text);
         const lo = clean.toLowerCase();
 
-        // 1) 도시명 매칭
+        // 1) 도시명 매칭 (Bug F: 영어는 단어 경계 체크)
         for (const city of this.cityNames) {
-            if (lo.includes(city.toLowerCase()) && !this.lm.findByName(city)) {
-                console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`);
-                return city;
+            if (this.lm.findByName(city)) continue;
+            if (/[a-zA-Z]/.test(city)) {
+                const rx = new RegExp('\\b' + city.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+                if (rx.test(clean)) { console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`); return city; }
+            } else {
+                if (lo.includes(city.toLowerCase())) { console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`); return city; }
             }
         }
 
@@ -347,10 +350,14 @@ export class LocationDetector {
 
         for (const city of this.cityNames) {
             const cityLo = city.toLowerCase();
-            if (!lo.includes(cityLo)) continue;
-            // 이미 등록된 장소면 스킵
+            // Bug F: 단어 경계 체크 (영어) — "rio"가 "mario" 안에서 매칭 방지
+            if (/[a-zA-Z]/.test(city)) {
+                const rx = new RegExp('\\b' + cityLo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+                if (!rx.test(text)) continue;
+            } else {
+                if (!lo.includes(cityLo)) continue;
+            }
             if (this.lm.findByName(city)) continue;
-            // 위치 확인: 인명 뒤에 오는지 체크 (예: "Park Seoul" — 사람이름 아님)
             const idx = lo.indexOf(cityLo);
             const before = text.substring(Math.max(0, idx - 20), idx).trim().toLowerCase();
             if (this.namePrefix.some(np => before.endsWith(np) || before.endsWith(np + '.'))) continue;

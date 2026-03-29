@@ -1,5 +1,5 @@
-// 🐶 World Tracker — map-renderer.js (v0.3.0-beta hotfix4)
-// 레퍼런스 품질 약도 + 15분 반경 + Geo-aware
+// 🐶 World Tracker — map-renderer.js (v0.3.0-beta hotfix5)
+// 레퍼런스 품질 약도 + 월드 고정 배경 + 다각형 블록 + 15분 반경
 
 export class MapRenderer {
     constructor(container, lm) {
@@ -8,9 +8,14 @@ export class MapRenderer {
         this.onLocationClick = null; this.onMoveRequest = null;
         this.vb = { x: 0, y: 0, w: 600, h: 500 };
         this._pinch = null; this._pan = null;
+        // ========== ① 배경 캐시 ==========
+        this._cityBgEl = null;   // <g> 캐시 (월드 고정)
+        this._cityOrigin = null; // { x, y, w, h } 배경이 그려진 월드 영역
+        this._citySeed = 0;
         this._init();
     }
     _srand(s) { return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    _hashStr(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = ((h << 5) - h + str.charCodeAt(i)) | 0; } return Math.abs(h); }
 
     _init() {
         if (!this.container) return;
@@ -35,6 +40,11 @@ export class MapRenderer {
     _applyVB() { this.svg.setAttribute('viewBox', `${this.vb.x} ${this.vb.y} ${this.vb.w} ${this.vb.h}`); }
 
     // ================================================================
+    //  ① 배경 캐시 무효화 (🔄 재생성 시 호출)
+    // ================================================================
+    invalidateCity() { this._cityBgEl = null; this._cityOrigin = null; }
+
+    // ================================================================
     //  RENDER
     // ================================================================
     render() {
@@ -53,27 +63,51 @@ export class MapRenderer {
         const { locations, movements, currentLocationId } = this.lm;
         if (locations.length >= 2) this._autoLayout();
 
+        // ========== ③ ViewBox: 15분 이내 핀(level ≤ 6)만 기준 ==========
         const cW = this.container?.offsetWidth || 360;
         const cH = this.container?.offsetHeight || 480;
         const aspect = cW / cH;
         const vbW = 500, vbH = Math.round(vbW / aspect);
         let cx, cy;
+
         if (!this._vbManual) {
             const curLoc = locations.find(l => l.id === currentLocationId) || locations[0];
-            cx = curLoc ? curLoc.x : 300; cy = curLoc ? curLoc.y : Math.round(vbH / 2);
+            // 15분 이내 핀만 모으기
+            const nearPins = curLoc ? locations.filter(l => {
+                if (l.id === curLoc.id) return true;
+                const d = (this.lm.distances || []).find(dd =>
+                    (dd.fromId === currentLocationId && dd.toId === l.id) ||
+                    (dd.toId === currentLocationId && dd.fromId === l.id)
+                );
+                return !d || (d.level || 5) <= 6;
+            }) : locations;
+            const pins = nearPins.length ? nearPins : (curLoc ? [curLoc] : []);
+            if (pins.length > 1) {
+                const xs = pins.map(l => l.x), ys = pins.map(l => l.y);
+                cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+                cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+            } else {
+                cx = pins[0]?.x || 300; cy = pins[0]?.y || Math.round(vbH / 2);
+            }
             this.vb = { x: cx - vbW / 2, y: cy - vbH / 2, w: vbW, h: vbH };
         } else {
             cx = this.vb.x + this.vb.w / 2; cy = this.vb.y + this.vb.h / 2;
             this.vb.w = vbW; this.vb.h = vbH; this._vbManual = false;
         }
         this._applyVB();
-        const vb = this.vb, ex = 50;
-        const seed = (locations.length * 7 + 13) % 97 + 1;
 
-        this._drawCity(vb, ex, seed, cx, cy);
+        // ========== ① 배경: 캐시 있으면 재사용 ==========
+        const chatId = this.lm.currentChatId || 'default';
+        const seed = this._hashStr(chatId) % 10000 + 1;
+        if (!this._cityBgEl || this._citySeed !== seed) {
+            this._buildCityOnce(locations, cx, cy, seed);
+            this._citySeed = seed;
+        }
+        if (this._cityBgEl) this.svg.appendChild(this._cityBgEl.cloneNode(true));
+
         this._drawDistLines(locations, movements, currentLocationId);
-        this._drawPins(locations, currentLocationId, vb);
-        this._drawCompass(vb);
+        this._drawPins(locations, currentLocationId, this.vb);
+        this._drawCompass(this.vb);
 
         if (!locations.length) {
             this.svg.appendChild(this._el('text', { x: cx, y: cy, class: 'wt-empty-text' }, 'RP를 시작해보세요! 🐶'));
@@ -81,148 +115,236 @@ export class MapRenderer {
     }
 
     // ================================================================
-    //  도시 배경 (강 독립 영역, 겹침 방지)
+    //  ① 월드 고정 배경 생성 (한 번만, 캐시)
     // ================================================================
-    _drawCity(vb, ex, seed, cx, cy) {
+    _buildCityOnce(locations, cx, cy, seed) {
         const rng = this._srand(seed * 31337);
-        const W = vb.w + ex * 2, H = vb.h + ex * 2;
-        const ox = vb.x - ex, oy = vb.y - ex;
 
-        // 배경 (도로 색)
-        this.svg.appendChild(this._el('rect', { x: ox, y: oy, width: W, height: H, fill: '#EBE8E0' }));
+        // 배경 영역: 핀 범위 + 넉넉한 패딩 (월드 고정)
+        const pad = 350;
+        let minX, minY, maxX, maxY;
+        if (locations.length) {
+            const xs = locations.map(l => l.x), ys = locations.map(l => l.y);
+            minX = Math.min(...xs) - pad; maxX = Math.max(...xs) + pad;
+            minY = Math.min(...ys) - pad; maxY = Math.max(...ys) + pad;
+        } else {
+            minX = cx - 500; maxX = cx + 500;
+            minY = cy - 400; maxY = cy + 400;
+        }
+        // 최소 크기 보장
+        const W = Math.max(800, maxX - minX);
+        const H = Math.max(600, maxY - minY);
+        const ox = minX, oy = minY;
 
-        // ========== 강 영역 계산 (블록 배치 전에!) ==========
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('id', 'wt-city-bg');
+
+        // 배경 (도로 색 = 블록 사이 gap)
+        g.appendChild(this._el('rect', { x: ox - 100, y: oy - 100, width: W + 200, height: H + 200, fill: '#F5F1EA' }));
+
+        // ========== ⑤ 강 영역 먼저 계산 ==========
         const hasRiver = seed % 4 !== 0;
-        const riverY = oy + H * (0.33 + (seed % 15) / 100);
-        const riverH = 20; // 강 폭
+        const riverCenterY = oy + H * (0.30 + (seed % 20) / 100);
+        const riverH = 22;
+        const riverTop = riverCenterY - riverH / 2 - 8;
+        const riverBot = riverCenterY + riverH / 2 + 8;
 
-        // ========== 격자 ==========
-        const cols = 5, rows = 7;
+        // ========== ② 격자 교차점 + 교란 → 다각형 블록 ==========
+        const cols = 6, rows = 8;
+        // 기본 격자 크기 (불균일)
         const cw = [], rh = [];
         let tw = 0, th = 0;
-        for (let i = 0; i < cols; i++) { cw[i] = 0.6 + rng() * 0.8; tw += cw[i]; }
-        for (let i = 0; i < rows; i++) { rh[i] = 0.6 + rng() * 0.8; th += rh[i]; }
-        cw.forEach((_, i) => cw[i] = cw[i] / tw * W);
-        rh.forEach((_, i) => rh[i] = rh[i] / th * H);
+        for (let i = 0; i <= cols; i++) { cw[i] = 0.7 + rng() * 0.6; tw += cw[i]; }
+        for (let i = 0; i <= rows; i++) { rh[i] = 0.7 + rng() * 0.6; th += rh[i]; }
 
-        // 공원/녹지 셀
-        const parkSet = new Set();
-        const pc = 2 + (seed % 2);
-        for (let i = 0; i < pc; i++) parkSet.add(`${1 + Math.floor(rng() * (rows - 2))}_${Math.floor(rng() * cols)}`);
-
-        // 랜드마크 셀 (건물 단지)
-        const lmSet = new Set();
-        lmSet.add(`${2 + (seed % 2)}_${3 + (seed % 2)}`);
-
-        // ========== 블록 배치 (강 영역 회피) ==========
-        const gap = 0.08;
-        let yy = oy;
-        for (let r = 0; r < rows; r++) {
-            let xx = ox;
-            for (let c = 0; c < cols; c++) {
-                const bw = cw[c], bh = rh[r];
-                const gx = bw * gap, gy = bh * gap;
-                const offX = (rng() - 0.5) * 3, offY = (rng() - 0.5) * 3;
-                const bx = xx + gx + offX, by = yy + gy + offY;
-                const bww = Math.max(8, bw - gx * 2), bhh = Math.max(8, bh - gy * 2);
-
-                // 강과 겹치는지 확인
-                if (hasRiver && by < riverY + riverH + 4 && by + bhh > riverY - 4) {
-                    // 강 위/아래로 분할
-                    const aboveH = Math.max(0, riverY - 6 - by);
-                    const belowY = riverY + riverH + 6;
-                    const belowH = Math.max(0, (by + bhh) - belowY);
-
-                    if (aboveH > 12) this._drawBlock(bx, by, bww, aboveH, rng, parkSet.has(`${r}_${c}`), lmSet.has(`${r}_${c}`));
-                    if (belowH > 12) this._drawBlock(bx, belowY, bww, belowH, rng, false, false);
-                } else {
-                    this._drawBlock(bx, by, bww, bhh, rng, parkSet.has(`${r}_${c}`), lmSet.has(`${r}_${c}`));
-                }
-                xx += bw;
+        // 교차점 좌표 배열 (rows+1 × cols+1)
+        const pts = [];
+        let accY = oy;
+        for (let r = 0; r <= rows; r++) {
+            pts[r] = [];
+            let accX = ox;
+            for (let c = 0; c <= cols; c++) {
+                // 가장자리는 교란 적게, 안쪽은 크게
+                const edgeFactor = (r === 0 || r === rows || c === 0 || c === cols) ? 0.3 : 1.0;
+                const dx = (rng() - 0.5) * 12 * edgeFactor;
+                const dy = (rng() - 0.5) * 12 * edgeFactor;
+                pts[r][c] = { x: accX + dx, y: accY + dy };
+                accX += (cw[c] / tw) * W;
             }
-            yy += rh[r];
+            accY += (rh[r] / th) * H;
         }
 
-        // ========== 강 (블록 위에, 독립 레이어) ==========
+        // 공원 셀 선정
+        const parkSet = new Set();
+        const parkCount = 2 + (seed % 3);
+        for (let i = 0; i < parkCount; i++) {
+            const pr = 1 + Math.floor(rng() * (rows - 2));
+            const pc = Math.floor(rng() * cols);
+            parkSet.add(`${pr}_${pc}`);
+        }
+
+        // ========== 블록 렌더 (다각형) ==========
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const tl = pts[r][c], tr = pts[r][c + 1];
+                const bl = pts[r + 1][c], br = pts[r + 1][c + 1];
+
+                // gap (도로 폭) — 꼭짓점을 안쪽으로 수축
+                const centroid = {
+                    x: (tl.x + tr.x + bl.x + br.x) / 4,
+                    y: (tl.y + tr.y + bl.y + br.y) / 4,
+                };
+                const shrinkPt = (p) => {
+                    const dx = centroid.x - p.x, dy = centroid.y - p.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 1) return { x: p.x, y: p.y };
+                    const ratio = 5 / dist;
+                    return { x: p.x + dx * ratio, y: p.y + dy * ratio };
+                };
+                const s_tl = shrinkPt(tl);
+                const s_tr = shrinkPt(tr);
+                const s_bl = shrinkPt(bl);
+                const s_br = shrinkPt(br);
+
+                // AABB for river check
+                const blockMinY = Math.min(s_tl.y, s_tr.y, s_bl.y, s_br.y);
+                const blockMaxY = Math.max(s_tl.y, s_tr.y, s_bl.y, s_br.y);
+
+                // ⑤ 강과 겹침 체크
+                if (hasRiver && blockMinY < riverBot && blockMaxY > riverTop) {
+                    // 강 위쪽 부분
+                    if (blockMinY < riverTop - 4) {
+                        const cutRatio = Math.max(0.15, (riverTop - 4 - blockMinY) / (blockMaxY - blockMinY));
+                        const mid_tl = { x: s_tl.x + (s_bl.x - s_tl.x) * cutRatio, y: s_tl.y + (s_bl.y - s_tl.y) * cutRatio };
+                        const mid_tr = { x: s_tr.x + (s_br.x - s_tr.x) * cutRatio, y: s_tr.y + (s_br.y - s_tr.y) * cutRatio };
+                        this._drawPolyBlock(g, [s_tl, s_tr, mid_tr, mid_tl], rng, false);
+                    }
+                    // 강 아래쪽 부분
+                    if (blockMaxY > riverBot + 4) {
+                        const cutRatio = Math.min(0.85, (riverBot + 4 - blockMinY) / (blockMaxY - blockMinY));
+                        const mid_bl = { x: s_tl.x + (s_bl.x - s_tl.x) * cutRatio, y: s_tl.y + (s_bl.y - s_tl.y) * cutRatio };
+                        const mid_br = { x: s_tr.x + (s_br.x - s_tr.x) * cutRatio, y: s_tr.y + (s_br.y - s_tr.y) * cutRatio };
+                        this._drawPolyBlock(g, [mid_bl, mid_br, s_br, s_bl], rng, false);
+                    }
+                    continue;
+                }
+
+                const isPark = parkSet.has(`${r}_${c}`);
+                this._drawPolyBlock(g, [s_tl, s_tr, s_br, s_bl], rng, isPark);
+            }
+        }
+
+        // ========== ⑤ 강 (블록 위 독립 레이어) ==========
         if (hasRiver) {
-            const rMid = cx + (rng() - 0.5) * 60;
-            const curve = 20 + rng() * 20;
-            this.svg.appendChild(this._el('path', {
-                d: `M${ox - 20},${riverY + riverH / 2} Q${rMid},${riverY + riverH / 2 + curve} ${ox + W + 20},${riverY + riverH / 2 - curve / 3}`,
-                fill: 'none', stroke: '#C2DCF0', 'stroke-width': riverH, 'stroke-linecap': 'round',
+            const rMidX = ox + W * 0.5 + (rng() - 0.5) * W * 0.15;
+            const curve = 15 + rng() * 25;
+            const rPath = `M${ox - 30},${riverCenterY} Q${rMidX},${riverCenterY + curve} ${ox + W + 30},${riverCenterY - curve * 0.4}`;
+            // 강 본체
+            g.appendChild(this._el('path', {
+                d: rPath, fill: 'none', stroke: '#B8D4E8', 'stroke-width': riverH,
+                'stroke-linecap': 'round', opacity: '0.7',
+            }));
+            // 강 하이라이트 (가운데 밝은 선)
+            g.appendChild(this._el('path', {
+                d: rPath, fill: 'none', stroke: '#D0E6F4', 'stroke-width': riverH * 0.35,
+                'stroke-linecap': 'round', opacity: '0.5',
             }));
         }
 
-        // ========== 메인 도로 (곡선, 연한 노랑) ==========
-        const mainRow = 2 + (seed % 2);
-        let mainY = oy;
-        for (let i = 0; i <= mainRow && i < rows; i++) mainY += rh[i];
-        // 강과 겹치면 건너뛰기
-        if (!hasRiver || Math.abs(mainY - riverY) > riverH + 10) {
-            const my2 = mainY + (rng() - 0.5) * 4;
-            this.svg.appendChild(this._el('path', {
-                d: `M${ox - 10},${mainY} Q${ox + W / 2},${my2} ${ox + W + 10},${mainY}`,
-                fill: 'none', stroke: '#EDE5A0', 'stroke-width': 5, 'stroke-linecap': 'round',
-            }));
-        }
-        const mainCol = 1 + (seed % 2);
-        let mainX = ox;
-        for (let i = 0; i <= mainCol && i < cols; i++) mainX += cw[i];
-        const mx2 = mainX + (rng() - 0.5) * 4;
-        this.svg.appendChild(this._el('path', {
-            d: `M${mainX},${oy - 10} Q${mx2},${oy + H / 2} ${mainX},${oy + H + 10}`,
-            fill: 'none', stroke: '#EDE5A0', 'stroke-width': 5, 'stroke-linecap': 'round',
-        }));
+        // 캐시 저장
+        this._cityBgEl = g;
+        this._cityOrigin = { x: ox, y: oy, w: W, h: H };
     }
 
-    // ========== 단일 블록 렌더링 ==========
-    _drawBlock(x, y, w, h, rng, isPark, isLandmark) {
-        const rx = isPark ? (12 + Math.floor(rng() * 10)) : isLandmark ? 14 : (4 + Math.floor(rng() * 7));
+    // ========== ② 다각형 블록 렌더링 (따뜻한 톤) ==========
+    _drawPolyBlock(parent, corners, rng, isPark) {
+        // corners = [{x,y}, ...] 시계방향 4점
+        const pointsStr = corners.map(p => `${p.x},${p.y}`).join(' ');
+
+        // AABB 계산 (건물 배치용)
+        const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+        const bx = Math.min(...xs), by = Math.min(...ys);
+        const bw = Math.max(...xs) - bx, bh = Math.max(...ys) - by;
+
+        // 너무 작은 블록 스킵
+        if (bw < 12 || bh < 12) return;
 
         if (isPark) {
-            this.svg.appendChild(this._el('rect', { x, y, width: w, height: h, rx, fill: '#D4EACC' }));
+            // 공원: 녹색 톤 + 큰 라운딩 (rect로 근사, rx 크게)
+            const rx = 14 + Math.floor(rng() * 12);
+            parent.appendChild(this._el('rect', {
+                x: bx + 2, y: by + 2, width: bw - 4, height: bh - 4,
+                rx, fill: '#D6EDCA', opacity: '0.85',
+            }));
             // 연못
-            if (rng() < 0.5 && w > 30 && h > 25) {
-                this.svg.appendChild(this._el('ellipse', {
-                    cx: x + w * (0.35 + rng() * 0.3), cy: y + h * (0.35 + rng() * 0.3),
-                    rx: Math.min(w, h) * 0.15, ry: Math.min(w, h) * 0.1,
-                    fill: '#B8D4A8', opacity: 0.4,
+            if (rng() < 0.55 && bw > 35 && bh > 30) {
+                parent.appendChild(this._el('ellipse', {
+                    cx: bx + bw * (0.3 + rng() * 0.4),
+                    cy: by + bh * (0.3 + rng() * 0.4),
+                    rx: Math.min(bw, bh) * (0.12 + rng() * 0.08),
+                    ry: Math.min(bw, bh) * (0.08 + rng() * 0.06),
+                    fill: '#B5D8C0', opacity: '0.5',
                 }));
             }
-        } else if (isLandmark) {
-            this.svg.appendChild(this._el('rect', { x, y, width: w, height: h, rx, fill: '#DDD9D1', opacity: 0.75 }));
-            this._drawBuildings(x, y, w, h, rng, 3, 0.5);
+            // 나무 점 (작은 원)
+            const treeCount = 2 + Math.floor(rng() * 3);
+            for (let i = 0; i < treeCount; i++) {
+                parent.appendChild(this._el('circle', {
+                    cx: bx + bw * (0.15 + rng() * 0.7),
+                    cy: by + bh * (0.15 + rng() * 0.7),
+                    r: 2 + rng() * 2.5,
+                    fill: '#A8D5A0', opacity: 0.35 + rng() * 0.15,
+                }));
+            }
         } else {
-            const tone = rng();
-            const fill = tone < 0.5 ? '#E2DFD7' : tone < 0.8 ? '#E5E2DA' : '#E8E5DD';
-            this.svg.appendChild(this._el('rect', { x, y, width: w, height: h, rx, fill }));
-            if (rng() < 0.7 && w > 25 && h > 20) {
-                this._drawBuildings(x, y, w, h, rng, 2, 0.4);
+            // 일반 블록: 따뜻한 톤 다각형
+            const tones = ['#EDE7DC', '#E8E0D4', '#F0E9DF', '#ECE3D6', '#EFE6DA', '#E6DDD0'];
+            const fill = tones[Math.floor(rng() * tones.length)];
+            parent.appendChild(this._el('polygon', {
+                points: pointsStr, fill, stroke: '#E0D8CC', 'stroke-width': '0.3',
+            }));
+
+            // 건물 배치
+            if (rng() < 0.8 && bw > 22 && bh > 18) {
+                this._drawBuildings(parent, bx, by, bw, bh, rng);
             }
         }
     }
 
-    // ========== 건물 디테일 ==========
-    _drawBuildings(bx, by, bw, bh, rng, maxCount, opacity) {
-        const margin = 0.12, gap = 3, placed = [];
-        for (let att = 0; att < maxCount * 4; att++) {
+    // ========== ② 건물 디테일 (다양한 크기, 3톤 색상, 겹침 방지) ==========
+    _drawBuildings(parent, bx, by, bw, bh, rng) {
+        const margin = 0.14, gap = 3;
+        const maxCount = 2 + Math.floor(rng() * 3); // 2~4개
+        const placed = [];
+        const bldgTones = ['#D5CFC5', '#CDC7BD', '#C8C2B8', '#D0C9BF', '#DBD5CB'];
+
+        for (let att = 0; att < maxCount * 5; att++) {
             if (placed.length >= maxCount) break;
             const sr = rng();
             let w, h;
-            if (sr < 0.3) { w = bw * (0.3 + rng() * 0.15); h = bh * (0.2 + rng() * 0.15); }
-            else if (sr < 0.65) { w = bw * (0.12 + rng() * 0.12); h = bh * (0.25 + rng() * 0.2); }
-            else { w = bw * (0.15 + rng() * 0.1); h = bh * (0.12 + rng() * 0.1); }
+            // 4가지 건물 타입
+            if (sr < 0.25) { w = bw * (0.30 + rng() * 0.15); h = bh * (0.18 + rng() * 0.12); }       // 넓고 낮음
+            else if (sr < 0.50) { w = bw * (0.12 + rng() * 0.10); h = bh * (0.28 + rng() * 0.18); }   // 좁고 높음
+            else if (sr < 0.75) { w = bw * (0.18 + rng() * 0.12); h = bh * (0.15 + rng() * 0.10); }   // 중간
+            else { w = bw * (0.22 + rng() * 0.08); h = bh * (0.22 + rng() * 0.08); }                   // 정사각에 가까움
+
             const xMin = bx + bw * margin, yMin = by + bh * margin;
-            const xR = bw * (1 - margin * 2) - w, yR = bh * (1 - margin * 2) - h;
-            if (xR < 0 || yR < 0) continue;
-            const x = xMin + rng() * xR, y = yMin + rng() * yR;
-            if (placed.some(p => x < p.x + p.w + gap && x + w + gap > p.x && y < p.y + p.h + gap && y + h + gap > p.y)) continue;
+            const xRange = bw * (1 - margin * 2) - w;
+            const yRange = bh * (1 - margin * 2) - h;
+            if (xRange < 0 || yRange < 0) continue;
+
+            const x = xMin + rng() * xRange;
+            const y = yMin + rng() * yRange;
+
+            // AABB 겹침 체크
+            if (placed.some(p => x < p.x + p.w + gap && x + w + gap > p.x &&
+                                 y < p.y + p.h + gap && y + h + gap > p.y)) continue;
+
             placed.push({ x, y, w, h });
-            this.svg.appendChild(this._el('rect', {
-                x, y, width: w, height: h,
-                rx: (h > w * 1.4 || w > h * 1.4) ? 3 : 2,
-                fill: '#D2CEC6', opacity,
-            }));
+            const rx = (h > w * 1.3 || w > h * 1.3) ? 2.5 : 1.5;
+            const fill = bldgTones[Math.floor(rng() * bldgTones.length)];
+            const opacity = 0.32 + rng() * 0.13; // 0.32~0.45
+            parent.appendChild(this._el('rect', { x, y, width: w, height: h, rx, fill, opacity }));
         }
     }
 
@@ -234,7 +356,6 @@ export class MapRenderer {
         for (const d of (this.lm.distances || [])) {
             const f = locations.find(l => l.id === d.fromId), t = locations.find(l => l.id === d.toId);
             if (!f || !t) continue;
-            // 15분 반경 필터: 현재 위치와의 거리가 level > 6이면 스킵
             const lvl = d.level || 5;
             if (lvl > 6 && (d.fromId === curId || d.toId === curId)) continue;
             const k = [d.fromId, d.toId].sort().join('-');
@@ -328,10 +449,8 @@ export class MapRenderer {
         const sc = Math.min(sX, sY, 1);
         const eX = curLoc.x + dx * sc, eY = curLoc.y + dy * sc;
 
-        // 점선
         this.svg.appendChild(this._el('line', { x1: curLoc.x, y1: curLoc.y, x2: eX, y2: eY, stroke: '#C8C0B0', 'stroke-width': 1, 'stroke-dasharray': '4 3', opacity: 0.18 }));
 
-        // 미니 핀 + 라벨
         const dist = (this.lm.distances || []).find(dd => (dd.fromId === curLoc.id && dd.toId === loc.id) || (dd.toId === curLoc.id && dd.fromId === loc.id));
         const distText = dist?.distanceText || '';
         const g = this._el('g', { class: 'wt-location-node', 'data-id': loc.id, transform: `translate(${eX},${eY})`, opacity: 0.5 });
@@ -359,7 +478,7 @@ export class MapRenderer {
     }
 
     // ================================================================
-    //  AUTO LAYOUT
+    //  AUTO LAYOUT (④ _manualXY 보존)
     // ================================================================
     _autoLayout() {
         const locs = this.lm.locations, dists = this.lm.distances || [];
@@ -375,14 +494,25 @@ export class MapRenderer {
         const geoLocs = locs.filter(l => l.lat != null && l.lng != null);
         if (geoLocs.length >= 2) this._geoAwareLayout(locs, geoLocs, curLoc, centerX, centerY);
         else this._circularLayout(locs, dists, curLoc, centerX, centerY);
+
+        // ④ 겹침 방지 — _manualXY 핀은 움직이지 않음
         for (let iter = 0; iter < 3; iter++) {
             for (let i = 0; i < locs.length; i++) for (let j = i + 1; j < locs.length; j++) {
                 const dx = locs[j].x - locs[i].x, dy = locs[j].y - locs[i].y, d = Math.sqrt(dx * dx + dy * dy);
-                if (d < 70) { const push = (70 - d) / 2, nx = dx / (d || 1), ny = dy / (d || 1); if (locs[i].id !== curLoc.id) { locs[i].x -= Math.round(push * nx); locs[i].y -= Math.round(push * ny); } if (locs[j].id !== curLoc.id) { locs[j].x += Math.round(push * nx); locs[j].y += Math.round(push * ny); } }
+                if (d < 70) {
+                    const push = (70 - d) / 2, nx = dx / (d || 1), ny = dy / (d || 1);
+                    if (locs[i].id !== curLoc.id && !locs[i]._manualXY) {
+                        locs[i].x -= Math.round(push * nx); locs[i].y -= Math.round(push * ny);
+                    }
+                    if (locs[j].id !== curLoc.id && !locs[j]._manualXY) {
+                        locs[j].x += Math.round(push * nx); locs[j].y += Math.round(push * ny);
+                    }
+                }
             }
         }
         for (const loc of locs) this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
     }
+
     _geoAwareLayout(locs, geoLocs, curLoc, centerX, centerY) {
         let baseLat, baseLng;
         if (curLoc.lat != null && curLoc.lng != null) { baseLat = curLoc.lat; baseLng = curLoc.lng; } else { baseLat = geoLocs.reduce((s, l) => s + l.lat, 0) / geoLocs.length; baseLng = geoLocs.reduce((s, l) => s + l.lng, 0) / geoLocs.length; }
@@ -420,7 +550,7 @@ export class MapRenderer {
     _compassRose(cx,cy){const s=22;let v=`<g transform="translate(${cx},${cy})"><circle r="${s}" fill="rgba(244,228,193,0.6)" stroke="#8B6914" stroke-width="1.2"/><circle r="${s*0.15}" fill="#8B6914"/><polygon points="0,${-s+3} -4,${-s*0.35} 4,${-s*0.35}" fill="#8B0000" stroke="#5D4037" stroke-width="0.5"/><polygon points="0,${s-3} -4,${s*0.35} 4,${s*0.35}" fill="#D4C5A0" stroke="#5D4037" stroke-width="0.5"/><text y="${-s-3}" text-anchor="middle" fill="#8B0000" font-size="8" font-weight="700" font-family="serif">N</text><text y="${s+9}" text-anchor="middle" fill="#5D4037" font-size="7" font-weight="600" font-family="serif">S</text></g>`;return v;}
 
     // ================================================================
-    //  TOUCH / MOUSE
+    //  TOUCH / MOUSE (기존 유지)
     // ================================================================
     _touchStart(e){if(e.touches.length===2){e.preventDefault();this._pinch=this._pinchDist(e);this._pan=null;this._longPress=null;return;}if(e.touches.length===1){const t=e.touches[0],pt=this._svgPt(t),hitId=this._hitTest(pt);this._touchInfo={x:t.clientX,y:t.clientY,time:Date.now(),nodeId:hitId,pt};this._wasDrag=false;if(hitId&&!this._movingNodeId){e.preventDefault();this._longPress=setTimeout(()=>{this._movingNodeId=hitId;const loc=this.lm.locations.find(l=>l.id===hitId);if(loc&&this.onMoveRequest)this.onMoveRequest(hitId,loc.name);this._longPress=null;},500);}else if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;}else{this._pan={sx:t.clientX,sy:t.clientY,vx:this.vb.x,vy:this.vb.y};}}}
     _touchMove(e){if(e.touches.length===2&&this._pinch){e.preventDefault();const d=this._pinchDist(e),s=this._pinch/d;const cxv=this.vb.x+this.vb.w/2,cyv=this.vb.y+this.vb.h/2;const nw=Math.max(200,Math.min(1200,this.vb.w*s));const nh=nw*(this.vb.h/this.vb.w);this.vb={x:cxv-nw/2,y:cyv-nh/2,w:nw,h:nh};this._applyVB();this._pinch=d;return;}if(e.touches.length===1){const t=e.touches[0];if(this._longPress&&this._touchInfo){if(Math.abs(t.clientX-this._touchInfo.x)>10||Math.abs(t.clientY-this._touchInfo.y)>10){clearTimeout(this._longPress);this._longPress=null;}}if(this._pan){e.preventDefault();const dx=(t.clientX-this._pan.sx)*(this.vb.w/this.svg.getBoundingClientRect().width);const dy=(t.clientY-this._pan.sy)*(this.vb.h/this.svg.getBoundingClientRect().height);this.vb.x=this._pan.vx-dx;this.vb.y=this._pan.vy-dy;this._applyVB();this._wasDrag=true;}}}

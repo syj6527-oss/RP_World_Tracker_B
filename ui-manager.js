@@ -316,21 +316,21 @@ export class UIManager {
         $('#wt-mode-fantasy').on('click', () => this._setMapMode('fantasy'));
         // 검색 탭 전환 (Bug K: 장소/주소 분리)
         this._searchMode = 'loc';
-        // 🔄 약도 재배치 (수동 위치 리셋 + 전체 재배치)
+        // 🔄 약도 재배치 (전체 핀 리셋 + 배경 캐시 무효화)
         $('#wt-btn-refresh').on('click', () => {
             if (this.mapRenderer) {
-                // 수동 배치 플래그 전부 리셋
+                // 모든 핀 위치 리셋 → 새 levelToPx 적용 (③ 15분 반경)
                 for (const loc of this.lm.locations) {
-                    if (loc._manualXY) {
-                        loc._manualXY = false;
-                        loc.x = 0; loc.y = 0; // 재배치 트리거
-                        this.lm.updateLocation(loc.id, { _manualXY: false, x: 0, y: 0 });
-                    }
+                    loc._manualXY = false;
+                    loc.x = 0; loc.y = 0;
+                    this.lm.updateLocation(loc.id, { _manualXY: false, x: 0, y: 0 });
                 }
                 this.mapRenderer._layoutDirty = true;
                 this.mapRenderer._layoutDone = false;
                 this.mapRenderer._skipLayout = false;
                 this.mapRenderer._vbManual = false;
+                // ① 배경 캐시 무효화 → 새 배경 생성
+                if (this.mapRenderer.invalidateCity) this.mapRenderer.invalidateCity();
                 this.mapRenderer.render();
                 toastSuccess('🗺️ 약도 재생성!');
             }

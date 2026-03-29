@@ -225,17 +225,25 @@ export class MapRenderer {
         const { locations, movements, currentLocationId } = this.lm;
         if (locations.length >= 2) this._autoLayout();
 
-        // ViewBox 계산
+        // Bug H: 컨테이너 비율에 맞춰 ViewBox 설정 (가로 꽉 채움)
+        const containerW = this.container?.offsetWidth || 600;
+        const containerH = this.container?.offsetHeight || 400;
+        const aspect = containerW / containerH;
+
         if (locations.length) {
             const pad = 100;
             const xs = locations.map(l => l.x), ys = locations.map(l => l.y);
             const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
             const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
-            this.vb = { x: minX, y: minY, w: Math.max(350, maxX - minX), h: Math.max(280, maxY - minY) };
+            const w = Math.max(400, maxX - minX);
+            const h = Math.max(w / aspect, maxY - minY);
+            this.vb = { x: minX, y: minY, w, h };
         } else {
-            this.vb = { x: 0, y: 0, w: 600, h: 500 };
+            this.vb = { x: 0, y: 0, w: 600, h: Math.round(600 / aspect) };
         }
         this._applyVB();
+        // SVG가 컨테이너를 꽉 채우도록
+        this.svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
         const vb = this.vb;
         let svg = `<defs>

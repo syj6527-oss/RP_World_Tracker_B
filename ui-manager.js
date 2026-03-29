@@ -695,24 +695,19 @@ export class UIManager {
         }
     }
 
-    // ========== 약도: 장소 클릭 → 해당 장소 중심 재생성 ==========
+    // ========== 약도: 장소 클릭 → 카메라 팬 + 팝오버 (위치 이동 X) ==========
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
-        if (locId === this.lm.currentLocationId) return;
-        await this.lm.moveTo(locId);
-        // ViewBox 이동 (카메라 팬) — 핀 좌표는 그대로, 배경만 재생성!
+        // 카메라 팬 (핀 위치는 변경하지 않음!)
         if (this.mapRenderer) {
-            this.mapRenderer._vbManual = true; // render()에서 ViewBox 재계산 스킵
+            this.mapRenderer._vbManual = true;
             this.mapRenderer.vb.x = loc.x - (this.mapRenderer.vb?.w || 500) / 2;
             this.mapRenderer.vb.y = loc.y - (this.mapRenderer.vb?.h || 600) / 2;
             this.mapRenderer.render();
         }
-        this.pi?.inject();
-        this._updLocList(); this._updMoveList();
-        const cur = this.lm.locations.find(l => l.id === this.lm.currentLocationId);
-        $('#wt-scene-name').text(cur?.name || '—').css('color', cur?.color || '');
-        wtNotify(`${wtMascot()} ${loc.name}`, 'move');
+        // 팝오버 표시 (이동 없이 상세 정보만)
+        this.showPop(locId);
     }
 
     // ========== 장소 목록 / 이동 히스토리 ==========

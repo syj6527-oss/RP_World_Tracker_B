@@ -47,8 +47,6 @@ export class UIManager {
                     <button id="wt-s-delete-all" class="menu_button" style="flex:1;font-size:11px;padding:6px;color:#e74c3c">🗑️ 전체 삭제</button>
                 </div>
                 <input type="file" id="wt-s-import-file" accept=".json" style="display:none"/>
-                <div class="wt-divider"></div>
-                <div class="wt-s-row"><button id="wt-open-panel" class="menu_button wt-open-btn">🐶 World Tracker</button></div>
             </div></div></div>`;
         const containers = ['#extensions_settings2','#extensions_settings','.extensions_block'];
         let target = null;
@@ -75,8 +73,6 @@ export class UIManager {
             toastSuccess(`🧠 감지 모델: ${name}`);
             setTimeout(() => $('#wt-s-profile-status').text(''), 3000);
         });
-        $('#wt-open-panel').on('click', () => this.togglePanel());
-
         // 전체 데이터 관리 (설정 패널)
         $('#wt-s-export-all').on('click', () => this._exportAllData());
         $('#wt-s-import-all').on('click', () => $('#wt-s-import-file').click());
@@ -162,20 +158,6 @@ export class UIManager {
                     </div>
                     <div id="wt-map-wrap" class="wt-map-wrap">
                         <div id="wt-map-container" class="wt-map-container"></div>
-                        <div class="wt-compass-overlay">
-                            <svg width="44" height="44" viewBox="0 0 44 44">
-                                <circle cx="22" cy="22" r="18" stroke="#A08060" stroke-width="1.5" fill="none"/>
-                                <circle cx="22" cy="22" r="2.5" fill="#A08060"/>
-                                <polygon points="22,6 19,16 25,16" fill="#F5A8A8" stroke="#A08060" stroke-width="0.5"/>
-                                <polygon points="22,38 19,28 25,28" fill="#A8D8EA" stroke="#A08060" stroke-width="0.5"/>
-                                <polygon points="6,22 16,19 16,25" fill="#FCE7AE" stroke="#A08060" stroke-width="0.5"/>
-                                <polygon points="38,22 28,19 28,25" fill="#FCE7AE" stroke="#A08060" stroke-width="0.5"/>
-                                <text x="22" y="4" text-anchor="middle" font-weight="700" font-size="7" fill="#F5A8A8">N</text>
-                                <text x="22" y="44" text-anchor="middle" font-weight="700" font-size="7" fill="#A8D8EA">S</text>
-                                <text x="3" y="24" text-anchor="middle" font-weight="700" font-size="7" fill="#C4A882">W</text>
-                                <text x="41" y="24" text-anchor="middle" font-weight="700" font-size="7" fill="#C4A882">E</text>
-                            </svg>
-                        </div>
                     </div>
                     <div id="wt-leaflet-wrap" class="wt-map-wrap" style="display:none">
                         <div id="wt-leaflet-container" class="wt-map-container wt-leaflet-map"></div>
@@ -245,10 +227,10 @@ export class UIManager {
                         <div class="wt-pop-actions"><button id="wt-pop-save" class="wt-btn-primary">💾 저장</button><button id="wt-pop-del" class="wt-btn-danger">🗑️</button></div>
                         <button id="wt-pop-move" class="wt-btn-ghost wt-btn-sm">📍 위치 수정</button>
                         <button id="wt-pop-moveto" class="wt-btn-accent wt-btn-sm" style="opacity:1;font-size:12px">🐾 여기로 이동</button>
-                        <div id="wt-pop-geo-section" style="margin-top:6px">
+                        <div id="wt-pop-geo-section" style="margin-top:6px;text-align:left">
                             <div id="wt-pop-geo-notice" style="display:none;padding:8px 10px;background:rgba(94,132,226,0.1);border:1px solid #5E84E2;border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2;text-align:center">📍 이 장소에 좌표가 없어요 — 아래에서 주소를 검색해보세요!</div>
-                            <div id="wt-pop-cur-addr" style="display:none;padding:6px 10px;background:rgba(94,132,226,0.06);border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2">📍 <span id="wt-pop-addr-text"></span></div>
-                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📍 실제 주소 설정</div>
+                            <div id="wt-pop-cur-addr" style="display:none;padding:6px 10px;background:rgba(94,132,226,0.06);border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2;text-align:left">📍 <span id="wt-pop-addr-text"></span></div>
+                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px;text-align:left">📍 실제 주소 설정</div>
                             <div style="display:flex;gap:4px">
                                 <input type="text" id="wt-pop-geo-input" class="wt-input" placeholder="주소 또는 랜드마크..." style="flex:1;font-size:12px;padding:6px 8px"/>
                                 <button id="wt-pop-geo-btn" class="wt-btn-accent wt-btn-s">🔍</button>
@@ -334,11 +316,21 @@ export class UIManager {
         $('#wt-mode-fantasy').on('click', () => this._setMapMode('fantasy'));
         // 검색 탭 전환 (Bug K: 장소/주소 분리)
         this._searchMode = 'loc';
-        // 🔄 약도 재배치
+        // 🔄 약도 재배치 (전체 핀 리셋 + 배경 캐시 무효화)
         $('#wt-btn-refresh').on('click', () => {
             if (this.mapRenderer) {
+                // 모든 핀 위치 리셋 → 새 levelToPx 적용 (③ 15분 반경)
+                for (const loc of this.lm.locations) {
+                    loc._manualXY = false;
+                    loc.x = 0; loc.y = 0;
+                    this.lm.updateLocation(loc.id, { _manualXY: false, x: 0, y: 0 });
+                }
                 this.mapRenderer._layoutDirty = true;
                 this.mapRenderer._layoutDone = false;
+                this.mapRenderer._skipLayout = false;
+                this.mapRenderer._vbManual = false;
+                // ① 배경 캐시 무효화 → 새 배경 생성
+                if (this.mapRenderer.invalidateCity) this.mapRenderer.invalidateCity();
                 this.mapRenderer.render();
                 toastSuccess('🗺️ 약도 재생성!');
             }
@@ -701,16 +693,13 @@ export class UIManager {
         }
     }
 
-    // ========== 약도: 장소 클릭 → 카메라 팬 + 팝오버 (위치 이동 X) ==========
+    // ========== 약도: 장소 클릭 → 해당 핀 중심으로 배경 재생성 ==========
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
-        // 카메라 팬 (핀 위치는 변경하지 않음!)
         if (this.mapRenderer?.recenterOn) {
             this.mapRenderer.recenterOn(locId);
         }
-        // 팝오버 표시 (이동 없이 상세 정보만)
-        this.showPop(locId);
     }
 
     // ========== 장소 목록 / 이동 히스토리 ==========
@@ -788,7 +777,9 @@ export class UIManager {
         if (l.address) { $('#wt-pop-cur-addr').show(); $('#wt-pop-addr-text').text(l.address); } else { $('#wt-pop-cur-addr').hide(); }
         this._updDistSection(id);
         this._updEventsList(id);
-        if ($('#wt-map-section').is(':visible')) {
+        // 지도 섹션 상태 저장 후 숨김
+        this._mapWasVisible = $('#wt-map-section').is(':visible');
+        if (this._mapWasVisible) {
             $('#wt-map-section').hide();
             $('#wt-map-toggle').text('🗺️ 지도 ▾');
         }
@@ -797,7 +788,19 @@ export class UIManager {
         const body = document.getElementById('wt-panel-body');
         if (pop && body) body.scrollTop = pop.offsetTop - 10;
     }
-    hidePop() { $('#wt-popover').hide(); }
+    hidePop() {
+        $('#wt-popover').hide();
+        // 약도가 열려있었으면 복원
+        if (this._mapWasVisible) {
+            $('#wt-map-section').show();
+            $('#wt-map-toggle').text('🗺️ 지도 ▴');
+            // 렌더링 갱신 (패널 크기 변경 후)
+            setTimeout(() => {
+                if (this.mapRenderer) this.mapRenderer.render();
+                if (this.leafletRenderer?.map) this.leafletRenderer.invalidateSize();
+            }, 100);
+        }
+    }
 
     async _popSave() {
         const id=$('#wt-popover').attr('data-id');
@@ -1169,7 +1172,8 @@ export class UIManager {
             item.on('click', async function() {
                     const lat = parseFloat($(this).attr('data-lat'));
                     const lng = parseFloat($(this).attr('data-lng'));
-                    await self.lm.updateLocation(locId, { lat, lng });
+                    const addrText = $(this).text().replace('📍 ', '').trim();
+                    await self.lm.updateLocation(locId, { lat, lng, address: addrText });
 
                     // 앵커 포인트 기반 원형 분포 — 좌표 없는 다른 장소들도 배치
                     const others = self.lm.locations.filter(l => l.id !== locId && !l.lat && !l.lng);

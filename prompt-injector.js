@@ -1,4 +1,4 @@
-// 🐶 월드맵 — prompt-injector.js (Single Scene)
+// 🐶 World Tracker — prompt-injector.js (Single Scene)
 
 import { extension_settings } from '../../../extensions.js';
 import { EXTENSION_NAME, PROMPT_KEY } from './index.js';
@@ -26,11 +26,12 @@ export class PromptInjector {
 
         const L = ['[🐶 World Tracker]'];
         L.push(`📍 Scene: ${cur.name}`);
-        if (cur.status) L.push(`🌤️ ${cur.status}`);
-        if (cur.visitCount > 0) L.push(`📊 ${cur.visitCount === 1 ? 'First visit' : `${cur.visitCount} visits`}`);
+        if (cur.status) L.push(`🌤️ Status: ${cur.status}`);
+        if (cur.visitCount > 0) L.push(`📊 ${cur.visitCount === 1 ? 'First visit' : `Visit #${cur.visitCount}`}`);
         if (cur.memo) L.push(`💭 ${this._mem(cur)}`);
-        const last = this._last(); if (last) L.push(`🚶 ${last}`);
-        const near = this._near(cur); if (near) L.push(`📌 ${near}`);
+        const last = this._last(); if (last) L.push(`🚶 Last: ${last}`);
+        const near = this._near(cur);
+        if (near) L.push(`📌 Nearby:\n${near}`);
         L.push('[/World Tracker]');
         return L.join('\n');
     }
@@ -57,8 +58,13 @@ export class PromptInjector {
         for(const d of this.lm.distances||[]){
             let o=d.fromId===cur.id?d.toId:d.toId===cur.id?d.fromId:null;
             if(!o)continue; const loc=this.lm.locations.find(l=>l.id===o);
-            if(loc)n.push(`${loc.name}(${d.distanceText})`);
+            if(loc) n.push(`- ${loc.name} (${d.distanceText || this._levelLabel(d.level)})`);
         }
-        return n.length?n.slice(0,3).join(', '):null;
+        return n.length ? n.slice(0,5).join('\n') : null;
+    }
+
+    _levelLabel(level) {
+        const labels = {1:'바로 옆',2:'매우 가까움',3:'가까움',4:'도보 5분',5:'도보권',6:'도보 15분+',7:'대중교통',8:'차량 필요',9:'먼 거리',10:'다른 지역'};
+        return labels[level] || '도보권';
     }
 }

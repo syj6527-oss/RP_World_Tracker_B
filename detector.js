@@ -1,4 +1,4 @@
-// 🐶 월드맵 — detector.js (All Fixes + City Detection)
+// 🐶 World Tracker — detector.js (All Fixes + City Detection)
 
 import { EXTENSION_NAME } from './index.js';
 
@@ -66,6 +66,13 @@ export class LocationDetector {
             // 음식/음료
             '커피','맥주','술','와인','주스','우유','빵','밥','국','찌개',
             '라면','피자','치킨','햄버거','케이크','과자','사탕','초콜릿','아이스크림',
+            // 자연/일반 명사 오탐 방지
+            '공기','물','불','바람','하늘','구름','비','눈','안개','햇빛','달빛','별빛',
+            '시간','공간','세계','세상','현실','꿈','미래','과거','역사','사회',
+            '사람','인간','동물','식물','나무','꽃','풀','돌','흙','모래',
+            '전화','문자','편지','소식','연락','대화','약속','계약','거래','선물',
+            '사진','그림','영화','음악','노래','춤','게임','운동','여행','산책',
+            '옥정','문장','단어','글자','숫자','이름','제목','내용','의미','뜻',
         ];
         this.singleKo = ['집','방','숲','강','산','역','관','점','원','장'];
 
@@ -293,11 +300,14 @@ export class LocationDetector {
         const clean = this._strip(text);
         const lo = clean.toLowerCase();
 
-        // 1) 도시명 매칭
+        // 1) 도시명 매칭 (Bug F: 영어는 단어 경계 체크)
         for (const city of this.cityNames) {
-            if (lo.includes(city.toLowerCase()) && !this.lm.findByName(city)) {
-                console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`);
-                return city;
+            if (this.lm.findByName(city)) continue;
+            if (/[a-zA-Z]/.test(city)) {
+                const rx = new RegExp('\\b' + city.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+                if (rx.test(clean)) { console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`); return city; }
+            } else {
+                if (lo.includes(city.toLowerCase())) { console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`); return city; }
             }
         }
 
@@ -340,10 +350,14 @@ export class LocationDetector {
 
         for (const city of this.cityNames) {
             const cityLo = city.toLowerCase();
-            if (!lo.includes(cityLo)) continue;
-            // 이미 등록된 장소면 스킵
+            // Bug F: 단어 경계 체크 (영어) — "rio"가 "mario" 안에서 매칭 방지
+            if (/[a-zA-Z]/.test(city)) {
+                const rx = new RegExp('\\b' + cityLo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+                if (!rx.test(text)) continue;
+            } else {
+                if (!lo.includes(cityLo)) continue;
+            }
             if (this.lm.findByName(city)) continue;
-            // 위치 확인: 인명 뒤에 오는지 체크 (예: "Park Seoul" — 사람이름 아님)
             const idx = lo.indexOf(cityLo);
             const before = text.substring(Math.max(0, idx - 20), idx).trim().toLowerCase();
             if (this.namePrefix.some(np => before.endsWith(np) || before.endsWith(np + '.'))) continue;

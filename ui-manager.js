@@ -2,7 +2,7 @@
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
-import { EXTENSION_NAME, EXTENSION_PATH, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat } from './index.js';
+import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat } from './index.js';
 import { MapRenderer } from './map-renderer.js';
 import { LeafletRenderer } from './leaflet-renderer.js';
 
@@ -147,15 +147,14 @@ export class UIManager {
                 <div class="wt-map-toggle" id="wt-map-toggle">🗺️ 지도 ▾</div>
                 <div id="wt-map-section" style="display:none">
                     <div class="wt-map-mode-bar">
-                        <button id="wt-mode-node" class="wt-mode-btn wt-mode-active">📊 노드</button>
+                        <button id="wt-mode-node" class="wt-mode-btn wt-mode-active">🗺️ 약도</button>
                         <button id="wt-mode-leaflet" class="wt-mode-btn">🌍 실제</button>
-                        <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 판타지</button>
-                        <button id="wt-btn-layout" class="wt-mode-btn" style="font-size:11px;flex:0.5">🗺️</button>
+                        <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 지도</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar">
-                        <div style="display:flex;gap:2px;margin-bottom:3px">
+                        <div id="wt-search-tabs" style="display:none;gap:2px;margin-bottom:3px">
                             <button id="wt-search-tab-loc" class="wt-mode-btn wt-mode-active" style="flex:1;padding:4px;font-size:11px">🔍 장소</button>
-                            <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px;display:none">📍 주소</button>
+                            <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px">📍 주소</button>
                         </div>
                         <input type="search" id="wt-search-input" class="wt-input" placeholder="🔍 등록된 장소 검색..." autocomplete="off" inputmode="search"/>
                         <div id="wt-search-results" class="wt-search-results" style="display:none"></div>
@@ -326,13 +325,6 @@ export class UIManager {
         $('#wt-mode-node').on('click', () => this._setMapMode('node'));
         $('#wt-mode-leaflet').on('click', () => this._setMapMode('leaflet'));
         $('#wt-mode-fantasy').on('click', () => this._setMapMode('fantasy'));
-        $('#wt-btn-layout').on('click', () => {
-            if (this.mapRenderer) {
-                this.mapRenderer._layoutDirty = true;
-                this.mapRenderer.render();
-                toastSuccess('🗺️ 약도 재생성!');
-            }
-        });
         // 검색 탭 전환 (Bug K: 장소/주소 분리)
         this._searchMode = 'loc'; // 기본: 장소 검색
         $('#wt-search-tab-loc').on('click', () => {
@@ -653,10 +645,7 @@ export class UIManager {
             const container = document.querySelector('#wt-map-container');
             if (container) {
                 container.classList.add('wt-fantasy-theme');
-                // 양피지 배경: import.meta.url 기반 경로 (폴더명 자동 감지)
-                container.style.backgroundImage = `url('${EXTENSION_PATH}parchment.jpg')`;
-                container.style.backgroundSize = 'cover';
-                container.style.backgroundPosition = 'center';
+                // 배경은 CSS .wt-fantasy-theme에서 처리 (베이지+그레인)
             }
             if (!this.mapRenderer) {
                 if (container) {
@@ -676,20 +665,20 @@ export class UIManager {
 
         // 판타지 테마 토글: node 또는 leaflet 모드면 제거
         if (mode !== 'fantasy') {
-            const c = document.querySelector('#wt-map-container');
-            if (c) { c.classList.remove('wt-fantasy-theme'); c.style.backgroundImage = ''; c.style.backgroundSize = ''; c.style.backgroundPosition = ''; }
+            document.querySelector('#wt-map-container')?.classList.remove('wt-fantasy-theme');
             if (this.mapRenderer) this.mapRenderer.fantasyMode = false;
         }
 
-        // Fix 3+4: 주소 탭 → 실제지도에서만 표시
+        // Fix 4: 검색 탭 바 → 실제지도에서만 표시 (노드/판타지: 숨김)
         if (mode === 'leaflet') {
-            $('#wt-search-tab-addr').show();
+            $('#wt-search-tabs').css('display', 'flex');
         } else {
-            $('#wt-search-tab-addr').hide();
+            $('#wt-search-tabs').hide();
             // 주소 모드였다면 장소 모드로 전환
             if (this._searchMode === 'addr') {
                 this._searchMode = 'loc';
                 $('#wt-search-tab-loc').addClass('wt-mode-active');
+                $('#wt-search-tab-addr').removeClass('wt-mode-active');
                 $('#wt-search-input').attr('placeholder', '🔍 등록된 장소 검색...').val('');
                 $('#wt-search-results').hide();
             }

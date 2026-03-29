@@ -65,7 +65,7 @@
 .wt-map-container{width:100%;min-height:320px;aspect-ratio:4/3;border-radius:var(--wt-r);overflow:hidden;border:2px solid var(--wt-border);background:radial-gradient(ellipse at 30% 20%,#F5F4ED,transparent 60%),radial-gradient(ellipse at 70% 80%,#F0EFE8,transparent 50%),linear-gradient(135deg,var(--wt-cream),#EDECE4,#E8E4D8);touch-action:none}
 .wt-map-svg{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 .wt-map-svg:active{cursor:grabbing}
-.wt-path-line{stroke:var(--wt-brown-f);stroke-width:2;stroke-dasharray:6 4;opacity:.35}
+.wt-path-line{stroke:#B0A090;stroke-width:2.5;stroke-dasharray:8 5;opacity:.4;stroke-linecap:round}
 .wt-node-circle{cursor:pointer}
 .wt-paw-marker{font-size:14px;text-anchor:middle;pointer-events:none;fill:#775537}
 .wt-location-label{fill:var(--wt-brown);font-size:13px;text-anchor:middle;pointer-events:none;font-weight:600}
@@ -126,11 +126,12 @@
 .wt-select{max-width:160px;font-size:12px}.wt-select-full{max-width:100%!important;width:100%}.wt-open-btn{width:100%}
 #wt-wand-btn{cursor:pointer}#wt-wand-btn:hover{background:rgba(0,0,0,.05)}
 
-/* 🏰 Fantasy Map Theme — 실제 양피지 텍스처 배경 */
+/* 🏰 Fantasy Map Theme — 베이지+그레인 배경 (CSS only, 파일 불필요) */
 .wt-fantasy-theme{
-    background:url('/scripts/extensions/third-party/rp-world-tracker/parchment.jpg') center/cover no-repeat!important;
+    background:#EDE5D5!important;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E")!important;
     border-color:#8B6914!important;
-    box-shadow:inset 0 0 30px rgba(101,67,33,0.2)!important
+    box-shadow:inset 0 0 20px rgba(101,67,33,0.1)!important
 }
 .wt-fantasy-theme .wt-map-svg{cursor:grab;background:transparent}
 .wt-fantasy-theme .wt-map-svg:active{cursor:grabbing}

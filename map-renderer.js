@@ -53,13 +53,16 @@ export class MapRenderer {
         // 🏰 판타지 모드
         if (this.fantasyMode) { this._renderFantasy(); return; }
 
-        this.svg.innerHTML = '<defs><filter id="wt-glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+        this.svg.innerHTML = `<defs>
+            <filter id="wt-glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="wt-shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.2"/></filter>
+        </defs>`;
         const { locations, movements, currentLocationId } = this.lm;
 
         // 거리 기반 약도 자동 배치
         if (locations.length >= 2) this._autoLayout();
 
-        // 경로선 + 거리 표시
+        // 경로선 + 거리 pill 뱃지
         const drawn = new Set();
         for (const m of movements) {
             const f = locations.find(l => l.id === m.fromId), t = locations.find(l => l.id === m.toId);
@@ -67,46 +70,54 @@ export class MapRenderer {
             const k = [m.fromId, m.toId].sort().join('-'); if (drawn.has(k)) continue; drawn.add(k);
             this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, class: 'wt-path-line' }));
 
-            // 거리 라벨 + 레벨 점
+            // 거리 pill 뱃지 (흰 배경 + 텍스트)
             const dist = this.lm.getDistanceBetween(m.fromId, m.toId);
-            const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
-            if (dist) {
-                const lvl = dist.level || 5;
-                const filled = Math.min(lvl, 10);
-                const dots = '●'.repeat(Math.ceil(filled/2)) + '○'.repeat(Math.ceil((10-filled)/2));
-                this.svg.appendChild(this._el('text', { x: mx, y: my - 8, 'text-anchor': 'middle', fill: '#9A8A7A', 'font-size': '9' }, dots));
-                if (dist.distanceText) {
-                    this.svg.appendChild(this._el('text', { x: mx, y: my + 6, 'text-anchor': 'middle', fill: '#A08060', 'font-size': '10' }, dist.distanceText));
-                }
+            if (dist?.distanceText) {
+                const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
+                const textLen = dist.distanceText.length * 6 + 16;
+                const pill = this._el('g', { transform: `translate(${mx},${my - 8})` });
+                pill.appendChild(this._el('rect', { x: -textLen/2, y: -9, width: textLen, height: 18, rx: 9, fill: '#fff', stroke: '#E0E0E0', 'stroke-width': 1, filter: 'url(#wt-shadow)' }));
+                pill.appendChild(this._el('text', { x: 0, y: 4, 'text-anchor': 'middle', fill: '#5E84E2', 'font-size': '10', 'font-weight': '600' }, dist.distanceText));
+                this.svg.appendChild(pill);
             }
         }
 
-        // 노드 색상 결정 함수
+        // 노드 색상
         const nodeColor = (loc) => {
-            if (loc.id === currentLocationId) return '#8B6EC7'; // Violet — 현재
+            if (loc.id === currentLocationId) return '#8B6EC7';
             const v = loc.visitCount || 0;
-            if (v >= 5) return '#5E84E2'; // Blue — 자주
-            if (v >= 2) return '#F6A93A'; // Orange — 일반
-            return '#F7EC8D'; // Yellow — 새 장소
+            if (v >= 5) return '#5E84E2';
+            if (v >= 2) return '#F6A93A';
+            return '#F7EC8D';
         };
 
         // 노드 렌더링
         for (const loc of locations) {
             const cur = loc.id === currentLocationId;
-            const r = cur ? 26 : 18;
+            const r = cur ? 24 : 17;
             const color = nodeColor(loc);
             const g = this._el('g', { class: 'wt-location-node', 'data-id': loc.id, transform: `translate(${loc.x},${loc.y})` });
 
-            // 그림자 (현재 위치만)
+            // GPS 펄스 (현재 위치만)
             if (cur) {
-                g.appendChild(this._el('circle', { r: r + 4, fill: color, opacity: '0.2', filter: 'url(#wt-glow)' }));
+                const pulse = this._el('circle', { r: r + 12, fill: 'none', stroke: color, 'stroke-width': 2, opacity: '0.4' });
+                const anim = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+                anim.setAttribute('attributeName', 'r'); anim.setAttribute('from', String(r + 4)); anim.setAttribute('to', String(r + 20));
+                anim.setAttribute('dur', '2s'); anim.setAttribute('repeatCount', 'indefinite');
+                pulse.appendChild(anim);
+                const animOp = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+                animOp.setAttribute('attributeName', 'opacity'); animOp.setAttribute('from', '0.5'); animOp.setAttribute('to', '0');
+                animOp.setAttribute('dur', '2s'); animOp.setAttribute('repeatCount', 'indefinite');
+                pulse.appendChild(animOp);
+                g.appendChild(pulse);
             }
 
-            // 메인 원
+            // 드롭섀도 + 메인 원
             g.appendChild(this._el('circle', {
                 r, fill: color, class: 'wt-node-circle',
-                stroke: cur ? '#775537' : '#9e8e7e',
-                'stroke-width': cur ? 3 : 1.5,
+                stroke: cur ? '#fff' : '#fff',
+                'stroke-width': cur ? 3 : 2,
+                filter: 'url(#wt-shadow)',
             }));
 
             // 방문 횟수 (원 안에)
@@ -114,15 +125,27 @@ export class MapRenderer {
                 g.appendChild(this._el('text', {
                     class: 'wt-visit-badge', y: 5,
                     fill: (color === '#F7EC8D') ? '#5A4030' : '#fff',
-                    'font-size': cur ? '14' : '12',
+                    'font-size': cur ? '13' : '11',
                 }, loc.visitCount));
             }
 
-            // 장소명
-            g.appendChild(this._el('text', { class: 'wt-location-label', y: r + 16 }, loc.name));
+            // 장소명 라벨 (흰 배경 pill)
+            const nameLen = loc.name.length * 8 + 14;
+            const labelG = this._el('g', { transform: `translate(0,${r + 14})` });
+            labelG.appendChild(this._el('rect', { x: -nameLen/2, y: -10, width: nameLen, height: 18, rx: 9, fill: '#fff', stroke: '#E8E4D8', 'stroke-width': 1, filter: 'url(#wt-shadow)' }));
+            labelG.appendChild(this._el('text', { class: 'wt-location-label', y: 3 }, loc.name));
+            g.appendChild(labelG);
 
-            // 🐾 현재 위치 마커
-            if (cur) g.appendChild(this._el('text', { class: 'wt-paw-marker', y: -(r + 10) }, '🐾'));
+            // 🐾 현재 위치 마커 (바운스 애니메이션)
+            if (cur) {
+                const paw = this._el('text', { class: 'wt-paw-marker', y: -(r + 8) }, '🐾');
+                const pawAnim = document.createElementNS('http://www.w3.org/2000/svg', 'animateTransform');
+                pawAnim.setAttribute('attributeName', 'transform'); pawAnim.setAttribute('type', 'translate');
+                pawAnim.setAttribute('values', '0 0; 0 -4; 0 0'); pawAnim.setAttribute('dur', '1.2s');
+                pawAnim.setAttribute('repeatCount', 'indefinite');
+                paw.appendChild(pawAnim);
+                g.appendChild(paw);
+            }
 
             this.svg.appendChild(g);
         }

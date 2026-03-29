@@ -132,50 +132,65 @@ export class MapRenderer {
         const rng = this._srand(seed * 31337);
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-        // Hub 영역 계산 (핀 범위 + 패딩)
-        const pad = 180;
+        // Hub 영역 (ViewBox 꽉 채움 — 패딩 최소화)
+        const pad = 60;
         let minX, minY, maxX, maxY;
         if (hubPins.length) {
             const xs = hubPins.map(l => l.x), ys = hubPins.map(l => l.y);
-            minX = Math.min(...xs) - pad; maxX = Math.max(...xs) + pad;
-            minY = Math.min(...ys) - pad; maxY = Math.max(...ys) + pad;
+            minX = Math.min(...xs) - pad - 80; maxX = Math.max(...xs) + pad + 80;
+            minY = Math.min(...ys) - pad - 120; maxY = Math.max(...ys) + pad + 120;
         } else {
-            minX = 50; maxX = 550; minY = 30; maxY = 530;
+            minX = 20; maxX = 540; minY = 10; maxY = 510;
         }
-        const W = Math.max(500, maxX - minX), H = Math.max(470, maxY - minY);
+        const W = Math.max(520, maxX - minX), H = Math.max(500, maxY - minY);
         const ox = minX, oy = minY;
 
         // ① 배경 (도로 색)
-        g.appendChild(this._el('rect', { x: ox - 60, y: oy - 60, width: W + 120, height: H + 120, fill: '#F0EDE5' }));
+        g.appendChild(this._el('rect', { x: ox - 80, y: oy - 80, width: W + 160, height: H + 160, fill: '#F0EDE5' }));
 
-        // ② 블록 그리드 (4열 × 5행)
+        // ② 불균일 격자 (열 너비/행 높이 다양화)
         const cols = 4, rows = 5;
-        const cellW = W / cols, cellH = H / rows;
-        const gap = 12; // 도로 폭
-        const parkCell = `${1 + (seed % 2)}_${1 + (seed % (cols - 1))}`;
-        const riverRow = 2 + (seed % 2); // 강이 지나는 행 (2~3)
+        const gap = 10;
 
+        // 열 너비 비율 (0.7~1.3 랜덤)
+        const cw = [];
+        let twc = 0;
+        for (let c = 0; c < cols; c++) { cw[c] = 0.7 + rng() * 0.6; twc += cw[c]; }
+        cw.forEach((_, i) => cw[i] = (cw[i] / twc) * W);
+
+        // 행 높이 비율 (0.7~1.3 랜덤)
+        const rh = [];
+        let thr = 0;
+        for (let r = 0; r < rows; r++) { rh[r] = 0.7 + rng() * 0.6; thr += rh[r]; }
+        rh.forEach((_, i) => rh[i] = (rh[i] / thr) * H);
+
+        const parkCell = `${1 + (seed % 2)}_${1 + (seed % (cols - 1))}`;
+        const riverRow = 2 + (seed % 2);
+
+        // 블록 배치
+        let yy = oy;
         for (let r = 0; r < rows; r++) {
+            let xx = ox;
             for (let c = 0; c < cols; c++) {
-                const bx = ox + c * cellW + gap;
-                const by = oy + r * cellH + gap;
-                const bw = cellW - gap * 2;
-                const bh = cellH - gap * 2;
-                if (bw < 30 || bh < 30) continue;
+                const bx = xx + gap;
+                const by = yy + gap;
+                const bw = cw[c] - gap * 2;
+                const bh = rh[r] - gap * 2;
+                if (bw < 25 || bh < 25) { xx += cw[c]; continue; }
 
                 const cellKey = `${r}_${c}`;
                 const isPark = cellKey === parkCell;
 
-                // 강 겹침 → 분할
-                const rY = oy + riverRow * cellH + cellH * 0.5;
-                const rH = 16;
+                // 강 행 → 블록 분할
+                const riverY = yy + rh[r] * 0.5;
+                const riverHalf = 10;
                 if (seed % 3 !== 0 && r === riverRow) {
-                    const aboveH = (rY - rH - 4) - by;
-                    const belowY = rY + rH + 4;
+                    const aboveH = (riverY - riverHalf - 3) - by;
+                    const belowY = riverY + riverHalf + 3;
                     const belowH = (by + bh) - belowY;
-                    if (aboveH > 25) this._drawBlock(g, bx, by, bw, aboveH, rng);
-                    if (belowH > 25) this._drawBlock(g, bx, belowY, bw, belowH, rng);
-                    continue;
+                    if (aboveH > 20) this._drawBlock(g, bx, by, bw, aboveH, rng);
+                    if (belowH > 20) this._drawBlock(g, bx, belowY, bw, belowH, rng);
+                    xx += cw[c]; continue;
                 }
 
                 if (isPark) {
@@ -183,22 +198,25 @@ export class MapRenderer {
                 } else {
                     this._drawBlock(g, bx, by, bw, bh, rng);
                 }
+                xx += cw[c];
             }
+            yy += rh[r];
         }
 
-        // ③ 강 (S자)
+        // ③ 강 (S자 — 행 사이 도로 위치에 렌더)
         if (seed % 3 !== 0) {
-            const rY = oy + riverRow * cellH + cellH * 0.5;
-            const w1 = (rng() - 0.5) * 30, w2 = (rng() - 0.5) * 25;
-            const rPath = `M${ox - 30},${rY + w1} C${ox + W * 0.3},${rY + w1 + 28} ${ox + W * 0.65},${rY + w2 - 22} ${ox + W + 30},${rY + w2}`;
-            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 16, 'stroke-linecap': 'round', opacity: '0.55' }));
+            let riverY = oy;
+            for (let r = 0; r <= riverRow; r++) riverY += rh[r];
+            riverY -= rh[riverRow] * 0.5;
+            const w1 = (rng() - 0.5) * 20, w2 = (rng() - 0.5) * 18;
+            const rPath = `M${ox - 20},${riverY + w1} C${ox + W * 0.3},${riverY + w1 + 20} ${ox + W * 0.65},${riverY + w2 - 18} ${ox + W + 20},${riverY + w2}`;
+            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 14, 'stroke-linecap': 'round', opacity: '0.55' }));
             g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 5, 'stroke-linecap': 'round', opacity: '0.42' }));
         }
 
         // ④ 구역 이름
         const zoneNames = ['DOWNTOWN', 'WEST SIDE', 'CENTRAL', 'RIVERSIDE', 'PARK AREA', 'HILLSIDE', 'HARBOR', 'OLD TOWN'];
-        const zn = zoneNames[seed % zoneNames.length];
-        g.appendChild(this._el('text', { x: ox + W * 0.25, y: oy + H * 0.45, fill: '#B8B0A0', 'font-size': '11', 'font-weight': '600', 'letter-spacing': '3', opacity: '0.42' }, zn));
+        g.appendChild(this._el('text', { x: ox + W * 0.3, y: oy + H * 0.48, fill: '#B8B0A0', 'font-size': '11', 'font-weight': '600', 'letter-spacing': '3', opacity: '0.38' }, zoneNames[seed % zoneNames.length]));
 
         this._cityBgEl = g;
     }

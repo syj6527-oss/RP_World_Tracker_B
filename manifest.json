@@ -1,0 +1,12 @@
+{
+    "display_name": "🐶 World Tracker",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Yun",
+    "version": "0.3.0-beta",
+    "homePage": "https://github.com/syj6527-oss/RP_World_Tracker",
+    "auto_update": true
+}

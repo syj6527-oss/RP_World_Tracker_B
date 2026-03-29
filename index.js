@@ -11,6 +11,9 @@ import { UIManager } from './ui-manager.js';
 export const EXTENSION_NAME = 'rp-world-tracker';
 export const PROMPT_KEY = 'rp-world-tracker-prompt';
 
+// ========== 확장 경로 자동 감지 (폴더명 불일치 방지) ==========
+export const EXTENSION_PATH = new URL('.', import.meta.url).pathname;
+
 // ========== 🐶/🐺 모드 아이콘 ==========
 export function wtMascot() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🐺' : '🐶'; }
 export function wtTreat() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🍖' : '🦴'; }

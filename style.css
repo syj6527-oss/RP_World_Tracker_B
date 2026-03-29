@@ -181,3 +181,13 @@
 .wt-panel-fantasy .wt-search-name{color:#3E2723!important;font-family:'Georgia',serif!important}
 .wt-panel-fantasy #wt-data-menu{background:rgba(212,197,160,0.95)!important;border-bottom-color:#8B6914!important}
 .wt-panel-fantasy .wt-panel-body::-webkit-scrollbar-thumb{background:#A0825C!important}
+
+/* 🏰 Fantasy Compass Override */
+.wt-panel-fantasy .wt-compass-overlay svg circle{stroke:#8B6914!important;fill:rgba(244,228,193,0.4)!important}
+.wt-panel-fantasy .wt-compass-overlay svg polygon:first-of-type{fill:#8B0000!important}
+.wt-panel-fantasy .wt-compass-overlay svg polygon:nth-of-type(2){fill:#6B8BA4!important}
+.wt-panel-fantasy .wt-compass-overlay svg polygon:nth-of-type(3),.wt-panel-fantasy .wt-compass-overlay svg polygon:nth-of-type(4){fill:#DAA520!important}
+.wt-panel-fantasy .wt-compass-overlay svg text{font-family:'Georgia',serif!important}
+.wt-panel-fantasy .wt-compass-overlay svg text:first-of-type{fill:#8B0000!important}
+.wt-panel-fantasy .wt-compass-overlay svg text:nth-of-type(2){fill:#6B8BA4!important}
+.wt-panel-fantasy .wt-compass-overlay svg text:nth-of-type(3),.wt-panel-fantasy .wt-compass-overlay svg text:nth-of-type(4){fill:#8B6914!important}

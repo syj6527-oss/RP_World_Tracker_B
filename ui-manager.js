@@ -2,7 +2,7 @@
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
-import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat } from './index.js';
+import { EXTENSION_NAME, EXTENSION_PATH, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat } from './index.js';
 import { MapRenderer } from './map-renderer.js';
 import { LeafletRenderer } from './leaflet-renderer.js';
 
@@ -155,7 +155,7 @@ export class UIManager {
                     <div id="wt-search-bar" class="wt-search-bar">
                         <div style="display:flex;gap:2px;margin-bottom:3px">
                             <button id="wt-search-tab-loc" class="wt-mode-btn wt-mode-active" style="flex:1;padding:4px;font-size:11px">🔍 장소</button>
-                            <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px">📍 주소</button>
+                            <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px;display:none">📍 주소</button>
                         </div>
                         <input type="search" id="wt-search-input" class="wt-input" placeholder="🔍 등록된 장소 검색..." autocomplete="off" inputmode="search"/>
                         <div id="wt-search-results" class="wt-search-results" style="display:none"></div>
@@ -653,9 +653,8 @@ export class UIManager {
             const container = document.querySelector('#wt-map-container');
             if (container) {
                 container.classList.add('wt-fantasy-theme');
-                // JS 백업: CSS url() 실패 시 동적 경로 설정
-                const extPath = `/scripts/extensions/third-party/${EXTENSION_NAME}`;
-                container.style.backgroundImage = `url('${extPath}/parchment.jpg')`;
+                // 양피지 배경: import.meta.url 기반 경로 (폴더명 자동 감지)
+                container.style.backgroundImage = `url('${EXTENSION_PATH}parchment.jpg')`;
                 container.style.backgroundSize = 'cover';
                 container.style.backgroundPosition = 'center';
             }
@@ -680,6 +679,20 @@ export class UIManager {
             const c = document.querySelector('#wt-map-container');
             if (c) { c.classList.remove('wt-fantasy-theme'); c.style.backgroundImage = ''; c.style.backgroundSize = ''; c.style.backgroundPosition = ''; }
             if (this.mapRenderer) this.mapRenderer.fantasyMode = false;
+        }
+
+        // Fix 3+4: 주소 탭 → 실제지도에서만 표시
+        if (mode === 'leaflet') {
+            $('#wt-search-tab-addr').show();
+        } else {
+            $('#wt-search-tab-addr').hide();
+            // 주소 모드였다면 장소 모드로 전환
+            if (this._searchMode === 'addr') {
+                this._searchMode = 'loc';
+                $('#wt-search-tab-loc').addClass('wt-mode-active');
+                $('#wt-search-input').attr('placeholder', '🔍 등록된 장소 검색...').val('');
+                $('#wt-search-results').hide();
+            }
         }
     }
 

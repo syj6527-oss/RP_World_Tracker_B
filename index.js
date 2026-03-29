@@ -42,11 +42,9 @@ let db, lm, det, pi, ui;
 
 // ========== 채팅 화면 활성 여부 (캐릭터 설정/선택 화면 방지) ==========
 function isChatActive() {
-    const chatVisible = document.querySelector('#sheld')?.style.display !== 'none';
-    const charEditing = document.querySelector('#character_popup')?.style.display !== 'none'
-        || document.querySelector('.zoomed_avatar[style*="display: block"]')
-        || document.querySelector('#rm_ch_create_block')?.style.display !== 'none';
-    return chatVisible && !charEditing;
+    // #send_but이 화면에 보이면 = 채팅 중 (가장 신뢰할 수 있는 체크)
+    const sendBtn = document.querySelector('#send_but');
+    return sendBtn && sendBtn.offsetParent !== null;
 }
 
 export async function loadLeaflet() {

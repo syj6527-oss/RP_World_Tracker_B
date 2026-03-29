@@ -693,7 +693,7 @@ export class UIManager {
         }
     }
 
-    // ========== 약도: 장소 클릭 → 해당 핀 중심으로 배경 재생성 ==========
+    // ========== 약도: 장소 클릭 → ViewBox만 이동 (배경 재생성 X) ==========
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;

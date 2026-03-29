@@ -132,68 +132,93 @@ export class MapRenderer {
         const rng = this._srand(seed * 31337);
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-        // Hub 영역 (ViewBox 꽉 채움 — 패딩 최소화)
-        const pad = 60;
+        // Hub 영역 (ViewBox 꽉 채움)
+        const pad = 50;
         let minX, minY, maxX, maxY;
         if (hubPins.length) {
             const xs = hubPins.map(l => l.x), ys = hubPins.map(l => l.y);
-            minX = Math.min(...xs) - pad - 80; maxX = Math.max(...xs) + pad + 80;
-            minY = Math.min(...ys) - pad - 120; maxY = Math.max(...ys) + pad + 120;
+            minX = Math.min(...xs) - pad - 100; maxX = Math.max(...xs) + pad + 100;
+            minY = Math.min(...ys) - pad - 140; maxY = Math.max(...ys) + pad + 140;
         } else {
-            minX = 20; maxX = 540; minY = 10; maxY = 510;
+            minX = 10; maxX = 540; minY = 0; maxY = 520;
         }
-        const W = Math.max(520, maxX - minX), H = Math.max(500, maxY - minY);
+        const W = Math.max(530, maxX - minX), H = Math.max(510, maxY - minY);
         const ox = minX, oy = minY;
 
-        // ① 배경 (도로 색)
-        g.appendChild(this._el('rect', { x: ox - 80, y: oy - 80, width: W + 160, height: H + 160, fill: '#F0EDE5' }));
+        // ① 배경
+        g.appendChild(this._el('rect', { x: ox - 100, y: oy - 100, width: W + 200, height: H + 200, fill: '#F0EDE5' }));
 
-        // ② 불균일 격자 (열 너비/행 높이 다양화)
+        // ② 비대칭 그리드 (열/행 크기 극단적 랜덤)
         const cols = 4, rows = 5;
         const gap = 10;
 
-        // 열 너비 비율 (0.7~1.3 랜덤)
+        // 열 너비: 50~200px 수준의 큰 편차
         const cw = [];
         let twc = 0;
-        for (let c = 0; c < cols; c++) { cw[c] = 0.7 + rng() * 0.6; twc += cw[c]; }
-        cw.forEach((_, i) => cw[i] = (cw[i] / twc) * W);
+        for (let c = 0; c < cols; c++) { cw[c] = 0.5 + rng() * 1.0; twc += cw[c]; }
+        cw.forEach((_, i) => cw[i] = Math.round((cw[i] / twc) * W));
 
-        // 행 높이 비율 (0.7~1.3 랜덤)
+        // 행 높이: 마찬가지 큰 편차
         const rh = [];
         let thr = 0;
-        for (let r = 0; r < rows; r++) { rh[r] = 0.7 + rng() * 0.6; thr += rh[r]; }
-        rh.forEach((_, i) => rh[i] = (rh[i] / thr) * H);
+        for (let r = 0; r < rows; r++) { rh[r] = 0.5 + rng() * 1.0; thr += rh[r]; }
+        rh.forEach((_, i) => rh[i] = Math.round((rh[i] / thr) * H));
 
         const parkCell = `${1 + (seed % 2)}_${1 + (seed % (cols - 1))}`;
         const riverRow = 2 + (seed % 2);
 
-        // 블록 배치
+        // 병합/광장 맵 생성 (15% 가로 병합, 8% 광장)
+        const merged = new Set();  // 병합되어 스킵할 셀
+        const plaza = new Set();   // 빈 광장
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols - 1; c++) {
+                if (merged.has(`${r}_${c}`)) continue;
+                if (rng() < 0.15 && r !== riverRow) {
+                    // 가로 2칸 병합
+                    merged.add(`${r}_${c + 1}`);
+                }
+            }
+        }
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (merged.has(`${r}_${c}`)) continue;
+                if (rng() < 0.08 && `${r}_${c}` !== parkCell && r !== riverRow) {
+                    plaza.add(`${r}_${c}`);
+                }
+            }
+        }
+
+        // ③ 블록 배치
         let yy = oy;
         for (let r = 0; r < rows; r++) {
             let xx = ox;
             for (let c = 0; c < cols; c++) {
+                const cellKey = `${r}_${c}`;
+
+                if (merged.has(cellKey)) { xx += cw[c]; continue; }  // 병합된 셀 스킵
+                if (plaza.has(cellKey)) { xx += cw[c]; continue; }   // 광장 = 빈 공간
+
+                // 병합 블록이면 다음 셀 너비까지 합침
+                const isMerged = merged.has(`${r}_${c + 1}`);
+                const bw = isMerged ? (cw[c] + cw[c + 1] - gap * 2) : (cw[c] - gap * 2);
+                const bh = rh[r] - gap * 2;
                 const bx = xx + gap;
                 const by = yy + gap;
-                const bw = cw[c] - gap * 2;
-                const bh = rh[r] - gap * 2;
-                if (bw < 25 || bh < 25) { xx += cw[c]; continue; }
 
-                const cellKey = `${r}_${c}`;
-                const isPark = cellKey === parkCell;
+                if (bw < 25 || bh < 20) { xx += cw[c]; continue; }
 
-                // 강 행 → 블록 분할
+                // 강 행 → 분할
                 const riverY = yy + rh[r] * 0.5;
-                const riverHalf = 10;
                 if (seed % 3 !== 0 && r === riverRow) {
-                    const aboveH = (riverY - riverHalf - 3) - by;
-                    const belowY = riverY + riverHalf + 3;
+                    const aboveH = (riverY - 14) - by;
+                    const belowY = riverY + 14;
                     const belowH = (by + bh) - belowY;
-                    if (aboveH > 20) this._drawBlock(g, bx, by, bw, aboveH, rng);
-                    if (belowH > 20) this._drawBlock(g, bx, belowY, bw, belowH, rng);
+                    if (aboveH > 18) this._drawBlock(g, bx, by, bw, aboveH, rng);
+                    if (belowH > 18) this._drawBlock(g, bx, belowY, bw, belowH, rng);
                     xx += cw[c]; continue;
                 }
 
-                if (isPark) {
+                if (cellKey === parkCell) {
                     this._drawPark(g, bx, by, bw, bh, rng);
                 } else {
                     this._drawBlock(g, bx, by, bw, bh, rng);
@@ -203,20 +228,23 @@ export class MapRenderer {
             yy += rh[r];
         }
 
-        // ③ 강 (S자 — 행 사이 도로 위치에 렌더)
+        // ④ 강 (과감한 S자 — 두께 25px, 다이나믹 곡선)
         if (seed % 3 !== 0) {
             let riverY = oy;
             for (let r = 0; r <= riverRow; r++) riverY += rh[r];
             riverY -= rh[riverRow] * 0.5;
-            const w1 = (rng() - 0.5) * 20, w2 = (rng() - 0.5) * 18;
-            const rPath = `M${ox - 20},${riverY + w1} C${ox + W * 0.3},${riverY + w1 + 20} ${ox + W * 0.65},${riverY + w2 - 18} ${ox + W + 20},${riverY + w2}`;
-            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 14, 'stroke-linecap': 'round', opacity: '0.55' }));
-            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 5, 'stroke-linecap': 'round', opacity: '0.42' }));
+            const w1 = (rng() - 0.5) * 35, w2 = (rng() - 0.5) * 30;
+            const rPath = `M${ox - 30},${riverY + w1} C${ox + W * 0.25},${riverY + w1 + 35} ${ox + W * 0.55},${riverY + w2 - 30} ${ox + W * 0.78},${riverY + w2 + 18} S${ox + W + 30},${riverY + w2 - 10}`;
+            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 25, 'stroke-linecap': 'round', opacity: '0.50' }));
+            g.appendChild(this._el('path', { d: rPath, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 9, 'stroke-linecap': 'round', opacity: '0.40' }));
+            // 물결 디테일
+            const rPath2 = `M${ox - 30},${riverY + w1 + 4} C${ox + W * 0.25},${riverY + w1 + 39} ${ox + W * 0.55},${riverY + w2 - 26} ${ox + W * 0.78},${riverY + w2 + 22} S${ox + W + 30},${riverY + w2 - 6}`;
+            g.appendChild(this._el('path', { d: rPath2, fill: 'none', stroke: '#D4ECF6', 'stroke-width': 2, 'stroke-linecap': 'round', opacity: '0.30' }));
         }
 
-        // ④ 구역 이름
+        // ⑤ 구역 이름
         const zoneNames = ['DOWNTOWN', 'WEST SIDE', 'CENTRAL', 'RIVERSIDE', 'PARK AREA', 'HILLSIDE', 'HARBOR', 'OLD TOWN'];
-        g.appendChild(this._el('text', { x: ox + W * 0.3, y: oy + H * 0.48, fill: '#B8B0A0', 'font-size': '11', 'font-weight': '600', 'letter-spacing': '3', opacity: '0.38' }, zoneNames[seed % zoneNames.length]));
+        g.appendChild(this._el('text', { x: ox + W * 0.3, y: oy + H * 0.48, fill: '#B8B0A0', 'font-size': '11', 'font-weight': '600', 'letter-spacing': '3', opacity: '0.35' }, zoneNames[seed % zoneNames.length]));
 
         this._cityBgEl = g;
     }

@@ -1,4 +1,4 @@
-// 🐶 월드맵 — location-manager.js (Single Scene)
+// 🐶 World Tracker — location-manager.js (Single Scene)
 
 import { getContext } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
@@ -104,7 +104,7 @@ export class LocationManager {
         this.movements = this.movements.filter(m => m.id !== movId);
     }
 
-    async setDistance(a, b, text, walk = null, level = 3) {
+    async setDistance(a, b, text, walk = null, level = 5) {
         if (!this.currentChatId) return null;
         const id = [a, b].sort().join('_');
         const d = { id, chatId: this.currentChatId, fromId: a, toId: b, distanceText: text, walkTime: walk, level: level, updatedAt: Date.now() };
@@ -122,11 +122,9 @@ export class LocationManager {
     }
 
     _autoPos() {
-        // 월드 좌표 중심 (고정 월드 3000×2400 기준)
-        const WCX = 1500, WCY = 1200;
-        const n = this.locations.length; if (n === 0) return { x: WCX, y: WCY };
+        const n = this.locations.length; if (n === 0) return { x: 300, y: 250 };
         const a = n * 0.8, r = 80 + n * 25;
-        return { x: Math.round(WCX + r * Math.cos(a)), y: Math.round(WCY + r * Math.sin(a)) };
+        return { x: Math.round(300 + r * Math.cos(a)), y: Math.round(250 + r * Math.sin(a)) };
     }
 
     _rndColor() {

@@ -77,25 +77,14 @@ export class MapRenderer {
             return !d || (d.level || 5) <= 6;
         }) : locations;
 
-        // 레이아웃 (Hub 핀만)
+        // 레이아웃
         if (hubPins.length >= 2) this._autoLayout(hubPins, curLoc);
-        // 단일 핀 좌표 보정
         if (curLoc && curLoc.x === 0 && curLoc.y === 0) {
             curLoc.x = 300; curLoc.y = 280;
             this.lm.updateLocation(curLoc.id, { x: curLoc.x, y: curLoc.y });
         }
 
-        // Hub 배경 생성 (Hub 변경 시만 재생성)
-        const hubKey = curLoc ? curLoc.id : 'empty';
-        const chatId = this.lm.currentChatId || 'default';
-        const seed = this._hashStr(chatId + hubKey) % 10000 + 1;
-        if (!this._cityBgEl || this._cityHubKey !== hubKey) {
-            this._buildHubCity(hubPins, curLoc, seed);
-            this._cityHubKey = hubKey;
-        }
-        if (this._cityBgEl) this.svg.appendChild(this._cityBgEl.cloneNode(true));
-
-        // 카메라 (Hub 핀만 기준)
+        // ★ ViewBox 먼저 계산
         const cW = this.container?.offsetWidth || 360;
         const cH = this.container?.offsetHeight || 480;
         const aspect = cW / cH;
@@ -115,7 +104,17 @@ export class MapRenderer {
         }
         this._applyVB();
 
-        // 핀, 거리선, 나침반 (Hub 핀만)
+        // ★ ViewBox 영역 기반으로 도시 생성 (꽉 채움 보장)
+        const hubKey = curLoc ? curLoc.id : 'empty';
+        const chatId = this.lm.currentChatId || 'default';
+        const seed = this._hashStr(chatId + hubKey) % 10000 + 1;
+        if (!this._cityBgEl || this._cityHubKey !== hubKey) {
+            this._buildHubCity(this.vb, seed);
+            this._cityHubKey = hubKey;
+        }
+        if (this._cityBgEl) this.svg.appendChild(this._cityBgEl.cloneNode(true));
+
+        // 핀, 거리선, 나침반
         this._drawDistLines(hubPins, movements);
         this._drawPins(hubPins, currentLocationId);
         this._drawCompass(this.vb);
@@ -128,22 +127,14 @@ export class MapRenderer {
     // ================================================================
     //  Hub 도시 배경 (목업 v4.1 디자인 — rect 그리드)
     // ================================================================
-    _buildHubCity(hubPins, curLoc, seed) {
+    _buildHubCity(vb, seed) {
         const rng = this._srand(seed * 31337);
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-        // Hub 영역 (ViewBox 꽉 채움)
-        const pad = 50;
-        let minX, minY, maxX, maxY;
-        if (hubPins.length) {
-            const xs = hubPins.map(l => l.x), ys = hubPins.map(l => l.y);
-            minX = Math.min(...xs) - pad - 100; maxX = Math.max(...xs) + pad + 100;
-            minY = Math.min(...ys) - pad - 140; maxY = Math.max(...ys) + pad + 140;
-        } else {
-            minX = 10; maxX = 540; minY = 0; maxY = 520;
-        }
-        const W = Math.max(530, maxX - minX), H = Math.max(510, maxY - minY);
-        const ox = minX, oy = minY;
+        // ★ ViewBox 영역 + 마진 = 도시 생성 범위 (화면 꽉 채움 보장)
+        const margin = 80;
+        const ox = vb.x - margin, oy = vb.y - margin;
+        const W = vb.w + margin * 2, H = vb.h + margin * 2;
 
         // ① 배경
         g.appendChild(this._el('rect', { x: ox - 100, y: oy - 100, width: W + 200, height: H + 200, fill: '#F0EDE5' }));

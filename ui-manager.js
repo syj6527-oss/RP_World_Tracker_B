@@ -693,17 +693,12 @@ export class UIManager {
         }
     }
 
-    // ========== 약도: 장소 클릭 → 해당 핀 중심 약도 재생성 (팝오버 X, 이동 X) ==========
+    // ========== 약도: 장소 클릭 → 해당 핀 중심으로 배경 재생성 ==========
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
-        if (locId === this.lm.currentLocationId) return; // 현재 위치 터치 → 무시
-        // 해당 핀 중심으로 ViewBox 이동 + 배경 재생성
-        if (this.mapRenderer) {
-            this.mapRenderer._vbManual = true;
-            this.mapRenderer.vb.x = loc.x - (this.mapRenderer.vb?.w || 500) / 2;
-            this.mapRenderer.vb.y = loc.y - (this.mapRenderer.vb?.h || 600) / 2;
-            this.mapRenderer.render();
+        if (this.mapRenderer?.recenterOn) {
+            this.mapRenderer.recenterOn(locId);
         }
     }
 

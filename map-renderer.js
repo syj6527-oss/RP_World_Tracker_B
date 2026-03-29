@@ -226,8 +226,8 @@ export class MapRenderer {
         if (locations.length >= 2) this._autoLayout();
 
         // Bug H: 컨테이너 비율에 맞춰 ViewBox 설정 (가로 꽉 채움)
-        const containerW = this.container?.offsetWidth || 600;
-        const containerH = this.container?.offsetHeight || 400;
+        const containerW = Math.max(this.container?.offsetWidth || 600, 300);
+        const containerH = Math.max(this.container?.offsetHeight || 400, 300);
         const aspect = containerW / containerH;
 
         if (locations.length) {
@@ -235,15 +235,18 @@ export class MapRenderer {
             const xs = locations.map(l => l.x), ys = locations.map(l => l.y);
             const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
             const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
-            const w = Math.max(400, maxX - minX);
-            const h = Math.max(w / aspect, maxY - minY);
+            const contentW = Math.max(400, maxX - minX);
+            const contentH = Math.max(300, maxY - minY);
+            // 컨테이너 비율에 맞추되 최소 크기 보장
+            const w = contentW;
+            const h = Math.max(contentH, w / aspect);
             this.vb = { x: minX, y: minY, w, h };
         } else {
-            this.vb = { x: 0, y: 0, w: 600, h: Math.round(600 / aspect) };
+            this.vb = { x: 0, y: 0, w: 600, h: Math.max(400, Math.round(600 / aspect)) };
         }
         this._applyVB();
         // SVG가 컨테이너를 꽉 채우도록
-        this.svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        this.svg.setAttribute('preserveAspectRatio', 'xMidYMid slice');
 
         const vb = this.vb;
         let svg = `<defs>

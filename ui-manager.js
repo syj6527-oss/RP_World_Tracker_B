@@ -699,11 +699,13 @@ export class UIManager {
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
-        if (locId === this.lm.currentLocationId) return; // 이미 현재 위치면 스킵
+        if (locId === this.lm.currentLocationId) return;
         await this.lm.moveTo(locId);
+        // ViewBox 이동 (카메라 팬) — 핀 좌표는 그대로, 배경만 재생성!
         if (this.mapRenderer) {
-            this.mapRenderer._layoutDirty = true;
-            this.mapRenderer._layoutDone = false; // 강제 재계산
+            this.mapRenderer._vbManual = true; // render()에서 ViewBox 재계산 스킵
+            this.mapRenderer.vb.x = loc.x - (this.mapRenderer.vb?.w || 500) / 2;
+            this.mapRenderer.vb.y = loc.y - (this.mapRenderer.vb?.h || 600) / 2;
             this.mapRenderer.render();
         }
         this.pi?.inject();

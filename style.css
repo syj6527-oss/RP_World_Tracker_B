@@ -9,7 +9,7 @@
 /* 🐶 World Tracker v0.2.0-beta */
 :root{--wt-cream:#F5F4ED;--wt-yellow:#F7EC8D;--wt-yellow-d:#F6A93A;--wt-pink:#8B6EC7;--wt-mint:#5E84E2;--wt-brown:#775537;--wt-brown-l:#A08060;--wt-brown-f:#C4A882;--wt-bg:#F5F4ED;--wt-surface:#FAFAF5;--wt-border:#E8E4D8;--wt-text:#5A4030;--wt-text-dim:#9A8A7A;--wt-r:12px;--wt-rs:8px}
 
-.wt-panel{position:fixed;top:0;right:-100%;width:100%;height:100dvh;background:var(--wt-bg);z-index:99999;display:flex;flex-direction:column;transition:right .3s cubic-bezier(.4,0,.2,1);font-family:-apple-system,'Noto Sans KR',sans-serif;overflow:hidden;pointer-events:none}
+.wt-panel{position:fixed;top:0;right:-100%;width:100%;max-width:100vw;height:100dvh;background:var(--wt-bg);z-index:99999;display:flex;flex-direction:column;transition:right .3s cubic-bezier(.4,0,.2,1);font-family:-apple-system,'Noto Sans KR',sans-serif;overflow:hidden;pointer-events:none}
 .wt-panel-open{right:0!important;pointer-events:auto!important}
 @media(min-width:768px){.wt-panel{width:380px;right:-400px;border-left:2px solid var(--wt-border)}}
 
@@ -36,7 +36,7 @@
 /* Map */
 .wt-map-toggle,.wt-add-toggle{padding:8px 14px;background:var(--wt-surface);border-radius:var(--wt-rs);border:1px solid var(--wt-border);text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:var(--wt-brown-l);-webkit-tap-highlight-color:transparent}
 .wt-map-toggle:active,.wt-add-toggle:active{background:var(--wt-yellow)}
-.wt-map-wrap{position:relative;overflow:hidden}
+.wt-map-wrap{position:relative;overflow:hidden;max-width:100%}
 .wt-compass-overlay{position:absolute;bottom:8px;left:8px;pointer-events:none;opacity:0.7;z-index:1}
 .wt-map-mode-bar{display:flex;gap:4px;padding:4px;background:var(--wt-surface);border-radius:var(--wt-rs);border:1px solid var(--wt-border);margin-bottom:4px}
 .wt-mode-btn{flex:1;padding:6px;background:transparent;border:1.5px solid transparent;border-radius:6px;font-size:12px;font-weight:600;color:var(--wt-text-dim);cursor:pointer;text-align:center;font-family:inherit;-webkit-tap-highlight-color:transparent}

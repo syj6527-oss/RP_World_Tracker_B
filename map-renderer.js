@@ -66,9 +66,18 @@ export class MapRenderer {
         const cW = this.container?.offsetWidth || 360;
         const cH = this.container?.offsetHeight || 480;
         const aspect = cW / cH;
-        let vbW = 500, vbH = Math.round(vbW / aspect);
-        const cx = 300, cy = Math.round(vbH / 2); // 중앙
-        this.vb = { x: cx - vbW / 2, y: cy - vbH / 2, w: vbW, h: vbH };
+        const vbW = 500, vbH = Math.round(vbW / aspect);
+        if (!this._vbManual) {
+            // 자동 ViewBox: 현재 위치 중심
+            const curLoc = locations.find(l => l.id === currentLocationId) || locations[0];
+            const cx = curLoc ? curLoc.x : 300;
+            const cy = curLoc ? curLoc.y : Math.round(vbH / 2);
+            this.vb = { x: cx - vbW / 2, y: cy - vbH / 2, w: vbW, h: vbH };
+        } else {
+            // 수동 ViewBox (핀 클릭으로 팬): 크기만 업데이트
+            this.vb.w = vbW; this.vb.h = vbH;
+            this._vbManual = false;
+        }
         this._applyVB();
         const vb = this.vb;
         const ex = 30; // 화면 밖 확장값

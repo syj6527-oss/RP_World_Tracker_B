@@ -168,7 +168,7 @@ export class MapRenderer {
             for (let r = 0; r <= riverRow; r++) ry += rh[r];
             ry -= rh[riverRow] * 0.5;
             const w1 = (rng() - 0.5) * 35, w2 = (rng() - 0.5) * 30;
-            const rP = `M${ox - 50},${ry + w1} C${ox + W * 0.25},${ry + w1 + 40} ${ox + W * 0.5},${ry + w2 - 35} ${ox + W * 0.75},${ry + w2 + 25} S${ox + W + 50},${ry + w2 - 10}`;
+            const rP = `M${ox - 500},${ry + w1} C${ox + W * 0.2},${ry + w1 + 40} ${ox + W * 0.5},${ry + w2 - 35} ${ox + W * 0.75},${ry + w2 + 25} S${ox + W + 500},${ry + w2 - 10}`;
             riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 42, 'stroke-linecap': 'round', opacity: '0.50' }));
             riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 16, 'stroke-linecap': 'round', opacity: '0.40' }));
         }
@@ -181,7 +181,22 @@ export class MapRenderer {
             let xx = ox;
             for (let c = 0; c < cols; c++) {
                 const ck = `${r}_${c}`;
-                if (merged.has(ck) || plaza.has(ck)) { xx += cw[c]; continue; }
+                if (merged.has(ck)) { xx += cw[c]; continue; }
+
+                // 광장 셀 → 호수 또는 미니 공원으로 채우기 (빈 공간 방지)
+                if (plaza.has(ck)) {
+                    const px = xx + margin, py = yy + margin;
+                    const pw = cw[c] - margin * 2, ph = rh[r] - margin * 2;
+                    if (pw > 20 && ph > 16) {
+                        if (rng() < 0.5) {
+                            // 호수
+                            blocksLayer.appendChild(this._el('ellipse', { cx: px + pw / 2, cy: py + ph / 2, rx: pw * 0.42, ry: ph * 0.38, fill: '#9CC5E0', opacity: '0.35' }));
+                        } else {
+                            this._drawPark(blocksLayer, px, py, pw, ph, rng);
+                        }
+                    }
+                    xx += cw[c]; continue;
+                }
 
                 const isMg = merged.has(`${r}_${c + 1}`);
                 const bx = xx + margin, by = yy + margin;
@@ -221,16 +236,15 @@ export class MapRenderer {
 
     // ========== 건물 (단순 rect 1~2개, 여백 넉넉히) ==========
     _drawBuildings(parent, bx, by, bw, bh, rng) {
-        const m = bw * 0.12; // 여백
+        const m = bw * 0.08; // 여백 축소
         const count = 1 + Math.floor(rng() * 2); // 1~2개
         const tones = ['#D0CBC0', '#C8C3B8', '#D5D0C6', '#CCC7BC'];
         const placed = [];
 
         for (let i = 0; i < count * 4; i++) {
             if (placed.length >= count) break;
-            // 다양한 비율
-            const wr = 0.2 + rng() * 0.35; // 블록 대비 20~55%
-            const hr = 0.2 + rng() * 0.35;
+            const wr = 0.40 + rng() * 0.30; // 블록 대비 40~70%
+            const hr = 0.40 + rng() * 0.30;
             const w = bw * wr, h = bh * hr;
             const x = bx + m + rng() * Math.max(0, bw - m * 2 - w);
             const y = by + m + rng() * Math.max(0, bh - m * 2 - h);

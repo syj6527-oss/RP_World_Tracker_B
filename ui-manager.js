@@ -553,7 +553,7 @@ export class UIManager {
             }
             if (!this.mapRenderer && container) {
                 this.mapRenderer = new MapRenderer(container, this.lm);
-                this.mapRenderer.onLocationClick = id => this.showPop(id);
+                this.mapRenderer.onLocationClick = id => this._yakdoRecenter(id);
                 this.mapRenderer.onMoveRequest = (id, name) => {
                     wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
                 };
@@ -593,7 +593,7 @@ export class UIManager {
                 const container = document.querySelector('#wt-map-container');
                 if (container) {
                     this.mapRenderer = new MapRenderer(container, this.lm);
-                    this.mapRenderer.onLocationClick = id => this.showPop(id);
+                    this.mapRenderer.onLocationClick = id => this._yakdoRecenter(id);
                     this.mapRenderer.onMoveRequest = (id, name) => {
                         wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
                     };
@@ -659,7 +659,7 @@ export class UIManager {
             if (!this.mapRenderer) {
                 if (container) {
                     this.mapRenderer = new MapRenderer(container, this.lm);
-                    this.mapRenderer.onLocationClick = id => this.showPop(id);
+                    this.mapRenderer.onLocationClick = id => this._yakdoRecenter(id);
                     this.mapRenderer.onMoveRequest = (id, name) => {
                         wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
                     };
@@ -692,6 +692,22 @@ export class UIManager {
                 $('#wt-search-results').hide();
             }
         }
+    }
+
+    // ========== 약도: 장소 클릭 → 해당 장소 중심 재생성 ==========
+    async _yakdoRecenter(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+        await this.lm.moveTo(locId);
+        if (this.mapRenderer) {
+            this.mapRenderer._layoutDirty = true;
+            this.mapRenderer.render();
+        }
+        this.pi?.inject();
+        this._updLocList(); this._updMoveList();
+        const cur = this.lm.locations.find(l => l.id === this.lm.currentLocationId);
+        $('#wt-scene-name').text(cur?.name || '—').css('color', cur?.color || '');
+        wtNotify(`${wtMascot()} ${loc.name}`, 'move');
     }
 
     // ========== 장소 목록 / 이동 히스토리 ==========

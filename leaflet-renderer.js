@@ -152,35 +152,7 @@ export class LeafletRenderer {
             latlngs.push([loc.lat, loc.lng]);
         }
 
-        // ========== 경로선 + 거리 라벨 (목업 기반) ==========
-        const drawn = new Set();
-        for (const m of movements) {
-            const f = locations.find(l => l.id === m.fromId);
-            const t = locations.find(l => l.id === m.toId);
-            if (!f?.lat || !f?.lng || !t?.lat || !t?.lng) continue;
-            const k = [m.fromId, m.toId].sort().join('-');
-            if (drawn.has(k)) continue; drawn.add(k);
-
-            // 점선 경로
-            const line = L.polyline([[f.lat, f.lng], [t.lat, t.lng]], {
-                color: '#5E84E2', weight: 2.5, dashArray: '8 6', opacity: 0.6,
-            }).addTo(this.map);
-            this.pathLines.push(line);
-
-            // 경로 중간에 거리 라벨
-            const dist = this.lm.getDistanceBetween(m.fromId, m.toId);
-            if (dist?.distanceText) {
-                const midLat = (f.lat + t.lat) / 2;
-                const midLng = (f.lng + t.lng) / 2;
-                const labelIcon = L.divIcon({
-                    html: `<div class="wt-dist-label">${dist.distanceText}</div>`,
-                    className: '', iconSize: [0, 0],
-                });
-                const labelMarker = L.marker([midLat, midLng], { icon: labelIcon, interactive: false });
-                labelMarker.addTo(this.map);
-                this.distLabels.push(labelMarker);
-            }
-        }
+        // 경로선 삭제됨 — 약도에서 표현하므로 실제지도는 마커만
 
         // 뷰 조정 (첫 렌더링만)
         const curLoc = locations.find(l => l.id === currentLocationId);

@@ -62,11 +62,11 @@ export class MapRenderer {
         const { locations, movements, currentLocationId } = this.lm;
         if (locations.length >= 2) this._autoLayout();
 
-        // ViewBox 계산
+        // ViewBox 계산 (패딩 축소 → 꽉 차게)
         if (locations.length) {
-            const pad = 90;
+            const pad = 55;
             const xs = locations.map(l => l.x), ys = locations.map(l => l.y);
-            this.vb = { x: Math.min(...xs) - pad, y: Math.min(...ys) - pad, w: Math.max(350, Math.max(...xs) - Math.min(...xs) + pad * 2), h: Math.max(280, Math.max(...ys) - Math.min(...ys) + pad * 2) };
+            this.vb = { x: Math.min(...xs) - pad, y: Math.min(...ys) - pad - 20, w: Math.max(300, Math.max(...xs) - Math.min(...xs) + pad * 2), h: Math.max(250, Math.max(...ys) - Math.min(...ys) + pad * 2 + 20) };
         } else {
             this.vb = { x: 0, y: 0, w: 600, h: 500 };
         }

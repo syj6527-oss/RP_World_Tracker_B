@@ -292,10 +292,6 @@ export class MapRenderer {
             if (cur) svg += `<text x="${loc.x}" y="${loc.y - 24}" text-anchor="middle" font-size="14">🐾</text>`;
         }
 
-        // 나침반 장미
-        const compassX = vb.x + vb.w - 40, compassY = vb.y + vb.h - 40;
-        svg += this._compassRose(compassX, compassY);
-
         if (!locations.length) {
             svg += `<text x="${vb.x + vb.w/2}" y="${vb.y + vb.h/2}" text-anchor="middle" fill="#5D4037" font-size="14" font-family="'Georgia',serif" font-style="italic">모험을 시작해보세요... 🏰</text>`;
         }

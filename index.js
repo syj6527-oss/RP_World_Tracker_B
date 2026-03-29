@@ -42,9 +42,11 @@ let db, lm, det, pi, ui;
 
 // ========== 채팅 화면 활성 여부 (캐릭터 설정/선택 화면 방지) ==========
 function isChatActive() {
-    // #send_but이 화면에 보이면 = 채팅 중 (가장 신뢰할 수 있는 체크)
+    // offsetParent는 position:fixed에서 null 반환 → getBoundingClientRect 사용
     const sendBtn = document.querySelector('#send_but');
-    return sendBtn && sendBtn.offsetParent !== null;
+    if (!sendBtn) return false;
+    const rect = sendBtn.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
 }
 
 export async function loadLeaflet() {
@@ -164,14 +166,17 @@ async function init() {
     eventSource.on(event_types.CHAT_CHANGED, async () => {
         pi.clear(); lastId = null;
         // 타이밍: SillyTavern이 chatId 갱신할 때까지 대기
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 300));
         const newId = lm.getChatId();
         dbg(`🔄 CHAT_CHANGED → ${newId}`);
         await lm.loadChat();
         pi.inject();
-        ui.resetMap(); // 지도 리셋
+        ui.resetMap();
         if (ui.panelVisible) ui.refresh();
-        await scanContext();
+        // scanContext: 첫 시도 실패 시 1초 후 재시도
+        if (!await scanContext()) {
+            setTimeout(() => scanContext(), 1000);
+        }
     });
 
     if (event_types.MESSAGE_SENDING) {
@@ -190,12 +195,12 @@ async function init() {
 async function scanContext() {
     try {
         const s = extension_settings[EXTENSION_NAME];
-        if (!s?.enabled || !s?.autoDetect || !lm.currentChatId) return;
+        if (!s?.enabled || !s?.autoDetect || !lm.currentChatId) return true; // 설정 비활성 = 정상
         const ctx = getContext();
-        if (!ctx?.characterId) return;
+        if (!ctx?.characterId) return true;
 
-        // Bug I: 채팅 화면 활성 체크 (send 버튼이 보이는 경우만 = 채팅 중)
-        if (!isChatActive()) return;
+        // Bug I: 채팅 화면 활성 체크
+        if (!isChatActive()) return false; // false = 재시도 필요
 
         // Task 2: 장소가 1개라도 있으면 재스캔 스킵
         if (lm.locations.length > 0) return;

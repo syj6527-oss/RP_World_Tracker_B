@@ -126,24 +126,11 @@
 .wt-select{max-width:160px;font-size:12px}.wt-select-full{max-width:100%!important;width:100%}.wt-open-btn{width:100%}
 #wt-wand-btn{cursor:pointer}#wt-wand-btn:hover{background:rgba(0,0,0,.05)}
 
-/* 🏰 Fantasy Map Theme — 자연스러운 양피지 배경 (CSS 고정, 줌/팬 영향 없음) */
+/* 🏰 Fantasy Map Theme — 실제 양피지 텍스처 배경 */
 .wt-fantasy-theme{
-    background:
-        /* 가장자리 어두움 (비네팅) */
-        radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(139,105,50,0.25) 75%, rgba(101,67,33,0.45) 100%),
-        /* 얼룩 1 — 왼쪽 위 */
-        radial-gradient(ellipse at 22% 25%, rgba(180,145,85,0.2) 0%, transparent 50%),
-        /* 얼룩 2 — 오른쪽 아래 */
-        radial-gradient(ellipse at 75% 72%, rgba(165,130,70,0.18) 0%, transparent 45%),
-        /* 얼룩 3 — 중앙 상단 */
-        radial-gradient(ellipse at 48% 12%, rgba(150,120,65,0.12) 0%, transparent 40%),
-        /* 얼룩 4 — 왼쪽 하단 */
-        radial-gradient(ellipse at 15% 80%, rgba(160,125,60,0.15) 0%, transparent 35%),
-        /* 베이스 양피지 그라디언트 */
-        radial-gradient(ellipse at 45% 45%, #F0DEB4 0%, #E4CFA0 35%, #D4BB88 65%, #C4A870 100%)
-    !important;
+    background:url('/scripts/extensions/third-party/rp-world-tracker/parchment.jpg') center/cover no-repeat!important;
     border-color:#8B6914!important;
-    box-shadow:inset 0 0 30px rgba(101,67,33,0.15)!important
+    box-shadow:inset 0 0 30px rgba(101,67,33,0.2)!important
 }
 .wt-fantasy-theme .wt-map-svg{cursor:grab;background:transparent}
 .wt-fantasy-theme .wt-map-svg:active{cursor:grabbing}

@@ -650,10 +650,15 @@ export class UIManager {
             // 🏰 판타지 모드: 노드 맵 + 판타지 테마
             $('#wt-leaflet-wrap').hide();
             $('#wt-map-wrap').show();
-            // Bug B: HTML 나침반 숨김 (판타지는 SVG 내장 나침반 사용)
-            $('.wt-compass-overlay').hide();
             const container = document.querySelector('#wt-map-container');
-            if (container) container.classList.add('wt-fantasy-theme');
+            if (container) {
+                container.classList.add('wt-fantasy-theme');
+                // JS 백업: CSS url() 실패 시 동적 경로 설정
+                const extPath = `/scripts/extensions/third-party/${EXTENSION_NAME}`;
+                container.style.backgroundImage = `url('${extPath}/parchment.jpg')`;
+                container.style.backgroundSize = 'cover';
+                container.style.backgroundPosition = 'center';
+            }
             if (!this.mapRenderer) {
                 if (container) {
                     this.mapRenderer = new MapRenderer(container, this.lm);
@@ -672,10 +677,9 @@ export class UIManager {
 
         // 판타지 테마 토글: node 또는 leaflet 모드면 제거
         if (mode !== 'fantasy') {
-            document.querySelector('#wt-map-container')?.classList.remove('wt-fantasy-theme');
+            const c = document.querySelector('#wt-map-container');
+            if (c) { c.classList.remove('wt-fantasy-theme'); c.style.backgroundImage = ''; c.style.backgroundSize = ''; c.style.backgroundPosition = ''; }
             if (this.mapRenderer) this.mapRenderer.fantasyMode = false;
-            // Bug B: HTML 나침반 복원
-            $('.wt-compass-overlay').show();
         }
     }
 

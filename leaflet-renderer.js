@@ -9,8 +9,29 @@ export class LeafletRenderer {
         this.map = null;
         this.markers = {};
         this.pathLines = [];
+        this.distLabels = []; // 경로 위 거리 라벨
         this.onLocationClick = null;
         this._placingLocId = null; // 좌표 배치 모드
+    }
+
+    // ========== 장소 타입별 컬러 + 이모지 ==========
+    _locStyle(name) {
+        const lo = name.toLowerCase();
+        if (/카페|cafe|coffee|커피/i.test(lo)) return { color: '#E74C3C', emoji: '🐱', border: '#C0392B' };
+        if (/서점|book|도서|library|서재/i.test(lo)) return { color: '#3498DB', emoji: '📚', border: '#2980B9' };
+        if (/집|home|house|숙소|기숙/i.test(lo)) return { color: '#27AE60', emoji: '🏠', border: '#1E8449' };
+        if (/공원|park|정원|garden|광장/i.test(lo)) return { color: '#2ECC71', emoji: '🌳', border: '#27AE60' };
+        if (/문구|stationery|편의|convenience|마트|mart|가게|shop|store/i.test(lo)) return { color: '#F39C12', emoji: '🏪', border: '#D68910' };
+        if (/식당|restaurant|음식|레스토랑/i.test(lo)) return { color: '#E67E22', emoji: '🍽️', border: '#CA6F1E' };
+        if (/학교|school|학원|academy/i.test(lo)) return { color: '#9B59B6', emoji: '🎓', border: '#7D3C98' };
+        if (/병원|hospital|의원|clinic/i.test(lo)) return { color: '#1ABC9C', emoji: '🏥', border: '#17A589' };
+        if (/역|station|지하철|subway|버스|bus/i.test(lo)) return { color: '#34495E', emoji: '🚉', border: '#2C3E50' };
+        if (/술집|bar|pub|tavern|주점/i.test(lo)) return { color: '#8E44AD', emoji: '🍺', border: '#6C3483' };
+        if (/체육|gym|운동|fitness|arena/i.test(lo)) return { color: '#E74C3C', emoji: '💪', border: '#C0392B' };
+        if (/성|castle|궁|palace|요새/i.test(lo)) return { color: '#7F8C8D', emoji: '🏰', border: '#616A6B' };
+        if (/숲|forest|산|mountain/i.test(lo)) return { color: '#1E8449', emoji: '🌲', border: '#145A32' };
+        if (/해변|beach|바다|sea|강|river|호수|lake/i.test(lo)) return { color: '#2980B9', emoji: '🌊', border: '#1F618D' };
+        return { color: '#F6A93A', emoji: '📍', border: '#D68910' };
     }
 
     async init() {
@@ -73,35 +94,47 @@ export class LeafletRenderer {
     render() {
         if (!this.map) return;
 
-        // 기존 마커/경로 제거
+        // 기존 마커/경로/라벨 제거
         for (const id in this.markers) { this.map.removeLayer(this.markers[id]); }
         this.markers = {};
         this.pathLines.forEach(l => this.map.removeLayer(l));
         this.pathLines = [];
+        this.distLabels.forEach(l => this.map.removeLayer(l));
+        this.distLabels = [];
 
         const { locations, movements, currentLocationId } = this.lm;
-        const latlngs = []; // 좌표 있는 장소들 (fitBounds용)
+        const latlngs = [];
 
-        // 마커 표시 (#4 균일 크기 divIcon + 색상 코딩)
+        // ========== 커스텀 컬러 마커 (목업 기반) ==========
         for (const loc of locations) {
             if (!loc.lat || !loc.lng) continue;
 
             const isCur = loc.id === currentLocationId;
             const v = loc.visitCount || 0;
-            const color = isCur ? '#8B6EC7' : v >= 5 ? '#5E84E2' : v >= 2 ? '#F6A93A' : '#F7EC8D';
-            const textColor = (color === '#F7EC8D') ? '#5A4030' : '#fff';
+            const style = this._locStyle(loc.name);
+            const size = isCur ? 32 : 26;
+            const shadow = isCur ? 'box-shadow:0 0 12px rgba(139,110,199,0.6);' : 'box-shadow:0 2px 6px rgba(0,0,0,0.25);';
 
-            const iconHtml = `<div style="width:24px;height:24px;border-radius:50%;background:${color};border:${isCur?'3px solid #775537':'2px solid #9e8e7e'};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${textColor};box-shadow:${isCur?'0 0 8px rgba(139,110,199,0.5)':'none'}">${v||''}</div>`;
-            const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [24, 24], iconAnchor: [12, 12] });
+            const iconHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${style.color};border:${isCur?'3px solid #775537':'2px solid '+style.border};display:flex;align-items:center;justify-content:center;font-size:${isCur?16:13}px;${shadow}position:relative"><span style="pointer-events:none">${style.emoji}</span>${isCur?'<span style="position:absolute;top:-14px;font-size:12px;pointer-events:none">🐾</span>':''}</div>`;
+            const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
             const marker = L.marker([loc.lat, loc.lng], { icon });
 
+            // 라벨
             marker.bindTooltip(loc.name + (isCur ? ' 🐾' : ''), {
-                permanent: true, direction: 'bottom', offset: [0, 12],
+                permanent: true, direction: 'bottom', offset: [0, size/2 + 2],
                 className: 'wt-leaflet-label',
             });
-            marker.bindPopup(`<b>${loc.name}</b><br>방문 ${v}회`);
-            // 클릭 → 팝오버
-            marker.on('click', () => { if (this.onLocationClick) this.onLocationClick(loc.id); });
+
+            // ========== 리치 팝업 (목업 기반) ==========
+            const popupContent = this._buildPopup(loc, isCur);
+            marker.bindPopup(popupContent, { maxWidth: 260, className: 'wt-leaflet-popup' });
+
+            // 클릭 → 팝업 표시 (팝오버 대신 맵 위 직접)
+            marker.on('click', () => {
+                marker.openPopup();
+                if (this.onLocationClick) this.onLocationClick(loc.id);
+            });
+
             // 마커 롱프레스/우클릭 → 이동 모드 활성화
             marker.on('contextmenu', (e) => {
                 L.DomEvent.stopPropagation(e);
@@ -111,7 +144,6 @@ export class LeafletRenderer {
                 this.map.getContainer().style.cursor = 'crosshair';
                 if (navigator.vibrate) navigator.vibrate(50);
                 if (this.onMoveStart) this.onMoveStart(loc.id, loc.name);
-                // 300ms 후 클릭 수신 시작 (오터치 방지)
                 setTimeout(() => { this._moveReady = true; }, 300);
             });
 
@@ -120,7 +152,7 @@ export class LeafletRenderer {
             latlngs.push([loc.lat, loc.lng]);
         }
 
-        // 경로 표시
+        // ========== 경로선 + 거리 라벨 (목업 기반) ==========
         const drawn = new Set();
         for (const m of movements) {
             const f = locations.find(l => l.id === m.fromId);
@@ -129,13 +161,28 @@ export class LeafletRenderer {
             const k = [m.fromId, m.toId].sort().join('-');
             if (drawn.has(k)) continue; drawn.add(k);
 
+            // 점선 경로
             const line = L.polyline([[f.lat, f.lng], [t.lat, t.lng]], {
-                color: '#C4A882', weight: 2, dashArray: '6 4', opacity: 0.5,
+                color: '#5E84E2', weight: 2.5, dashArray: '8 6', opacity: 0.6,
             }).addTo(this.map);
             this.pathLines.push(line);
+
+            // 경로 중간에 거리 라벨
+            const dist = this.lm.getDistanceBetween(m.fromId, m.toId);
+            if (dist?.distanceText) {
+                const midLat = (f.lat + t.lat) / 2;
+                const midLng = (f.lng + t.lng) / 2;
+                const labelIcon = L.divIcon({
+                    html: `<div class="wt-dist-label">${dist.distanceText}</div>`,
+                    className: '', iconSize: [0, 0],
+                });
+                const labelMarker = L.marker([midLat, midLng], { icon: labelIcon, interactive: false });
+                labelMarker.addTo(this.map);
+                this.distLabels.push(labelMarker);
+            }
         }
 
-        // 뷰 조정 (첫 렌더링만 — 롱프레스 후 줌아웃 방지)
+        // 뷰 조정 (첫 렌더링만)
         const curLoc = locations.find(l => l.id === currentLocationId);
         if (!this._viewSet && latlngs.length > 0) {
             if (curLoc?.lat && curLoc?.lng) {
@@ -148,8 +195,51 @@ export class LeafletRenderer {
             this._viewSet = true;
         }
 
-        // Task 6: 좌표 안내는 팝오버 안에서 표시 (맵 오버레이 제거)
         this._removeNotice();
+    }
+
+    // ========== 리치 팝업 HTML (목업 기반) ==========
+    _buildPopup(loc, isCur) {
+        const v = loc.visitCount || 0;
+        const style = this._locStyle(loc.name);
+        const visitLabel = v === 1 ? '1st visit' : v === 2 ? '2nd visit' : v === 3 ? '3rd visit' : `${v}th visit`;
+
+        // 근처 장소 찾기
+        let nearbyHtml = '';
+        const nearList = [];
+        for (const other of this.lm.locations) {
+            if (other.id === loc.id) continue;
+            const dist = this.lm.getDistanceBetween(loc.id, other.id);
+            if (dist) nearList.push({ name: other.name, text: dist.distanceText, level: dist.level || 5 });
+        }
+        if (nearList.length) {
+            const nearest = nearList.sort((a, b) => a.level - b.level)[0];
+            nearbyHtml = `<div style="font-size:11px;color:#888;margin-top:2px">Near ${nearest.name}</div>`;
+        }
+
+        // 메모
+        let memoHtml = '';
+        if (loc.memo) {
+            const snippet = loc.memo.length > 50 ? loc.memo.substring(0, 50) + '...' : loc.memo;
+            memoHtml = `<div style="font-style:italic;color:#555;font-size:12px;margin-top:6px;padding:4px 6px;background:rgba(0,0,0,0.03);border-radius:4px">"${snippet}"</div>`;
+        }
+
+        // 최근 이벤트
+        let eventHtml = '';
+        if (loc.events?.length) {
+            const latest = loc.events[loc.events.length - 1];
+            const evText = latest.text.length > 40 ? latest.text.substring(0, 40) + '...' : latest.text;
+            eventHtml = `<div style="font-size:11px;color:#5E84E2;margin-top:4px">📝 ${evText}</div>`;
+        }
+
+        return `<div style="min-width:160px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                <span style="font-size:16px">${style.emoji}</span>
+                <b style="font-size:14px;color:#333">${loc.name}</b>
+            </div>
+            <div style="font-size:12px;color:#777">${visitLabel}${nearbyHtml ? '' : ''}</div>
+            ${nearbyHtml}${memoHtml}${eventHtml}
+        </div>`;
     }
 
     // 좌표 배치 모드 시작
@@ -262,5 +352,6 @@ export class LeafletRenderer {
     destroy() {
         if (this.map) { this.map.remove(); this.map = null; }
         this.markers = {};
+        this.distLabels = [];
     }
 }

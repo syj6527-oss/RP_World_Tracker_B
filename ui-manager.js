@@ -796,9 +796,14 @@ export class UIManager {
     showAutoToast(loc) {
         $('#wt-register-overlay').remove(); // 이전 제거
 
-        // Bug I: 채팅 화면이 아니면 알림 안 띄움
+        // Bug G+I: 채팅 화면이 아니면 알림 안 띄움 (이중 체크)
         const sendBtn = document.querySelector('#send_but');
         if (!sendBtn || sendBtn.offsetParent === null) return;
+        const chatVisible = document.querySelector('#sheld')?.style.display !== 'none';
+        const charEditing = document.querySelector('#character_popup')?.style.display !== 'none'
+            || document.querySelector('.zoomed_avatar[style*="display: block"]')
+            || document.querySelector('#rm_ch_create_block')?.style.display !== 'none';
+        if (!chatVisible || charEditing) return;
 
         const sim = this._findSim(loc.name);
         let simHtml = '';
@@ -1289,6 +1294,12 @@ export class UIManager {
 
     // 자동 이벤트 기록 — AI 응답에서 키워드 추출 후 플로팅 알림
     showEventNotify(locName, summary, locId) {
+        // 채팅 화면이 아니면 알림 안 띄움
+        const chatVisible = document.querySelector('#sheld')?.style.display !== 'none';
+        const charEditing = document.querySelector('#character_popup')?.style.display !== 'none'
+            || document.querySelector('.zoomed_avatar[style*="display: block"]')
+            || document.querySelector('#rm_ch_create_block')?.style.display !== 'none';
+        if (!chatVisible || charEditing) return;
         $('#wt-event-overlay').remove();
         const overlay = $(`<div id="wt-event-overlay" style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:300px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #5E84E2;border-radius:14px;padding:10px 12px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
             <div style="font-size:12px;font-weight:700;color:#775537;margin-bottom:4px">📝 이벤트 감지 — ${locName}</div>

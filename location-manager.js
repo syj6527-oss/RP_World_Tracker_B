@@ -1,4 +1,4 @@
-// 🐶 World Tracker — location-manager.js (Single Scene)
+// 🐶 월드맵 — location-manager.js (Single Scene)
 
 import { getContext } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
@@ -104,7 +104,7 @@ export class LocationManager {
         this.movements = this.movements.filter(m => m.id !== movId);
     }
 
-    async setDistance(a, b, text, walk = null, level = 5) {
+    async setDistance(a, b, text, walk = null, level = 3) {
         if (!this.currentChatId) return null;
         const id = [a, b].sort().join('_');
         const d = { id, chatId: this.currentChatId, fromId: a, toId: b, distanceText: text, walkTime: walk, level: level, updatedAt: Date.now() };

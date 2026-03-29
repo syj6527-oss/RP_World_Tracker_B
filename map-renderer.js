@@ -104,7 +104,18 @@ export class MapRenderer {
         }
         this._applyVB();
 
-        // ★ ViewBox 영역 기반으로 도시 생성 (꽉 채움 보장)
+        // ★ clipPath (액자 프레임 — 가장자리 깔끔하게)
+        const clipId = 'wt-map-clip';
+        const defsEl = this.svg.querySelector('defs');
+        const cp = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+        cp.setAttribute('id', clipId);
+        cp.appendChild(this._el('rect', { x: this.vb.x, y: this.vb.y, width: this.vb.w, height: this.vb.h, rx: 12 }));
+        defsEl.appendChild(cp);
+
+        // 모든 콘텐츠를 클리핑 그룹에 넣기
+        const clipG = this._el('g', { 'clip-path': `url(#${clipId})` });
+
+        // ★ ViewBox 영역 기반으로 도시 생성
         const hubKey = curLoc ? curLoc.id : 'empty';
         const chatId = this.lm.currentChatId || 'default';
         const seed = this._hashStr(chatId + hubKey) % 10000 + 1;
@@ -112,9 +123,11 @@ export class MapRenderer {
             this._buildHubCity(this.vb, seed);
             this._cityHubKey = hubKey;
         }
-        if (this._cityBgEl) this.svg.appendChild(this._cityBgEl.cloneNode(true));
+        if (this._cityBgEl) clipG.appendChild(this._cityBgEl.cloneNode(true));
 
-        // 핀, 거리선, 나침반
+        this.svg.appendChild(clipG);
+
+        // 핀, 거리선, 나침반 (클리핑 밖 — 항상 보임)
         this._drawDistLines(hubPins, movements);
         this._drawPins(hubPins, currentLocationId);
         this._drawCompass(this.vb);
@@ -166,18 +179,32 @@ export class MapRenderer {
             if (!merged.has(`${r}_${c}`) && rng() < 0.06 && `${r}_${c}` !== parkCell && r !== riverRow) plaza.add(`${r}_${c}`);
         }
 
-        // ===== 레이어 2: 강 (블록보다 먼저 → 블록 밑에 깔림) =====
+        // ===== 레이어 2: 강 ±5000 (clipPath가 잘라줌) =====
         const riverLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         if (seed % 3 !== 0) {
             let ry = oy;
             for (let r = 0; r <= riverRow; r++) ry += rh[r];
             ry -= rh[riverRow] * 0.5;
             const w1 = (rng() - 0.5) * 35, w2 = (rng() - 0.5) * 30;
-            const rP = `M${ox - 500},${ry + w1} C${ox + W * 0.2},${ry + w1 + 40} ${ox + W * 0.5},${ry + w2 - 35} ${ox + W * 0.75},${ry + w2 + 25} S${ox + W + 500},${ry + w2 - 10}`;
+            const rP = `M${-5000},${ry + w1} C${ox + W * 0.2},${ry + w1 + 40} ${ox + W * 0.5},${ry + w2 - 35} ${ox + W * 0.75},${ry + w2 + 25} S${5000},${ry + w2 - 10}`;
             riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#9CC8E0', 'stroke-width': 42, 'stroke-linecap': 'round', opacity: '0.50' }));
             riverLayer.appendChild(this._el('path', { d: rP, fill: 'none', stroke: '#BDE0F0', 'stroke-width': 16, 'stroke-linecap': 'round', opacity: '0.40' }));
         }
         g.appendChild(riverLayer);
+
+        // ===== 레이어 2.5: 주황 대로 (가로 1개 + 세로 1개) =====
+        const roadAccent = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        { // 가로 대로
+            const mri = 1 + (seed % (rows - 2));
+            let mry = oy; for (let r = 0; r < mri; r++) mry += rh[r];
+            if (mri !== riverRow) roadAccent.appendChild(this._el('line', { x1: -5000, y1: mry, x2: 5000, y2: mry, stroke: '#F0D8A8', 'stroke-width': 22, 'stroke-linecap': 'round', opacity: '0.40' }));
+        }
+        { // 세로 대로
+            const mci = 1 + (seed % (cols - 2));
+            let mcx = ox; for (let c = 0; c < mci; c++) mcx += cw[c];
+            roadAccent.appendChild(this._el('line', { x1: mcx, y1: -5000, x2: mcx, y2: 5000, stroke: '#F0D8A8', 'stroke-width': 20, 'stroke-linecap': 'round', opacity: '0.35' }));
+        }
+        g.appendChild(roadAccent);
 
         // ===== 레이어 3: 블록 (대로/골목 차등 gap) =====
         const blocksLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -190,12 +217,12 @@ export class MapRenderer {
                 const ck = `${r}_${c}`;
                 if (merged.has(ck)) { xx += cw[c]; continue; }
 
-                // 광장 → 호수/공원
+                // 광장 → 호수(둥근 네모) 또는 미니 공원
                 if (plaza.has(ck)) {
                     const px = xx + gL, py = yy + gT;
                     const pw = cw[c] - gL - gR, ph = rh[r] - gT - gB;
                     if (pw > 20 && ph > 16) {
-                        if (rng() < 0.5) blocksLayer.appendChild(this._el('ellipse', { cx: px + pw / 2, cy: py + ph / 2, rx: pw * 0.42, ry: ph * 0.38, fill: '#9CC5E0', opacity: '0.35' }));
+                        if (rng() < 0.5) blocksLayer.appendChild(this._el('rect', { x: px, y: py, width: pw, height: ph, rx: 10, fill: '#B8D8EC', opacity: '0.40' }));
                         else this._drawPark(blocksLayer, px, py, pw, ph, rng);
                     }
                     xx += cw[c]; continue;
@@ -238,17 +265,17 @@ export class MapRenderer {
         if (w > 35 && h > 28) this._drawBuildings(parent, x, y, w, h, rng);
     }
 
-    // ========== 건물 (단순 rect 1~2개, 여백 넉넉히) ==========
+    // ========== 건물 (1~3개 작은 rect 흩뿌리기) ==========
     _drawBuildings(parent, bx, by, bw, bh, rng) {
-        const m = bw * 0.08; // 여백 축소
-        const count = 1 + Math.floor(rng() * 2); // 1~2개
+        const m = 5; // 블록 안쪽 여백
+        const count = 1 + Math.floor(rng() * 3); // 1~3개
         const tones = ['#D0CBC0', '#C8C3B8', '#D5D0C6', '#CCC7BC'];
         const placed = [];
 
-        for (let i = 0; i < count * 4; i++) {
+        for (let i = 0; i < count * 6; i++) {
             if (placed.length >= count) break;
-            const wr = 0.40 + rng() * 0.30; // 블록 대비 40~70%
-            const hr = 0.40 + rng() * 0.30;
+            const wr = 0.25 + rng() * 0.25; // 블록 대비 25~50%
+            const hr = 0.25 + rng() * 0.25;
             const w = bw * wr, h = bh * hr;
             const x = bx + m + rng() * Math.max(0, bw - m * 2 - w);
             const y = by + m + rng() * Math.max(0, bh - m * 2 - h);

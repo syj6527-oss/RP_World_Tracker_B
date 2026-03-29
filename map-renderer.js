@@ -355,7 +355,7 @@ export class MapRenderer {
         }
 
         // 이모지 아이콘
-        svg += `<text y="6" text-anchor="middle" font-size="${size}" style="cursor:pointer">${emoji}</text>`;
+        svg += `<text y="6" text-anchor="middle" font-size="${size}" style="cursor:pointer;pointer-events:none;user-select:none">${emoji}</text>`;
 
         // 방문 횟수 뱃지
         if (visits > 0) {
@@ -489,6 +489,7 @@ export class MapRenderer {
         this._wasDrag = false;
         if (this._movingNodeId) {
             // 이동 모드 — 클릭 위치로 노드 이동
+            e.preventDefault();
             const loc = this.lm.locations.find(l => l.id === this._movingNodeId);
             if (loc) {
                 loc.x = Math.round(pt.x); loc.y = Math.round(pt.y);
@@ -497,6 +498,9 @@ export class MapRenderer {
             }
             this._movingNodeId = null;
             return;
+        }
+        if (hitId) {
+            e.preventDefault(); // 브라우저 기본 드래그 방지
         }
         if (!hitId) {
             this._pan = { sx: e.clientX, sy: e.clientY, vx: this.vb.x, vy: this.vb.y };

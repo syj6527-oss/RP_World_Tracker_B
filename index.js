@@ -40,6 +40,15 @@ const defaults = {
 
 let db, lm, det, pi, ui;
 
+// ========== 채팅 화면 활성 여부 (캐릭터 설정/선택 화면 방지) ==========
+function isChatActive() {
+    const chatVisible = document.querySelector('#sheld')?.style.display !== 'none';
+    const charEditing = document.querySelector('#character_popup')?.style.display !== 'none'
+        || document.querySelector('.zoomed_avatar[style*="display: block"]')
+        || document.querySelector('#rm_ch_create_block')?.style.display !== 'none';
+    return chatVisible && !charEditing;
+}
+
 export async function loadLeaflet() {
     if (window.L) return true;
     try {
@@ -131,6 +140,7 @@ async function init() {
     let lastId = null;
     async function handle(idx) {
         try {
+            if (!isChatActive()) return; // 캐릭터 설정/선택 화면이면 스킵
             const ctx = getContext(); if (!ctx?.chat?.length) return;
             const msg = typeof idx === 'number' ? ctx.chat[idx] : ctx.chat[ctx.chat.length - 1];
             if (!msg || msg.is_user) return;

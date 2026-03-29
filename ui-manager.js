@@ -2,7 +2,7 @@
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
-import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet } from './index.js';
+import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat } from './index.js';
 import { MapRenderer } from './map-renderer.js';
 import { LeafletRenderer } from './leaflet-renderer.js';
 
@@ -19,6 +19,7 @@ const catGroups = [
 export class UIManager {
     constructor(lm, pi) { this.lm=lm; this.pi=pi; this.mapRenderer=null; this.leafletRenderer=null; this.panelVisible=false; }
 
+    // ========== 설정 패널 (SillyTavern 확장 설정) ==========
     createSettingsPanel() {
         const html = `<div id="wt-settings" class="wt-settings"><div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
@@ -118,6 +119,7 @@ export class UIManager {
             const m=document.getElementById('extensionsMenu'); if(m)m.appendChild(b); } catch(e){}
     }
 
+    // ========== 사이드 패널 HTML ==========
     createSidePanel() {
         const html = `
         <div id="wt-panel" class="wt-panel">
@@ -147,7 +149,7 @@ export class UIManager {
                     <div class="wt-map-mode-bar">
                         <button id="wt-mode-node" class="wt-mode-btn wt-mode-active">📊 노드</button>
                         <button id="wt-mode-leaflet" class="wt-mode-btn">🌍 실제</button>
-                        <button id="wt-mode-fantasy" class="wt-mode-btn">🏰 판타지</button>
+                        <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 판타지</button>
                         <button id="wt-btn-layout" class="wt-mode-btn" style="font-size:11px;flex:0.5">🗺️</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar">
@@ -204,6 +206,26 @@ export class UIManager {
                             </div>
                             <div id="wt-pop-dist-hint" style="font-size:10px;color:#9A8A7A;text-align:center;margin-top:2px">도보권</div>
                         </div>
+                        <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+                            <span style="font-size:12px;color:#9A8A7A">🏰 아이콘</span>
+                            <select id="wt-pop-icon-type" class="wt-input wt-select-full" style="flex:1;font-size:12px;padding:5px 8px">
+                                <option value="">자동 감지</option>
+                                <option value="castle">🏰 성/궁전</option>
+                                <option value="mountain">⛰️ 산</option>
+                                <option value="forest">🌲 숲</option>
+                                <option value="temple">⛪ 신전/교회</option>
+                                <option value="village">🏘️ 마을</option>
+                                <option value="house">🏠 집</option>
+                                <option value="shop">🏪 상점/대장간</option>
+                                <option value="tavern">🍺 술집/여관</option>
+                                <option value="cave">🕳️ 동굴/던전</option>
+                                <option value="port">⚓ 항구</option>
+                                <option value="water">💧 강/호수</option>
+                                <option value="library">📚 도서관</option>
+                                <option value="arena">⚔️ 투기장</option>
+                                <option value="flag">🪧 이정표</option>
+                            </select>
+                        </div>
                         <textarea id="wt-pop-memo" class="wt-input wt-textarea" placeholder="메모..." rows="2"></textarea>
                         <div id="wt-pop-events-section" style="margin-top:4px">
                             <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📝 이벤트 기록</div>
@@ -220,7 +242,8 @@ export class UIManager {
                         <button id="wt-pop-move" class="wt-btn-ghost wt-btn-sm">📍 위치 수정</button>
                         <button id="wt-pop-moveto" class="wt-btn-accent wt-btn-sm" style="opacity:1;font-size:12px">🐾 여기로 이동</button>
                         <div id="wt-pop-geo-section" style="margin-top:6px">
-                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">🔍 주소 검색 (Leaflet 핀)</div>
+                            <div id="wt-pop-geo-notice" style="display:none;padding:8px 10px;background:rgba(94,132,226,0.1);border:1px solid #5E84E2;border-radius:6px;margin-bottom:6px;font-size:11px;color:#5E84E2;text-align:center">📍 이 장소에 좌표가 없어요 — 아래에서 주소를 검색해보세요!</div>
+                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📍 실제 주소 설정</div>
                             <div style="display:flex;gap:4px">
                                 <input type="text" id="wt-pop-geo-input" class="wt-input" placeholder="주소 또는 랜드마크..." style="flex:1;font-size:12px;padding:6px 8px"/>
                                 <button id="wt-pop-geo-btn" class="wt-btn-accent wt-btn-s">🔍</button>
@@ -231,7 +254,7 @@ export class UIManager {
                 </div>
 
                 <div class="wt-scene-loc">
-                    <span class="wt-scene-icon">🐾</span>
+                    <span class="wt-scene-icon">🦴</span>
                     <div class="wt-scene-info"><span class="wt-scene-label">현재 씬</span><span id="wt-scene-name" class="wt-scene-name">—</span></div>
                 </div>
 
@@ -252,6 +275,7 @@ export class UIManager {
         this._bind();
     }
 
+    // ========== 이벤트 바인딩 ==========
     _bind() {
         $('#wt-close-btn').on('click', () => this.togglePanel(false));
 
@@ -324,6 +348,7 @@ export class UIManager {
         this._setupTextSelection();
     }
 
+    // ========== 문장 드래그 → 이벤트 저장 ==========
     _setupTextSelection() {
         let _selBtn = null;
         const self = this;
@@ -412,6 +437,7 @@ export class UIManager {
         toastSuccess(`📝 "${loc.name}"에 이벤트 저장!`);
     }
 
+    // ========== 패널 열기/닫기 ==========
     togglePanel(show) {
         this.panelVisible = show ?? !this.panelVisible;
         if (this.panelVisible) {
@@ -421,6 +447,16 @@ export class UIManager {
             if (s?.fantasyTheme) {
                 $('#wt-panel').addClass('wt-panel-fantasy');
                 $('#wt-fantasy-btn').css({ background: '#DAA520', borderRadius: '6px' });
+                $('.wt-panel-title span:first').text('🐺');
+                $('.wt-scene-icon').text('🍖');
+                // Task 3: 모드 바 복원
+                $('#wt-mode-node, #wt-mode-leaflet').hide();
+                $('#wt-mode-fantasy').show().text('🏰 지도').addClass('wt-mode-active');
+            } else {
+                $('.wt-panel-title span:first').text('🐶');
+                $('.wt-scene-icon').text('🦴');
+                $('#wt-mode-node, #wt-mode-leaflet').show();
+                $('#wt-mode-fantasy').hide();
             }
             this.refresh();
             setTimeout(() => {
@@ -431,27 +467,38 @@ export class UIManager {
         else { $('#wt-panel').removeClass('wt-panel-open'); this.hidePop(); }
     }
 
-    // 🏰 판타지 모드 토글 (패널 전체 테마 + 맵 모드)
+    // ========== 🏰 판타지 모드 토글 ==========
     _toggleFantasyTheme() {
         const s = extension_settings[EXTENSION_NAME];
         const isFantasy = s.fantasyTheme = !s.fantasyTheme;
         saveSettingsDebounced();
 
+        // 마스코트 아이콘 전환
+        const mascot = isFantasy ? '🐺' : '🐶';
+        const treat = isFantasy ? '🍖' : '🦴';
+        $('.wt-panel-title span:first').text(mascot);
+        $('.wt-scene-icon').text(treat);
+
+        // Task 3: 모드 바 동적 전환
+        if (isFantasy) {
+            $('#wt-mode-node, #wt-mode-leaflet').hide();
+            $('#wt-mode-fantasy').show().text('🏰 지도');
+        } else {
+            $('#wt-mode-node, #wt-mode-leaflet').show();
+            $('#wt-mode-fantasy').hide();
+        }
+
         if (isFantasy) {
             $('#wt-panel').addClass('wt-panel-fantasy');
             $('#wt-fantasy-btn').css({ background: '#DAA520', borderRadius: '6px' });
-            // 이전 맵 모드 저장 후 판타지로 전환
-            if (s.mapMode !== 'fantasy') {
-                s._prevMapMode = s.mapMode || 'node';
-            }
+            if (s.mapMode !== 'fantasy') s._prevMapMode = s.mapMode || 'node';
             this._setMapMode('fantasy');
-            wtNotify('🏰 판타지 모드!', 'move', 2000);
+            wtNotify(`🐺 ${treat} 판타지 모드!`, 'move', 2000);
         } else {
             $('#wt-panel').removeClass('wt-panel-fantasy');
             $('#wt-fantasy-btn').css({ background: 'none', borderRadius: '' });
-            // 이전 맵 모드로 복원
             this._setMapMode(s._prevMapMode || 'node');
-            wtNotify('📊 일반 모드', 'info', 1500);
+            wtNotify(`🐶 ${treat} 일반 모드`, 'info', 1500);
         }
     }
 
@@ -502,6 +549,7 @@ export class UIManager {
         this._updLocList(); this._updMoveList();
     }
 
+    // ========== 맵 모드 전환 ==========
     async _setMapMode(mode) {
         const s = extension_settings[EXTENSION_NAME];
         s.mapMode = mode; saveSettingsDebounced();
@@ -600,6 +648,7 @@ export class UIManager {
         }
     }
 
+    // ========== 장소 목록 / 이동 히스토리 ==========
     _updLocList() {
         const list=$('#wt-loc-list').empty(); $('#wt-loc-count').text(this.lm.locations.length);
         if (!this.lm.locations.length) { list.html('<div class="wt-empty">RP를 시작하면 장소가 자동 추가돼요!</div>'); return; }
@@ -654,6 +703,7 @@ export class UIManager {
     }
 
     // ---- Popover (인라인) ----
+    // ========== 팝오버 (장소 상세) ==========
     showPop(id) {
         const l = this.lm.locations.find(x=>x.id===id); if(!l) return;
         $('#wt-popover').attr('data-id', id);
@@ -662,6 +712,10 @@ export class UIManager {
         $('#wt-pop-last').text(l.lastVisited?this._fmt(l.lastVisited):'—');
         $('#wt-pop-memo').val(l.memo||''); $('#wt-pop-status').val(l.status||'');
         $('#wt-pop-aliases').val((l.aliases||[]).join(', '));
+        // Task 5: 아이콘 타입 선택 복원
+        $('#wt-pop-icon-type').val(l.locationType || '');
+        // Task 6: 좌표 없으면 안내 표시
+        if (!l.lat && !l.lng) { $('#wt-pop-geo-notice').show(); } else { $('#wt-pop-geo-notice').hide(); }
         this._updDistSection(id);
         this._updEventsList(id);
         if ($('#wt-map-section').is(':visible')) {
@@ -683,6 +737,7 @@ export class UIManager {
             memo:$('#wt-pop-memo').val().trim(),
             status:$('#wt-pop-status').val().trim(),
             aliases: aliases,
+            locationType: $('#wt-pop-icon-type').val() || '',  // Task 5: 아이콘 타입
         };
         // 이름 변경
         if (newName) update.name = newName;
@@ -692,7 +747,7 @@ export class UIManager {
     async _popDel() { const id=$('#wt-popover').attr('data-id'); const l=this.lm.locations.find(x=>x.id===id); if(!confirm(`"${l?.name}" 삭제?`))return; await this.lm.deleteLocation(id); this.hidePop(); this.pi?.inject(); this.refresh(); }
     async _popMove() { const id=$('#wt-popover').attr('data-id'); await this.lm.moveTo(id); this.hidePop(); this.pi?.inject(); this.refresh(); }
 
-    // ---- 자동 등록 토스트 (플로팅 — 패널 밖 채팅창 위) ----
+    // ========== 등록 알림 (플로팅 오버레이) ==========
     showAutoToast(loc) {
         $('#wt-register-overlay').remove(); // 이전 제거
 
@@ -707,7 +762,7 @@ export class UIManager {
 
         const overlay = $(`<div id="wt-register-overlay" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);width:320px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #F6A93A;border-radius:14px;padding:10px 14px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-                <span style="font-size:16px">🐶</span>
+                <span style="font-size:16px">${wtMascot()}</span>
                 <strong style="font-size:14px;color:#775537">${loc.name}</strong>
                 <span style="font-size:12px;color:#9A8A7A">등록됨!</span>
             </div>
@@ -768,7 +823,7 @@ export class UIManager {
         for(const g of mg){if(ns.some(n=>g.some(w=>n.includes(w)))){r.push(loc);break;}}} return r.slice(0,3);
     }
 
-    // ---- 🐛 Bug2 Fix: 로컬 장소 검색 (Nominatim → 등록된 장소 필터링) ----
+    // ========== 장소 검색 (로컬) ==========
     async _doSearch() {
         const q = $('#wt-search-input').val().trim().toLowerCase();
         if (!q || q.length < 1) { $('#wt-search-results').hide(); return; }
@@ -859,7 +914,7 @@ export class UIManager {
         if (!sel.find('option').length) sel.append('<option value="" disabled>모든 장소에 거리 설정됨</option>');
     }
 
-    // ========== #5 스캔 승인 — 플로팅 오버레이 (패널 밖) ==========
+    // ========== 스캔 승인 (플로팅 오버레이) ==========
     showScanApproval(candidates) {
         if (!candidates.length) return;
         $('#wt-scan-overlay').remove();
@@ -874,7 +929,7 @@ export class UIManager {
         });
 
         const overlay = $(`<div id="wt-scan-overlay" style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:320px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #F6A93A;border-radius:14px;padding:12px;z-index:2147483646;box-shadow:0 8px 30px rgba(0,0,0,0.25);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
-            <div style="font-size:13px;font-weight:700;color:#775537;margin-bottom:6px">🐶 장소 감지됨!</div>
+            <div style="font-size:13px;font-weight:700;color:#775537;margin-bottom:6px">${wtMascot()} 장소 감지됨!</div>
             <div style="font-size:11px;color:#9A8A7A;margin-bottom:6px">이름 수정 가능 · 체크 해제 시 제외</div>
             <div id="wt-scan-items" style="display:flex;flex-direction:column;gap:3px;max-height:150px;overflow-y:auto">${items}</div>
             <div style="display:flex;gap:6px;margin-top:8px">
@@ -923,11 +978,11 @@ export class UIManager {
         if (lastLocId) {
             this.pi?.inject();
             this.refresh();
-            wtNotify(`🐶 ${items.length}개 장소 등록!`, 'move', 2000);
+            wtNotify(`${wtMascot()} ${items.length}개 장소 등록!`, 'move', 2000);
         }
     }
 
-    // #3: 지오코딩 캐시
+    // ========== 지오코딩 (Nominatim 주소 검색) ==========
     _geoCache = {};
 
     async _geoSearch() {

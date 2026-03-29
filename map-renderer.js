@@ -286,7 +286,7 @@ export class MapRenderer {
         // 장소 아이콘 렌더링
         for (const loc of locations) {
             const cur = loc.id === currentLocationId;
-            const type = this._getLocationType(loc.name);
+            const type = loc.locationType || this._getLocationType(loc.name);
 
             // 현재 위치 글로우
             if (cur) svg += `<circle cx="${loc.x}" cy="${loc.y}" r="28" fill="#CD853F" opacity="0.15" filter="url(#wt-glow)"/>`;
@@ -467,10 +467,12 @@ export class MapRenderer {
                 svg += `<polygon points="12,-12 10,-10 8,-12" fill="${stroke}"/>`;
                 break;
 
-            default: // flag — 깃발
-                svg += `<line x1="0" y1="-16" x2="0" y2="6" stroke="${stroke}" stroke-width="1.5"/>`;
-                svg += `<polygon points="0,-16 14,-12 0,-8" fill="#8B0000" stroke="${stroke}" stroke-width="0.8" opacity="0.8"/>`;
-                svg += `<circle cx="0" cy="6" r="2" fill="${stroke}" opacity="0.4"/>`;
+            default: // flag — 나무 이정표(팻말)
+                svg += `<line x1="0" y1="-8" x2="0" y2="10" stroke="${stroke}" stroke-width="2.5" stroke-linecap="round"/>`;
+                svg += `<rect x="-14" y="-14" width="28" height="12" rx="2" fill="${fill1}" stroke="${stroke}" stroke-width="1.2"/>`;
+                svg += `<line x1="-10" y1="-8" x2="10" y2="-8" stroke="${stroke}" stroke-width="0.6" opacity="0.3"/>`;
+                svg += `<circle cx="-10" cy="-10" r="1" fill="${stroke}" opacity="0.3"/>`;
+                svg += `<circle cx="10" cy="-10" r="1" fill="${stroke}" opacity="0.3"/>`;
                 break;
         }
 

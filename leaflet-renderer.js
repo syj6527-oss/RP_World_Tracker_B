@@ -148,11 +148,8 @@ export class LeafletRenderer {
             this._viewSet = true;
         }
 
-        // 현재 위치 좌표 없으면 안내 오버레이
+        // Task 6: 좌표 안내는 팝오버 안에서 표시 (맵 오버레이 제거)
         this._removeNotice();
-        if (curLoc && !curLoc.lat && !curLoc.lng) {
-            this._showNotice(`📍 "${curLoc.name}"에 좌표가 없어요\n🔍 검색으로 좌표를 배치해보세요`);
-        }
     }
 
     // 좌표 배치 모드 시작

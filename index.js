@@ -11,6 +11,10 @@ import { UIManager } from './ui-manager.js';
 export const EXTENSION_NAME = 'rp-world-tracker';
 export const PROMPT_KEY = 'rp-world-tracker-prompt';
 
+// ========== 🐶/🐺 모드 아이콘 ==========
+export function wtMascot() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🐺' : '🐶'; }
+export function wtTreat() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🍖' : '🦴'; }
+
 // ========== 커스텀 알림 (번역기 스타일) ==========
 let _notiEl = null, _notiTimer = null;
 export function wtNotify(msg, type = 'move', duration = 3000) {
@@ -78,7 +82,7 @@ async function scanMessage(text, source = 'USER') {
             dbg(`✅ "${location.name}" (${type} c=${confidence})`);
             if (lm.currentLocationId !== location.id) {
                 await lm.moveTo(location.id);
-                if (s.showDetectToast) wtNotify(`🐶 🐾 ${location.name}`, 'move');
+                if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${location.name}`, 'move');
                 pi.inject(); if (ui.panelVisible) ui.refresh();
             }
             // AI 응답이면 이벤트 자동 추출
@@ -98,7 +102,7 @@ async function scanMessage(text, source = 'USER') {
                 const loc = await lm.addLocation(np);
                 if (loc) {
                     await lm.moveTo(loc.id);
-                    if (s.showDetectToast) wtNotify(`🐶 🆕 ${loc.name}`, 'new', 3500);
+                    if (s.showDetectToast) wtNotify(`${wtMascot()} 🆕 ${loc.name}`, 'new', 3500);
                     pi.inject(); if (ui.panelVisible) ui.refresh();
                     ui.showAutoToast(loc);
                 }
@@ -182,8 +186,11 @@ async function scanContext() {
         const ctx = getContext();
         if (!ctx?.characterId) return;
 
-        // 이미 장소 있으면 스킵
-        if (lm.locations.length > 0 && lm.currentLocationId) return;
+        // Task 1: 채팅 화면이 활성 상태인지 체크 (캐릭터 설정 화면에서 알림 방지)
+        if (!document.querySelector('#chat .mes')) return;
+
+        // Task 2: 장소가 1개라도 있으면 재스캔 스킵
+        if (lm.locations.length > 0) return;
 
         // 1차: 기존 채팅 히스토리 전체 스캔 (진행 중인 채팅에 확장 설치 시)
         if (ctx.chat?.length > 1) {

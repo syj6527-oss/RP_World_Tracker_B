@@ -553,6 +553,7 @@ export class UIManager {
             if (!this.mapRenderer && container) {
                 this.mapRenderer = new MapRenderer(container, this.lm);
                 this.mapRenderer.onLocationClick = id => this._yakdoRecenter(id);
+                this.mapRenderer.onPopupCardClick = id => this.showPop(id);
                 this.mapRenderer.onMoveRequest = (id, name) => {
                     wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
                 };
@@ -593,6 +594,7 @@ export class UIManager {
                 if (container) {
                     this.mapRenderer = new MapRenderer(container, this.lm);
                     this.mapRenderer.onLocationClick = id => this._yakdoRecenter(id);
+                this.mapRenderer.onPopupCardClick = id => this.showPop(id);
                     this.mapRenderer.onMoveRequest = (id, name) => {
                         wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
                     };
@@ -659,6 +661,7 @@ export class UIManager {
                 if (container) {
                     this.mapRenderer = new MapRenderer(container, this.lm);
                     this.mapRenderer.onLocationClick = id => this._yakdoRecenter(id);
+                this.mapRenderer.onPopupCardClick = id => this.showPop(id);
                     this.mapRenderer.onMoveRequest = (id, name) => {
                         wtNotify(`📍 "${name}" 이동 모드 — 맵을 터치하세요`, 'info', 3000);
                     };

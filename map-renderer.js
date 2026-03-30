@@ -513,6 +513,27 @@ export class MapRenderer {
         }
 
         g.appendChild(card);
+
+        // ★ 카드 클릭 영역 (투명 rect + 커서)
+        const hitArea = this._el('rect', {
+            x: -cardW / 2, y: cardY, width: cardW, height: cardH + 12,
+            fill: 'transparent', style: 'cursor:pointer',
+        });
+        g.appendChild(hitArea);
+
+        // 카드 터치/클릭 → 팝오버 열기
+        const self = this;
+        const cardLocId = locId;
+        g.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (self.onPopupCardClick) self.onPopupCardClick(cardLocId);
+        });
+        g.addEventListener('touchend', (e) => {
+            if (self._wasDrag) return;
+            e.stopPropagation();
+            if (self.onPopupCardClick) self.onPopupCardClick(cardLocId);
+        });
+
         this.svg.appendChild(g);
     }
 
@@ -624,7 +645,7 @@ export class MapRenderer {
     // ================================================================
     _touchStart(e){if(e.touches.length===2){e.preventDefault();this._pinch=this._pinchDist(e);this._pan=null;this._longPress=null;return;}if(e.touches.length===1){const t=e.touches[0],pt=this._svgPt(t),hitId=this._hitTest(pt);this._touchInfo={x:t.clientX,y:t.clientY,time:Date.now(),nodeId:hitId,pt};this._wasDrag=false;if(hitId&&!this._movingNodeId){e.preventDefault();this._longPress=setTimeout(()=>{this._movingNodeId=hitId;const loc=this.lm.locations.find(l=>l.id===hitId);if(loc&&this.onMoveRequest)this.onMoveRequest(hitId,loc.name);this._longPress=null;},500);}else if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._savePinPos(loc.id,loc.x,loc.y);this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;}else{this._pan={sx:t.clientX,sy:t.clientY,vx:this.vb.x,vy:this.vb.y};}}}
     _touchMove(e){if(e.touches.length===2&&this._pinch){e.preventDefault();const d=this._pinchDist(e),s=this._pinch/d;const cxv=this.vb.x+this.vb.w/2,cyv=this.vb.y+this.vb.h/2;const nw=Math.max(200,Math.min(2000,this.vb.w*s));const nh=nw*(this.vb.h/this.vb.w);this.vb={x:cxv-nw/2,y:cyv-nh/2,w:nw,h:nh};this._applyVB();this._pinch=d;return;}if(e.touches.length===1){const t=e.touches[0];if(this._longPress&&this._touchInfo){if(Math.abs(t.clientX-this._touchInfo.x)>10||Math.abs(t.clientY-this._touchInfo.y)>10){clearTimeout(this._longPress);this._longPress=null;}}if(this._pan){e.preventDefault();const dx=(t.clientX-this._pan.sx)*(this.vb.w/this.svg.getBoundingClientRect().width);const dy=(t.clientY-this._pan.sy)*(this.vb.h/this.svg.getBoundingClientRect().height);this.vb.x=this._pan.vx-dx;this.vb.y=this._pan.vy-dy;this._applyVB();this._wasDrag=true;}}}
-    _touchEnd(){clearTimeout(this._longPress);this._longPress=null;if(this._touchInfo&&!this._wasDrag&&this._touchInfo.nodeId&&!this._movingNodeId){if(Date.now()-this._touchInfo.time<400)this.onLocationClick?.(this._touchInfo.nodeId);}else if(this._touchInfo&&!this._wasDrag&&!this._touchInfo.nodeId&&this._popupLocId){this._popupLocId=null;this._removePopup();}this._pinch=null;this._pan=null;this._touchInfo=null;}
+    _touchEnd(){clearTimeout(this._longPress);this._longPress=null;const wasPinch=!!this._pinch;if(this._touchInfo&&!this._wasDrag&&!wasPinch&&this._touchInfo.nodeId&&!this._movingNodeId){if(Date.now()-this._touchInfo.time<400)this.onLocationClick?.(this._touchInfo.nodeId);}else if(this._touchInfo&&!this._wasDrag&&!wasPinch&&!this._touchInfo.nodeId&&this._popupLocId){this._popupLocId=null;this._removePopup();}this._pinch=null;this._pan=null;this._touchInfo=null;}
     _onDown(e){const pt=this._svgPt(e),hitId=this._hitTest(pt);this._wasDrag=false;if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._savePinPos(loc.id,loc.x,loc.y);this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;return;}if(hitId){e.preventDefault();this._mouseClickId=hitId;}if(!hitId){this._pan={sx:e.clientX,sy:e.clientY,vx:this.vb.x,vy:this.vb.y};}}
     _onMove(e){if(this._pan){const dx=(e.clientX-this._pan.sx)*(this.vb.w/this.svg.getBoundingClientRect().width);const dy=(e.clientY-this._pan.sy)*(this.vb.h/this.svg.getBoundingClientRect().height);this.vb.x=this._pan.vx-dx;this.vb.y=this._pan.vy-dy;this._applyVB();this._wasDrag=true;this._mouseClickId=null;}}
     _onUp(){this._pan=null;if(this._mouseClickId&&!this._wasDrag){this.onLocationClick?.(this._mouseClickId);}else if(!this._wasDrag&&this._popupLocId){this._popupLocId=null;this._removePopup();}this._mouseClickId=null;}

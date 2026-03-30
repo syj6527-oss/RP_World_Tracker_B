@@ -327,13 +327,15 @@ export class MapRenderer {
             const k = [d.fromId, d.toId].sort().join('-');
             if (drawn.has(k)) continue; drawn.add(k);
             const lvl = d.level || 5;
-            this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, stroke: '#C0B8A8', 'stroke-width': lvl <= 3 ? 2 : 1.5, 'stroke-dasharray': '5 3', 'stroke-linecap': 'round', opacity: lvl <= 4 ? 0.3 : 0.22 }));
-            if (d.distanceText) {
+            this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, stroke: '#A09888', 'stroke-width': 2, 'stroke-dasharray': '6 4', 'stroke-linecap': 'round', opacity: 0.45 }));
+            if (d.distanceText || d.level) {
                 const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
-                const tl = d.distanceText.length * 5 + 10;
+                const labels = {1:'바로 옆',2:'매우 가까움',3:'가까움',4:'도보 5분',5:'도보권',6:'도보 15분'};
+                const txt = d.distanceText || labels[d.level] || `Lv.${d.level}`;
+                const tl = txt.length * 5.5 + 12;
                 const pill = this._el('g', { transform: `translate(${mx},${my - 8})` });
                 pill.appendChild(this._el('rect', { x: -tl / 2, y: -7, width: tl, height: 14, rx: 7, fill: '#fff', stroke: '#E8E4D8', 'stroke-width': 0.6, filter: 'url(#wt-sh)' }));
-                pill.appendChild(this._el('text', { x: 0, y: 3, 'text-anchor': 'middle', fill: '#5E84E2', 'font-size': '7.5', 'font-weight': '600' }, d.distanceText));
+                pill.appendChild(this._el('text', { x: 0, y: 3, 'text-anchor': 'middle', fill: '#5E84E2', 'font-size': '7.5', 'font-weight': '600' }, txt));
                 this.svg.appendChild(pill);
             }
         }
@@ -343,7 +345,7 @@ export class MapRenderer {
             if (!f || !t) continue;
             const k = [m.fromId, m.toId].sort().join('-');
             if (drawn.has(k)) continue; drawn.add(k);
-            this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, stroke: '#C0B8A8', 'stroke-width': 1.5, 'stroke-dasharray': '5 3', 'stroke-linecap': 'round', opacity: 0.2 }));
+            this.svg.appendChild(this._el('line', { x1: f.x, y1: f.y, x2: t.x, y2: t.y, stroke: '#A09888', 'stroke-width': 1.5, 'stroke-dasharray': '6 4', 'stroke-linecap': 'round', opacity: 0.35 }));
         }
     }
 
@@ -398,9 +400,10 @@ export class MapRenderer {
     // ================================================================
     _autoLayout(hubPins, curLoc) {
         if (this._skipLayout) { this._skipLayout = false; return; }
-        const needsInit = hubPins.some(l => l.x === 0 && l.y === 0);
-        if (!needsInit && !this._layoutDirty && this._layoutDone === true) return;
-        this._layoutDirty = false; this._layoutDone = true;
+        // ★ 모든 핀이 이미 배치됐으면 레이아웃 완전 스킵
+        const needsInit = hubPins.some(l => !l._manualXY && l.x === 0 && l.y === 0);
+        if (!needsInit && !this._layoutDirty) return;
+        this._layoutDirty = false;
 
         const dists = this.lm.distances || [];
         const geoLocs = hubPins.filter(l => l.lat != null && l.lng != null);
@@ -411,19 +414,23 @@ export class MapRenderer {
             this._circularLayout(hubPins, dists, curLoc);
         }
 
-        // 겹침 방지 (_manualXY 보존)
+        // 겹침 방지 (_manualXY 핀은 절대 안 움직임)
         for (let iter = 0; iter < 3; iter++) {
             for (let i = 0; i < hubPins.length; i++) for (let j = i + 1; j < hubPins.length; j++) {
                 const a = hubPins[i], b = hubPins[j];
+                if (a._manualXY && b._manualXY) continue;
                 const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy);
                 if (d < 70) {
                     const push = (70 - d) / 2, nx = dx / (d || 1), ny = dy / (d || 1);
-                    if (a.id !== curLoc.id && !a._manualXY) { a.x -= Math.round(push * nx); a.y -= Math.round(push * ny); }
-                    if (b.id !== curLoc.id && !b._manualXY) { b.x += Math.round(push * nx); b.y += Math.round(push * ny); }
+                    if (!a._manualXY && a.id !== curLoc.id) { a.x -= Math.round(push * nx); a.y -= Math.round(push * ny); }
+                    if (!b._manualXY && b.id !== curLoc.id) { b.x += Math.round(push * nx); b.y += Math.round(push * ny); }
                 }
             }
         }
-        for (const loc of hubPins) this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
+        // _manualXY 핀은 DB 덮어쓰기 안 함
+        for (const loc of hubPins) {
+            if (!loc._manualXY) this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
+        }
     }
 
     _geoAwareLayout(locs, geoLocs, curLoc) {

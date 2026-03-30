@@ -1042,8 +1042,11 @@ export class UIManager {
                 const did = $(this).attr('data-did');
                 const idx = self.lm.distances.findIndex(x => x.id === did);
                 if (idx >= 0) self.lm.distances.splice(idx, 1);
+                // ★ DB에서도 삭제
+                try { self.lm.db._tx('distances','readwrite').delete(did); } catch(_){}
                 $(this).closest('div').remove();
                 self.pi?.inject();
+                if (self.mapRenderer) self.mapRenderer.render();
                 toastSuccess('📏 거리 삭제!');
             });
             list.append(item);
@@ -1377,6 +1380,8 @@ export class UIManager {
         $('#wt-pop-dist-value').val(''); $('#wt-pop-dist-level').val(5); $('#wt-pop-dist-lvl-val').text('5');
         this._updDistSection(locId);
         this.pi?.inject();
+        // ★ 맵 리렌더 (점선+pill 즉시 표시)
+        if (this.mapRenderer) this.mapRenderer.render();
         toastSuccess(`📏 거리 저장!`);
     }
 

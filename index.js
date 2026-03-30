@@ -97,10 +97,21 @@ async function scanMessage(text, source = 'USER') {
                 if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${location.name}`, 'move');
                 pi.inject(); if (ui.panelVisible) ui.refresh();
             }
-            // AI 응답이면 이벤트 자동 추출
+            // AI 응답이면 이벤트 자동 추출 (감정/사건 키워드만)
             if (source === 'AI' && text.length > 30) {
-                const summary = _extractEventSummary(text, location.name);
-                if (summary) ui.showEventNotify(location.name, summary, location.id);
+                const ev = _extractEventSummary(text, location.name);
+                if (ev) {
+                    // 자동 저장
+                    const loc = lm.locations.find(l => l.id === location.id);
+                    if (loc) {
+                        if (!loc.events) loc.events = [];
+                        loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now() });
+                        if (loc.events.length > 20) loc.events = loc.events.slice(-20); // 최대 20개
+                        await lm.updateLocation(location.id, { events: loc.events });
+                    }
+                    // 알림 (수정 가능)
+                    ui.showEventNotify(location.name, { text: ev.text, tag: ev.mood }, location.id);
+                }
             }
             return true;
         }
@@ -141,30 +152,49 @@ async function init() {
     ui.createSettingsPanel(); ui.createSidePanel(); ui.registerWandButton();
 
     let lastId = null;
+    let _handleCount = 0;
     async function handle(idx) {
         try {
-            if (!isChatActive()) return; // 캐릭터 설정/선택 화면이면 스킵
-            const ctx = getContext(); if (!ctx?.chat?.length) return;
-            const msg = typeof idx === 'number' ? ctx.chat[idx] : ctx.chat[ctx.chat.length - 1];
-            if (!msg || msg.is_user) return;
-            const mid = `${ctx.chat.length}_${(msg.mes||'').length}`;
+            _handleCount++;
+            console.log(`[${EXTENSION_NAME}] 🔔 handle(${typeof idx === 'number' ? idx : 'event'}) #${_handleCount}`);
+            if (!isChatActive()) { console.log(`[${EXTENSION_NAME}] ⏭️ chatActive=false`); return; }
+            const ctx = getContext(); if (!ctx?.chat?.length) { console.log(`[${EXTENSION_NAME}] ⏭️ no chat`); return; }
+
+            // 메시지 가져오기 (idx가 숫자면 해당 인덱스, 아니면 마지막 메시지)
+            let aiMsg = null, aiIdx = -1;
+            if (typeof idx === 'number' && idx >= 0 && idx < ctx.chat.length) {
+                aiMsg = ctx.chat[idx]; aiIdx = idx;
+            } else {
+                // 마지막 AI 메시지 찾기 (뒤에서부터)
+                for (let i = ctx.chat.length - 1; i >= Math.max(0, ctx.chat.length - 3); i--) {
+                    if (ctx.chat[i] && !ctx.chat[i].is_user) { aiMsg = ctx.chat[i]; aiIdx = i; break; }
+                }
+            }
+            if (!aiMsg || aiMsg.is_user) { console.log(`[${EXTENSION_NAME}] ⏭️ no AI msg`); return; }
+
+            const mid = `${aiIdx}_${(aiMsg.mes||'').length}`;
             if (mid === lastId) return; lastId = mid;
 
-            const aiIdx = typeof idx === 'number' ? idx : ctx.chat.length - 1;
+            // 직전 유저 메시지 찾기
             let userMsg = null;
-            for (let i = aiIdx-1; i >= Math.max(0, aiIdx-3); i--) {
+            for (let i = aiIdx - 1; i >= Math.max(0, aiIdx - 3); i--) {
                 if (ctx.chat[i]?.is_user) { userMsg = ctx.chat[i]; break; }
             }
 
-            dbg(`📨 AI:${(msg.mes||'').length}c User:${(userMsg?.mes||'').length}c`);
+            dbg(`📨 AI:${(aiMsg.mes||'').length}c User:${(userMsg?.mes||'').length}c`);
             if (userMsg?.mes?.trim()) await scanMessage(userMsg.mes, 'USER');
-            if (msg.mes?.trim()) await scanMessage(msg.mes, 'AI');
+            if (aiMsg.mes?.trim()) await scanMessage(aiMsg.mes, 'AI');
         } catch(e) { console.error(`[${EXTENSION_NAME}] Handle:`, e); }
     }
 
-    eventSource.on(event_types.MESSAGE_RECEIVED, handle);
-    if (event_types.MESSAGE_RENDERED) eventSource.on(event_types.MESSAGE_RENDERED, handle);
-    if (event_types.GENERATION_ENDED) eventSource.on(event_types.GENERATION_ENDED, handle);
+    // ★ 이벤트 등록 (여러 이벤트에 걸어서 확실하게)
+    const msgEvents = ['MESSAGE_RECEIVED', 'MESSAGE_RENDERED', 'GENERATION_ENDED', 'GENERATION_STOPPED'];
+    for (const evName of msgEvents) {
+        if (event_types[evName]) {
+            eventSource.on(event_types[evName], handle);
+            console.log(`[${EXTENSION_NAME}] ✅ ${evName} 등록`);
+        }
+    }
 
     eventSource.on(event_types.CHAT_CHANGED, async () => {
         pi.clear(); lastId = null;
@@ -277,32 +307,42 @@ async function scanChatHistory(ctx) {
 
 jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSION_NAME}] Init:`, e); } });
 
-// ========== 이벤트 요약 추출 (간단 키워드 방식) ==========
+// ========== 이벤트 요약 추출 (감정/사건 키워드 + 타입 분류) ==========
 function _extractEventSummary(text, locName) {
-    // HTML 태그 제거 + 대사 제거
     const clean = text.replace(/<[^>]*>/g, '').replace(/"[^"]*"/g, '').replace(/「[^」]*」/g, '').trim();
     if (clean.length < 20) return null;
 
-    // 핵심 동작/감정 키워드 포함 문장 찾기
-    const actionKw = /싸[우웠]|울[었다]|키스|포옹|발견|숨[겼긴]|도망|만[났나]|해[어]졌|약속|비밀|선물|편지|전화|사고|부상|치료|요리|식사|파티|축하|고백|거절|화해|결투|전투|훈련/;
-    const actionEn = /fight|kiss|hug|discover|hide|escape|meet|broke up|promise|secret|gift|letter|call|accident|injur|cook|dinner|party|confess|reject|reconcil|duel|battle|train/i;
+    // 키워드 → 타입 + 무드 매핑
+    const patterns = [
+        // 💕 감정/관계 (memory)
+        { rx: /키스|kiss|포옹|hug|안[았겼]|품[에었]|사랑|love|고백|confess|첫만남|first met/i, type: 'memory', mood: '💕' },
+        { rx: /울[었다]|눈물|cry|tears|슬[퍼펐]|sad|위로|comfort|그리[워웠]|miss/i, type: 'memory', mood: '😢' },
+        { rx: /웃[었다]|미소|smile|laugh|행복|happy|즐[거겼]|기[뻐쁨]|joy/i, type: 'memory', mood: '😊' },
+        // ⚡ 사건 (incident)
+        { rx: /싸[우웠움]|fight|충돌|clash|화[가났]|anger|분노|rage|배신|betray/i, type: 'incident', mood: '⚡' },
+        { rx: /발견|discover|비밀|secret|숨[겼긴]|hide|도망|escape|추[격적]|chase/i, type: 'incident', mood: '🔍' },
+        { rx: /부상|injur|사고|accident|피[가를]|blood|쓰러[졌진]|collapse|치료|heal/i, type: 'incident', mood: '🩹' },
+        { rx: /결투|duel|전투|battle|공격|attack|방어|defend|훈련|train/i, type: 'incident', mood: '⚔️' },
+        // 📅 약속/미래 (promise)
+        { rx: /약속|promise|다음[에번]|next time|만나[자기]|내일|tomorrow|기다[려릴]/i, type: 'promise', mood: '📅' },
+        // 🎁 특별 이벤트
+        { rx: /선물|gift|편지|letter|파티|party|축하|celebrat|생일|birthday|기념/i, type: 'memory', mood: '🎁' },
+        { rx: /전화|call|연락|contact|메시지|message/i, type: 'memory', mood: '📞' },
+    ];
 
     const sentences = clean.split(/[.!?。！？\n]+/).filter(s => s.trim().length > 5);
+
     for (const s of sentences) {
-        if (actionKw.test(s) || actionEn.test(s)) {
-            let summary = s.trim();
-            if (summary.length > 40) summary = summary.substring(0, 40) + '...';
-            return summary;
+        const trimmed = s.trim();
+        for (const p of patterns) {
+            if (p.rx.test(trimmed)) {
+                let summary = trimmed;
+                if (summary.length > 40) summary = summary.substring(0, 40) + '...';
+                return { text: summary, type: p.type, mood: p.mood };
+            }
         }
     }
 
-    // 키워드 없으면 첫 의미있는 문장 (30자 이상)
-    for (const s of sentences) {
-        if (s.trim().length >= 20) {
-            let summary = s.trim();
-            if (summary.length > 40) summary = summary.substring(0, 40) + '...';
-            return summary;
-        }
-    }
+    // 키워드 없으면 null (일상 = 기록 안 함!)
     return null;
 }

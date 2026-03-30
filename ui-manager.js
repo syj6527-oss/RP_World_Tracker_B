@@ -1337,18 +1337,23 @@ export class UIManager {
     }
 
     // 자동 이벤트 기록 — AI 응답에서 키워드 추출 후 플로팅 알림
-    showEventNotify(locName, summary, locId) {
-        // 채팅 화면이 아니면 알림 안 띄움
+    showEventNotify(locName, ev, locId) {
         const sendBtn = document.querySelector('#send_but');
         if (!sendBtn || sendBtn.offsetParent === null) return;
         $('#wt-event-overlay').remove();
+
+        // ev가 문자열이면 호환 (구버전)
+        const evText = typeof ev === 'string' ? ev : ev.text;
+        const evTag = typeof ev === 'object' ? (ev.tag || '📝') : '📝';
+
         const overlay = $(`<div id="wt-event-overlay" style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:300px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #5E84E2;border-radius:14px;padding:10px 12px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
-            <div style="font-size:12px;font-weight:700;color:#775537;margin-bottom:4px">📝 이벤트 감지 — ${locName}</div>
-            <input type="text" id="wt-event-edit" value="${summary}" style="width:100%;border:1px solid #E8E4D8;border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;box-sizing:border-box"/>
+            <div style="font-size:12px;font-weight:700;color:#775537;margin-bottom:4px">${evTag} ${locName}</div>
+            <input type="text" id="wt-event-edit" value="${evText}" style="width:100%;border:1px solid #E8E4D8;border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;box-sizing:border-box"/>
             <div style="display:flex;gap:6px;margin-top:6px">
-                <button id="wt-event-save" style="flex:1;padding:6px;background:#5E84E2;border:none;border-radius:6px;font-size:12px;font-weight:600;color:#fff;cursor:pointer">💾 저장</button>
-                <button id="wt-event-skip" style="flex:1;padding:6px;background:transparent;border:1px solid #E8E4D8;border-radius:6px;font-size:12px;color:#9A8A7A;cursor:pointer">무시</button>
+                <button id="wt-event-save" style="flex:1;padding:6px;background:#5E84E2;border:none;border-radius:6px;font-size:12px;font-weight:600;color:#fff;cursor:pointer">✏️ 수정 저장</button>
+                <button id="wt-event-skip" style="flex:1;padding:6px;background:transparent;border:1px solid #E8E4D8;border-radius:6px;font-size:12px;color:#9A8A7A;cursor:pointer">OK</button>
             </div>
+            <div style="font-size:10px;color:#B0A898;text-align:center;margin-top:4px">자동 저장됨 · 수정이 필요하면 편집 후 저장</div>
         </div>`);
 
         $('body').append(overlay);
@@ -1357,18 +1362,17 @@ export class UIManager {
             const text = overlay.find('#wt-event-edit').val().trim();
             if (text && locId) {
                 const loc = self.lm.locations.find(l => l.id === locId);
-                if (loc) {
-                    const events = loc.events || [];
-                    const date = new Date().toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
-                    events.push({ text, date, timestamp: Date.now() });
-                    await self.lm.updateLocation(locId, { events });
-                    toastSuccess('📝 이벤트 저장!');
+                if (loc && loc.events?.length) {
+                    // 마지막 이벤트 수정
+                    loc.events[loc.events.length - 1].text = text;
+                    await self.lm.updateLocation(locId, { events: loc.events });
+                    toastSuccess('✏️ 이벤트 수정!');
                 }
             }
             overlay.remove();
         });
         overlay.find('#wt-event-skip').on('click', () => overlay.remove());
-        setTimeout(() => overlay.remove(), 12000);
+        setTimeout(() => overlay.remove(), 8000);
     }
 
     async _addDist() {

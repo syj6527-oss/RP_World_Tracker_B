@@ -400,10 +400,15 @@ export class MapRenderer {
     // ================================================================
     _autoLayout(hubPins, curLoc) {
         if (this._skipLayout) { this._skipLayout = false; return; }
-        // ★ 모든 핀이 이미 배치됐으면 레이아웃 완전 스킵
         const needsInit = hubPins.some(l => !l._manualXY && l.x === 0 && l.y === 0);
         if (!needsInit && !this._layoutDirty) return;
         this._layoutDirty = false;
+
+        // ★ _manualXY 핀 좌표 백업 (무슨 일이 있어도 복원)
+        const manualBackup = new Map();
+        for (const loc of hubPins) {
+            if (loc._manualXY) manualBackup.set(loc.id, { x: loc.x, y: loc.y });
+        }
 
         const dists = this.lm.distances || [];
         const geoLocs = hubPins.filter(l => l.lat != null && l.lng != null);
@@ -427,7 +432,14 @@ export class MapRenderer {
                 }
             }
         }
-        // _manualXY 핀은 DB 덮어쓰기 안 함
+
+        // ★ _manualXY 핀 좌표 강제 복원
+        for (const [id, pos] of manualBackup) {
+            const loc = hubPins.find(l => l.id === id);
+            if (loc) { loc.x = pos.x; loc.y = pos.y; }
+        }
+
+        // 비수동 핀만 DB 저장
         for (const loc of hubPins) {
             if (!loc._manualXY) this.lm.updateLocation(loc.id, { x: loc.x, y: loc.y });
         }

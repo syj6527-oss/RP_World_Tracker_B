@@ -309,13 +309,17 @@ jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSIO
 
 // ========== 이벤트 요약 추출 (감정/사건 키워드 + 타입 분류) ==========
 function _extractEventSummary(text, locName) {
-    const clean = text.replace(/<[^>]*>/g, '').replace(/"[^"]*"/g, '').replace(/「[^」]*」/g, '').trim();
+    // HTML만 제거 (대사는 유지! RP 감정은 대사 안에 있음)
+    const clean = text.replace(/<[^>]*>/g, '').trim();
     if (clean.length < 20) return null;
 
-    // 키워드 → 타입 + 무드 매핑
     const patterns = [
-        // 💕 감정/관계 (memory)
+        // 💕 감정/관계/로맨스 (memory)
         { rx: /키스|kiss|포옹|hug|안[았겼]|품[에었]|사랑|love|고백|confess|첫만남|first met/i, type: 'memory', mood: '💕' },
+        { rx: /속삭|whisper|윙크|wink|숨결|breath|두근|심장.*뛰|heart.*beat|heart.*pound|떨[리렸]|tremble|shiver/i, type: 'memory', mood: '💕' },
+        { rx: /볼.*빨개|얼굴.*달아|blush|손[을를].*잡|hold.*hand|눈[을를].*맞|eye.*meet|이마.*닿|forehead/i, type: 'memory', mood: '💕' },
+        { rx: /끌어안|embrace|기대[어었]|lean|쓰다듬|caress|어루만|stroke|입술|lip|볼[에].*입|cheek/i, type: 'memory', mood: '💕' },
+        { rx: /손가락.*깍지|finger.*interlock|머리.*쓸어|귓[가속]|ear|향기|scent|체온|온기|warmth/i, type: 'memory', mood: '💕' },
         { rx: /울[었다]|눈물|cry|tears|슬[퍼펐]|sad|위로|comfort|그리[워웠]|miss/i, type: 'memory', mood: '😢' },
         { rx: /웃[었다]|미소|smile|laugh|행복|happy|즐[거겼]|기[뻐쁨]|joy/i, type: 'memory', mood: '😊' },
         // ⚡ 사건 (incident)
@@ -323,14 +327,15 @@ function _extractEventSummary(text, locName) {
         { rx: /발견|discover|비밀|secret|숨[겼긴]|hide|도망|escape|추[격적]|chase/i, type: 'incident', mood: '🔍' },
         { rx: /부상|injur|사고|accident|피[가를]|blood|쓰러[졌진]|collapse|치료|heal/i, type: 'incident', mood: '🩹' },
         { rx: /결투|duel|전투|battle|공격|attack|방어|defend|훈련|train/i, type: 'incident', mood: '⚔️' },
+        { rx: /비명|scream|절규|shriek|공포|terror|두려[움운]|fear/i, type: 'incident', mood: '⚡' },
         // 📅 약속/미래 (promise)
-        { rx: /약속|promise|다음[에번]|next time|만나[자기]|내일|tomorrow|기다[려릴]/i, type: 'promise', mood: '📅' },
+        { rx: /약속|promise|다음[에번]|next time|만나[자기]|내일|tomorrow|기다[려릴]|같이.*가|데이트|date/i, type: 'promise', mood: '📅' },
         // 🎁 특별 이벤트
         { rx: /선물|gift|편지|letter|파티|party|축하|celebrat|생일|birthday|기념/i, type: 'memory', mood: '🎁' },
         { rx: /전화|call|연락|contact|메시지|message/i, type: 'memory', mood: '📞' },
     ];
 
-    const sentences = clean.split(/[.!?。！？\n]+/).filter(s => s.trim().length > 5);
+    const sentences = clean.split(/[.!?。！？\n]+/).filter(s => s.trim().length > 8);
 
     for (const s of sentences) {
         const trimmed = s.trim();

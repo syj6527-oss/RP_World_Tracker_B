@@ -319,17 +319,17 @@ export class UIManager {
         // 🔄 약도 재배치 (전체 핀 리셋 + 배경 캐시 무효화)
         $('#wt-btn-refresh').on('click', () => {
             if (this.mapRenderer) {
-                // 모든 핀 위치 리셋 → 새 levelToPx 적용 (③ 15분 반경)
+                // 모든 핀 위치 리셋 + localStorage 초기화
                 for (const loc of this.lm.locations) {
                     loc._manualXY = false;
                     loc.x = 0; loc.y = 0;
                     this.lm.updateLocation(loc.id, { _manualXY: false, x: 0, y: 0 });
+                    this.mapRenderer._clearPinPos(loc.id);
                 }
                 this.mapRenderer._layoutDirty = true;
                 this.mapRenderer._layoutDone = false;
                 this.mapRenderer._skipLayout = false;
                 this.mapRenderer._vbManual = false;
-                // ① 배경 캐시 무효화 → 새 배경 생성
                 if (this.mapRenderer.invalidateCity) this.mapRenderer.invalidateCity();
                 this.mapRenderer.render();
                 toastSuccess('🗺️ 약도 재생성!');

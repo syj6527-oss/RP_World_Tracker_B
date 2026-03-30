@@ -15,6 +15,12 @@ export class MapRenderer {
     _srand(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};}
     _hashStr(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h+s.charCodeAt(i))|0;}return Math.abs(h);}
 
+    // ★ localStorage 핀 좌표 저장/로드
+    _pinKey(locId) { return `wt_pin_${this.lm.currentChatId||'x'}_${locId}`; }
+    _savePinPos(locId, x, y) { try { localStorage.setItem(this._pinKey(locId), JSON.stringify({x,y})); } catch(_){} }
+    _loadPinPos(locId) { try { const v = localStorage.getItem(this._pinKey(locId)); return v ? JSON.parse(v) : null; } catch(_){ return null; } }
+    _clearPinPos(locId) { try { localStorage.removeItem(this._pinKey(locId)); } catch(_){} }
+
     _init() {
         if (!this.container) return;
         this.container.querySelectorAll('svg.wt-map-svg').forEach(el => el.remove());
@@ -77,7 +83,13 @@ export class MapRenderer {
             return !d || (d.level || 5) <= 6;
         }) : locations;
 
-        // 레이아웃
+        // ★ localStorage 저장 좌표 최우선 적용 (레이아웃보다 먼저!)
+        for (const loc of hubPins) {
+            const saved = this._loadPinPos(loc.id);
+            if (saved) { loc.x = saved.x; loc.y = saved.y; loc._manualXY = true; }
+        }
+
+        // 레이아웃 (localStorage에 없는 핀만 자동 배치)
         if (hubPins.length >= 2) this._autoLayout(hubPins, curLoc);
         if (curLoc && curLoc.x === 0 && curLoc.y === 0) {
             curLoc.x = 300; curLoc.y = 280;
@@ -501,10 +513,10 @@ export class MapRenderer {
     // ================================================================
     //  TOUCH / MOUSE
     // ================================================================
-    _touchStart(e){if(e.touches.length===2){e.preventDefault();this._pinch=this._pinchDist(e);this._pan=null;this._longPress=null;return;}if(e.touches.length===1){const t=e.touches[0],pt=this._svgPt(t),hitId=this._hitTest(pt);this._touchInfo={x:t.clientX,y:t.clientY,time:Date.now(),nodeId:hitId,pt};this._wasDrag=false;if(hitId&&!this._movingNodeId){e.preventDefault();this._longPress=setTimeout(()=>{this._movingNodeId=hitId;const loc=this.lm.locations.find(l=>l.id===hitId);if(loc&&this.onMoveRequest)this.onMoveRequest(hitId,loc.name);this._longPress=null;},500);}else if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;}else{this._pan={sx:t.clientX,sy:t.clientY,vx:this.vb.x,vy:this.vb.y};}}}
+    _touchStart(e){if(e.touches.length===2){e.preventDefault();this._pinch=this._pinchDist(e);this._pan=null;this._longPress=null;return;}if(e.touches.length===1){const t=e.touches[0],pt=this._svgPt(t),hitId=this._hitTest(pt);this._touchInfo={x:t.clientX,y:t.clientY,time:Date.now(),nodeId:hitId,pt};this._wasDrag=false;if(hitId&&!this._movingNodeId){e.preventDefault();this._longPress=setTimeout(()=>{this._movingNodeId=hitId;const loc=this.lm.locations.find(l=>l.id===hitId);if(loc&&this.onMoveRequest)this.onMoveRequest(hitId,loc.name);this._longPress=null;},500);}else if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._savePinPos(loc.id,loc.x,loc.y);this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;}else{this._pan={sx:t.clientX,sy:t.clientY,vx:this.vb.x,vy:this.vb.y};}}}
     _touchMove(e){if(e.touches.length===2&&this._pinch){e.preventDefault();const d=this._pinchDist(e),s=this._pinch/d;const cxv=this.vb.x+this.vb.w/2,cyv=this.vb.y+this.vb.h/2;const nw=Math.max(200,Math.min(2000,this.vb.w*s));const nh=nw*(this.vb.h/this.vb.w);this.vb={x:cxv-nw/2,y:cyv-nh/2,w:nw,h:nh};this._applyVB();this._pinch=d;return;}if(e.touches.length===1){const t=e.touches[0];if(this._longPress&&this._touchInfo){if(Math.abs(t.clientX-this._touchInfo.x)>10||Math.abs(t.clientY-this._touchInfo.y)>10){clearTimeout(this._longPress);this._longPress=null;}}if(this._pan){e.preventDefault();const dx=(t.clientX-this._pan.sx)*(this.vb.w/this.svg.getBoundingClientRect().width);const dy=(t.clientY-this._pan.sy)*(this.vb.h/this.svg.getBoundingClientRect().height);this.vb.x=this._pan.vx-dx;this.vb.y=this._pan.vy-dy;this._applyVB();this._wasDrag=true;}}}
     _touchEnd(){clearTimeout(this._longPress);this._longPress=null;if(this._touchInfo&&!this._wasDrag&&this._touchInfo.nodeId&&!this._movingNodeId){if(Date.now()-this._touchInfo.time<400)this.onLocationClick?.(this._touchInfo.nodeId);}this._pinch=null;this._pan=null;this._touchInfo=null;}
-    _onDown(e){const pt=this._svgPt(e),hitId=this._hitTest(pt);this._wasDrag=false;if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;return;}if(hitId){e.preventDefault();this._mouseClickId=hitId;}if(!hitId){this._pan={sx:e.clientX,sy:e.clientY,vx:this.vb.x,vy:this.vb.y};}}
+    _onDown(e){const pt=this._svgPt(e),hitId=this._hitTest(pt);this._wasDrag=false;if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._savePinPos(loc.id,loc.x,loc.y);this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;return;}if(hitId){e.preventDefault();this._mouseClickId=hitId;}if(!hitId){this._pan={sx:e.clientX,sy:e.clientY,vx:this.vb.x,vy:this.vb.y};}}
     _onMove(e){if(this._pan){const dx=(e.clientX-this._pan.sx)*(this.vb.w/this.svg.getBoundingClientRect().width);const dy=(e.clientY-this._pan.sy)*(this.vb.h/this.svg.getBoundingClientRect().height);this.vb.x=this._pan.vx-dx;this.vb.y=this._pan.vy-dy;this._applyVB();this._wasDrag=true;this._mouseClickId=null;}}
     _onUp(){this._pan=null;if(this._mouseClickId&&!this._wasDrag)this.onLocationClick?.(this._mouseClickId);this._mouseClickId=null;}
     _zoom(f,e){const r=this.svg.getBoundingClientRect();const mx=(e.clientX-r.left)/r.width,my=(e.clientY-r.top)/r.height;const nw=Math.max(200,Math.min(2000,this.vb.w*f));const nh=nw*(this.vb.h/this.vb.w);this.vb.x+=(this.vb.w-nw)*mx;this.vb.y+=(this.vb.h-nh)*my;this.vb.w=nw;this.vb.h=nh;this._applyVB();}

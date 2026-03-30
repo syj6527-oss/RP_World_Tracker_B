@@ -97,22 +97,8 @@ async function scanMessage(text, source = 'USER') {
                 if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${location.name}`, 'move');
                 pi.inject(); if (ui.panelVisible) ui.refresh();
             }
-            // AI 응답이면 이벤트 자동 추출 (감정/사건 키워드만)
-            if (source === 'AI' && text.length > 30) {
-                const ev = _extractEventSummary(text, location.name);
-                if (ev) {
-                    // 자동 저장
-                    const loc = lm.locations.find(l => l.id === location.id);
-                    if (loc) {
-                        if (!loc.events) loc.events = [];
-                        loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now() });
-                        if (loc.events.length > 20) loc.events = loc.events.slice(-20); // 최대 20개
-                        await lm.updateLocation(location.id, { events: loc.events });
-                    }
-                    // 알림 (수정 가능)
-                    ui.showEventNotify(location.name, { text: ev.text, tag: ev.mood }, location.id);
-                }
-            }
+            // 이벤트 추출 (AI=전체, USER=강한 키워드만)
+            await _tryEvent(text, location.id, source);
             return true;
         }
 
@@ -128,36 +114,14 @@ async function scanMessage(text, source = 'USER') {
                     if (s.showDetectToast) wtNotify(`${wtMascot()} 🆕 ${loc.name}`, 'new', 3500);
                     pi.inject(); if (ui.panelVisible) ui.refresh();
                     ui.showAutoToast(loc);
-                    // ★ 새 장소에서도 이벤트 자동 추출
-                    if (source === 'AI' && text.length > 30) {
-                        const ev = _extractEventSummary(text, loc.name);
-                        if (ev) {
-                            if (!loc.events) loc.events = [];
-                            loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now() });
-                            if (loc.events.length > 20) loc.events = loc.events.slice(-20);
-                            await lm.updateLocation(loc.id, { events: loc.events });
-                            ui.showEventNotify(loc.name, { text: ev.text, tag: ev.mood }, loc.id);
-                        }
-                    }
+                    await _tryEvent(text, loc.id, source);
                 }
             }
             return true;
         }
 
-        // ★ 장소 감지 실패해도, 현재 위치가 있으면 이벤트만 추출
-        if (source === 'AI' && text.length > 30 && lm.currentLocationId) {
-            const ev = _extractEventSummary(text, '');
-            if (ev) {
-                const loc = lm.locations.find(l => l.id === lm.currentLocationId);
-                if (loc) {
-                    if (!loc.events) loc.events = [];
-                    loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now() });
-                    if (loc.events.length > 20) loc.events = loc.events.slice(-20);
-                    await lm.updateLocation(loc.id, { events: loc.events });
-                    ui.showEventNotify(loc.name, { text: ev.text, tag: ev.mood }, loc.id);
-                }
-            }
-        }
+        // 장소 감지 실패해도, 현재 위치가 있으면 이벤트만 추출
+        if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
 
         return false;
     } catch(e) { console.error(`[${EXTENSION_NAME}] Scan:`, e); return false; }
@@ -334,6 +298,34 @@ async function scanChatHistory(ctx) {
 
 jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSION_NAME}] Init:`, e); } });
 
+// ========== 이벤트 추출 + 저장 헬퍼 ==========
+const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up/i;
+
+async function _tryEvent(text, locId, source) {
+    if (text.length < 25) return;
+    // USER는 강한 키워드 있을 때만
+    if (source === 'USER' && !_strongKw.test(text)) return;
+
+    const ev = _extractEventSummary(text, '');
+    if (!ev) return;
+
+    const loc = lm.locations.find(l => l.id === locId);
+    if (!loc) return;
+
+    // 중복 방지 (최근 30초 내 동일 텍스트)
+    if (loc.events?.length) {
+        const last = loc.events[loc.events.length - 1];
+        if (last.text === ev.text && Date.now() - last.timestamp < 30000) return;
+    }
+
+    if (!loc.events) loc.events = [];
+    loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now(), source });
+    if (loc.events.length > 20) loc.events = loc.events.slice(-20);
+    await lm.updateLocation(locId, { events: loc.events });
+    ui.showEventNotify(loc.name, { text: ev.text, tag: ev.mood }, locId);
+    dbg(`${ev.mood} Event: "${ev.text}" @ ${loc.name} (${source})`);
+}
+
 // ========== 이벤트 요약 추출 (감정/사건 키워드 + 타입 분류) ==========
 function _extractEventSummary(text, locName) {
     // HTML만 제거 (대사는 유지! RP 감정은 대사 안에 있음)
@@ -350,14 +342,21 @@ function _extractEventSummary(text, locName) {
         { rx: /볼.*빨개|얼굴.*달아|blush|손[을를].*잡|hold.*hand|눈[을를].*맞|eye.*meet|이마.*닿|forehead/i, type: 'memory', mood: '💕' },
         { rx: /끌어안|embrace|기대[어었]|lean|쓰다듬|caress|어루만|stroke|입술|lip|볼[에].*입|cheek/i, type: 'memory', mood: '💕' },
         { rx: /손가락.*깍지|finger.*interlock|머리.*쓸어|귓[가속]|ear|향기|scent|체온|온기|warmth/i, type: 'memory', mood: '💕' },
+        // 💕 영어 로맨스 확장 (AI가 자주 쓰는 묘사)
+        { rx: /mouth.*devour|devour.*mouth|cupped.*face|traced.*jaw|passion|intimate|desire|sensual|breathless|panting/i, type: 'memory', mood: '💕' },
+        { rx: /pressed.*against|pulled.*close|leaned.*in|neck.*kiss|collarbone|nuzzle|nibble|tongue|lick/i, type: 'memory', mood: '💕' },
+        { rx: /moaned|gasped|arched|shudder|pulse.*rac|heart.*rac|chest.*tight|stomach.*flutter/i, type: 'memory', mood: '💕' },
+        { rx: /intertwine|entangle|straddle|pin.*down|beneath|above.*hover|grind|groan/i, type: 'memory', mood: '💕' },
+        // 😢 슬픔
         { rx: /울[었다]|눈물|cry|tears|슬[퍼펐]|sad|위로|comfort|그리[워웠]|miss/i, type: 'memory', mood: '😢' },
+        // 😊 기쁨
         { rx: /웃[었다]|미소|smile|laugh|행복|happy|즐[거겼]|기[뻐쁨]|joy/i, type: 'memory', mood: '😊' },
         // ⚡ 사건 (incident)
         { rx: /싸[우웠움]|fight|충돌|clash|화[가났]|anger|분노|rage|배신|betray/i, type: 'incident', mood: '⚡' },
         { rx: /발견|discover|비밀|secret|숨[겼긴]|hide|도망|escape|추[격적]|chase/i, type: 'incident', mood: '🔍' },
         { rx: /부상|injur|사고|accident|피[가를]|blood|쓰러[졌진]|collapse|치료|heal/i, type: 'incident', mood: '🩹' },
         { rx: /결투|duel|전투|battle|공격|attack|방어|defend|훈련|train/i, type: 'incident', mood: '⚔️' },
-        { rx: /비명|scream|절규|shriek|공포|terror|두려[움운]|fear/i, type: 'incident', mood: '⚡' },
+        { rx: /비명|scream|절규|shriek|공포|terror|두려[움운]|fear|confrontation/i, type: 'incident', mood: '⚡' },
         // 📅 약속/미래 (promise)
         { rx: /약속|promise|다음[에번]|next time|만나[자기]|내일|tomorrow|기다[려릴]|같이.*가|데이트|date/i, type: 'promise', mood: '📅' },
         // 🎁 특별 이벤트

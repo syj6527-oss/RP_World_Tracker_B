@@ -45,15 +45,20 @@ export class MapRenderer {
 
     invalidateCity() { this._cityBgEl = null; this._cityHubKey = null; }
 
-    // 핀 클릭 → ViewBox만 이동 (배경 재생성 X)
+    // 핀 클릭 → ViewBox만 이동 + 팝업 카드
     recenterOn(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
+        // 같은 핀 → 토글, 다른 핀 → 교체
+        this._popupLocId = (this._popupLocId === locId) ? null : locId;
         this.vb.x = loc.x - this.vb.w / 2;
         this.vb.y = loc.y - this.vb.h / 2;
         this._vbManual = true;
         this.render();
     }
+
+    // 팝업 카드 닫기
+    closePopup() { this._popupLocId = null; this._removePopup(); }
 
     // ================================================================
     //  RENDER
@@ -143,6 +148,9 @@ export class MapRenderer {
         this._drawDistLines(hubPins, movements);
         this._drawPins(hubPins, currentLocationId);
         this._drawCompass(this.vb);
+
+        // ★ 팝업 카드 (핀 클릭 시)
+        if (this._popupLocId) this._drawPopupCard(this._popupLocId, hubPins);
 
         if (!locations.length) {
             this.svg.appendChild(this._el('text', { x: 300, y: 280, class: 'wt-empty-text' }, 'RP를 시작해보세요! 🐶'));
@@ -408,6 +416,99 @@ export class MapRenderer {
     }
 
     // ================================================================
+    //  팝업 카드 (말풍선 — 핀 위에 표시)
+    // ================================================================
+    _removePopup() { this.svg?.querySelector('#wt-popup-card')?.remove(); }
+
+    _drawPopupCard(locId, hubPins) {
+        this._removePopup();
+        const loc = (hubPins || this.lm.locations).find(l => l.id === locId);
+        if (!loc) return;
+
+        const ps = this._pinStyle(loc.name);
+        const g = this._el('g', { id: 'wt-popup-card', transform: `translate(${loc.x},${loc.y})` });
+
+        // 데이터 준비
+        const visits = loc.visitCount || 0;
+        const visitText = visits === 0 ? 'New!' : visits === 1 ? '1st visit' : `${visits}th visit`;
+
+        // 가장 가까운 장소
+        let nearText = '';
+        const dists = this.lm.distances || [];
+        let nearest = null, nearLevel = 99;
+        for (const d of dists) {
+            const otherId = d.fromId === locId ? d.toId : d.toId === locId ? d.fromId : null;
+            if (!otherId) continue;
+            if ((d.level || 5) < nearLevel) {
+                nearLevel = d.level || 5;
+                const other = this.lm.locations.find(l => l.id === otherId);
+                if (other) nearest = other;
+            }
+        }
+        if (nearest) nearText = ` · Near ${nearest.name}`;
+
+        // 최근 메모/이벤트
+        let memoText = '';
+        if (loc.events?.length) {
+            const latest = loc.events[loc.events.length - 1];
+            memoText = latest.text || '';
+        } else if (loc.memo) {
+            memoText = loc.memo;
+        }
+        if (memoText.length > 35) memoText = memoText.substring(0, 35) + '...';
+
+        // 카드 크기 계산
+        const hasEvent = memoText.length > 0;
+        const cardH = hasEvent ? 62 : 42;
+        const cardW = 180;
+        const cardY = -80 - (hasEvent ? 12 : 0); // 핀 위 위치
+
+        // 카드 그룹 (그림자)
+        const card = this._el('g', { transform: `translate(0,${cardY})` });
+
+        // 말풍선 꼬리
+        card.appendChild(this._el('polygon', { points: `-7,${cardH + 2} 7,${cardH + 2} 0,${cardH + 11}`, fill: '#fff', stroke: '#E0DCD4', 'stroke-width': 0.5 }));
+
+        // 카드 배경
+        card.appendChild(this._el('rect', {
+            x: -cardW / 2, y: 0, width: cardW, height: cardH, rx: 10,
+            fill: '#fff', stroke: '#E0DCD4', 'stroke-width': 1,
+        }));
+        // 꼬리 위 경계선 덮기 (흰색 rect)
+        card.appendChild(this._el('rect', { x: -8, y: cardH - 1, width: 16, height: 3, fill: '#fff' }));
+
+        // 이모지 + 이름
+        card.appendChild(this._el('text', {
+            x: -cardW / 2 + 12, y: 18,
+            fill: '#5A4030', 'font-size': '12', 'font-weight': '700',
+        }, `${ps.emoji} ${loc.name}`));
+
+        // 방문 + 근처
+        const infoText = `${visitText}${nearText}`;
+        card.appendChild(this._el('text', {
+            x: -cardW / 2 + 12, y: 32,
+            fill: '#9A8A7A', 'font-size': '8.5',
+        }, infoText.length > 30 ? infoText.substring(0, 30) + '...' : infoText));
+
+        // 메모/이벤트
+        if (hasEvent) {
+            card.appendChild(this._el('text', {
+                x: -cardW / 2 + 12, y: 48,
+                fill: '#7A8A6A', 'font-size': '8', 'font-style': 'italic',
+            }, `"${memoText}"`));
+        }
+
+        // 좌측 컬러 바 (핀 색상)
+        card.appendChild(this._el('rect', {
+            x: -cardW / 2, y: 0, width: 4, height: cardH,
+            rx: '10 0 0 10', fill: ps.color, opacity: 0.7,
+        }));
+
+        g.appendChild(card);
+        this.svg.appendChild(g);
+    }
+
+    // ================================================================
     //  AUTO LAYOUT (Hub 핀만, centerX 강제 없음)
     // ================================================================
     _autoLayout(hubPins, curLoc) {
@@ -515,10 +616,10 @@ export class MapRenderer {
     // ================================================================
     _touchStart(e){if(e.touches.length===2){e.preventDefault();this._pinch=this._pinchDist(e);this._pan=null;this._longPress=null;return;}if(e.touches.length===1){const t=e.touches[0],pt=this._svgPt(t),hitId=this._hitTest(pt);this._touchInfo={x:t.clientX,y:t.clientY,time:Date.now(),nodeId:hitId,pt};this._wasDrag=false;if(hitId&&!this._movingNodeId){e.preventDefault();this._longPress=setTimeout(()=>{this._movingNodeId=hitId;const loc=this.lm.locations.find(l=>l.id===hitId);if(loc&&this.onMoveRequest)this.onMoveRequest(hitId,loc.name);this._longPress=null;},500);}else if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._savePinPos(loc.id,loc.x,loc.y);this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;}else{this._pan={sx:t.clientX,sy:t.clientY,vx:this.vb.x,vy:this.vb.y};}}}
     _touchMove(e){if(e.touches.length===2&&this._pinch){e.preventDefault();const d=this._pinchDist(e),s=this._pinch/d;const cxv=this.vb.x+this.vb.w/2,cyv=this.vb.y+this.vb.h/2;const nw=Math.max(200,Math.min(2000,this.vb.w*s));const nh=nw*(this.vb.h/this.vb.w);this.vb={x:cxv-nw/2,y:cyv-nh/2,w:nw,h:nh};this._applyVB();this._pinch=d;return;}if(e.touches.length===1){const t=e.touches[0];if(this._longPress&&this._touchInfo){if(Math.abs(t.clientX-this._touchInfo.x)>10||Math.abs(t.clientY-this._touchInfo.y)>10){clearTimeout(this._longPress);this._longPress=null;}}if(this._pan){e.preventDefault();const dx=(t.clientX-this._pan.sx)*(this.vb.w/this.svg.getBoundingClientRect().width);const dy=(t.clientY-this._pan.sy)*(this.vb.h/this.svg.getBoundingClientRect().height);this.vb.x=this._pan.vx-dx;this.vb.y=this._pan.vy-dy;this._applyVB();this._wasDrag=true;}}}
-    _touchEnd(){clearTimeout(this._longPress);this._longPress=null;if(this._touchInfo&&!this._wasDrag&&this._touchInfo.nodeId&&!this._movingNodeId){if(Date.now()-this._touchInfo.time<400)this.onLocationClick?.(this._touchInfo.nodeId);}this._pinch=null;this._pan=null;this._touchInfo=null;}
+    _touchEnd(){clearTimeout(this._longPress);this._longPress=null;if(this._touchInfo&&!this._wasDrag&&this._touchInfo.nodeId&&!this._movingNodeId){if(Date.now()-this._touchInfo.time<400)this.onLocationClick?.(this._touchInfo.nodeId);}else if(this._touchInfo&&!this._wasDrag&&!this._touchInfo.nodeId&&this._popupLocId){this._popupLocId=null;this._removePopup();}this._pinch=null;this._pan=null;this._touchInfo=null;}
     _onDown(e){const pt=this._svgPt(e),hitId=this._hitTest(pt);this._wasDrag=false;if(this._movingNodeId){e.preventDefault();const loc=this.lm.locations.find(l=>l.id===this._movingNodeId);if(loc){loc.x=Math.round(pt.x);loc.y=Math.round(pt.y);loc._manualXY=true;this.lm.updateLocation(loc.id,{x:loc.x,y:loc.y,_manualXY:true});this._savePinPos(loc.id,loc.x,loc.y);this._vbManual=true;this._skipLayout=true;this.render();}this._movingNodeId=null;return;}if(hitId){e.preventDefault();this._mouseClickId=hitId;}if(!hitId){this._pan={sx:e.clientX,sy:e.clientY,vx:this.vb.x,vy:this.vb.y};}}
     _onMove(e){if(this._pan){const dx=(e.clientX-this._pan.sx)*(this.vb.w/this.svg.getBoundingClientRect().width);const dy=(e.clientY-this._pan.sy)*(this.vb.h/this.svg.getBoundingClientRect().height);this.vb.x=this._pan.vx-dx;this.vb.y=this._pan.vy-dy;this._applyVB();this._wasDrag=true;this._mouseClickId=null;}}
-    _onUp(){this._pan=null;if(this._mouseClickId&&!this._wasDrag)this.onLocationClick?.(this._mouseClickId);this._mouseClickId=null;}
+    _onUp(){this._pan=null;if(this._mouseClickId&&!this._wasDrag){this.onLocationClick?.(this._mouseClickId);}else if(!this._wasDrag&&this._popupLocId){this._popupLocId=null;this._removePopup();}this._mouseClickId=null;}
     _zoom(f,e){const r=this.svg.getBoundingClientRect();const mx=(e.clientX-r.left)/r.width,my=(e.clientY-r.top)/r.height;const nw=Math.max(200,Math.min(2000,this.vb.w*f));const nh=nw*(this.vb.h/this.vb.w);this.vb.x+=(this.vb.w-nw)*mx;this.vb.y+=(this.vb.h-nh)*my;this.vb.w=nw;this.vb.h=nh;this._applyVB();}
     _el(tag,attrs,text){const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs||{}))el.setAttribute(k,v);if(text!==undefined)el.textContent=text;return el;}
     _svgPt(e){const r=this.svg.getBoundingClientRect();return{x:this.vb.x+(e.clientX-r.left)/r.width*this.vb.w,y:this.vb.y+(e.clientY-r.top)/r.height*this.vb.h};}

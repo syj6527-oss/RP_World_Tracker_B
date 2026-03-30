@@ -428,26 +428,24 @@ export class MapRenderer {
         const ps = this._pinStyle(loc.name);
         const g = this._el('g', { id: 'wt-popup-card', transform: `translate(${loc.x},${loc.y})` });
 
-        // 데이터 준비
+        // 데이터
         const visits = loc.visitCount || 0;
-        const visitText = visits === 0 ? 'New!' : visits === 1 ? '1st visit' : `${visits}th visit`;
+        const visitText = visits === 0 ? 'New' : visits === 1 ? '1st' : `${visits}th`;
 
-        // 가장 가까운 장소
-        let nearText = '';
-        const dists = this.lm.distances || [];
-        let nearest = null, nearLevel = 99;
-        for (const d of dists) {
+        // 가까운 장소
+        let nearName = '';
+        let nearLevel = 99;
+        for (const d of (this.lm.distances || [])) {
             const otherId = d.fromId === locId ? d.toId : d.toId === locId ? d.fromId : null;
             if (!otherId) continue;
             if ((d.level || 5) < nearLevel) {
                 nearLevel = d.level || 5;
                 const other = this.lm.locations.find(l => l.id === otherId);
-                if (other) nearest = other;
+                if (other) nearName = other.name;
             }
         }
-        if (nearest) nearText = ` · Near ${nearest.name}`;
 
-        // 최근 메모/이벤트
+        // 메모/이벤트
         let memoText = '';
         if (loc.events?.length) {
             const latest = loc.events[loc.events.length - 1];
@@ -455,54 +453,64 @@ export class MapRenderer {
         } else if (loc.memo) {
             memoText = loc.memo;
         }
-        if (memoText.length > 35) memoText = memoText.substring(0, 35) + '...';
+        if (memoText.length > 28) memoText = memoText.substring(0, 28) + '...';
+        const hasMemo = memoText.length > 0;
 
-        // 카드 크기 계산
-        const hasEvent = memoText.length > 0;
-        const cardH = hasEvent ? 62 : 42;
-        const cardW = 180;
-        const cardY = -80 - (hasEvent ? 12 : 0); // 핀 위 위치
+        // 카드 사이즈
+        const cardW = 190;
+        const cardH = 78;
+        const cardY = -148;
 
-        // 카드 그룹 (그림자)
-        const card = this._el('g', { transform: `translate(0,${cardY})` });
+        const card = this._el('g', { transform: `translate(0,${cardY})`, filter: 'url(#wt-shp)' });
 
-        // 말풍선 꼬리
-        card.appendChild(this._el('polygon', { points: `-7,${cardH + 2} 7,${cardH + 2} 0,${cardH + 11}`, fill: '#fff', stroke: '#E0DCD4', 'stroke-width': 0.5 }));
-
+        // 꼬리
+        card.appendChild(this._el('path', { d: `M-5,${cardH} L0,${cardH + 9} L5,${cardH}`, fill: '#fff' }));
         // 카드 배경
-        card.appendChild(this._el('rect', {
-            x: -cardW / 2, y: 0, width: cardW, height: cardH, rx: 10,
-            fill: '#fff', stroke: '#E0DCD4', 'stroke-width': 1,
+        card.appendChild(this._el('rect', { x: -cardW / 2, y: 0, width: cardW, height: cardH, rx: 12, fill: '#fff' }));
+
+        const lx = -cardW / 2 + 14; // 왼쪽 시작
+        const rx = cardW / 2 - 14;  // 오른쪽 끝
+
+        // 1행: 이름 (굵게) + 방문횟수 (오른쪽, 작고 회색)
+        card.appendChild(this._el('text', {
+            x: lx, y: 22,
+            fill: '#2D2418', 'font-size': '14', 'font-weight': '800',
+            'font-family': "'Noto Sans KR',sans-serif",
+        }, loc.name));
+        card.appendChild(this._el('text', {
+            x: rx, y: 22, 'text-anchor': 'end',
+            fill: '#B5AD9E', 'font-size': '9', 'font-weight': '500',
+            'font-family': "Inter,'Noto Sans KR',sans-serif",
+        }, visitText));
+
+        // 2행: 근처 장소 (작고 회색)
+        card.appendChild(this._el('text', {
+            x: lx, y: 38,
+            fill: '#A8A090', 'font-size': '9', 'font-weight': '400',
+            'font-family': "'Noto Sans KR',sans-serif",
+        }, nearName ? `Near ${nearName}` : ''));
+
+        // 점선 구분 (항상 표시)
+        card.appendChild(this._el('line', {
+            x1: lx, y1: 46, x2: rx, y2: 46,
+            stroke: '#EAE6DC', 'stroke-width': 1, 'stroke-dasharray': '4 3',
         }));
-        // 꼬리 위 경계선 덮기 (흰색 rect)
-        card.appendChild(this._el('rect', { x: -8, y: cardH - 1, width: 16, height: 3, fill: '#fff' }));
 
-        // 이모지 + 이름
-        card.appendChild(this._el('text', {
-            x: -cardW / 2 + 12, y: 18,
-            fill: '#5A4030', 'font-size': '12', 'font-weight': '700',
-        }, `${ps.emoji} ${loc.name}`));
-
-        // 방문 + 근처
-        const infoText = `${visitText}${nearText}`;
-        card.appendChild(this._el('text', {
-            x: -cardW / 2 + 12, y: 32,
-            fill: '#9A8A7A', 'font-size': '8.5',
-        }, infoText.length > 30 ? infoText.substring(0, 30) + '...' : infoText));
-
-        // 메모/이벤트
-        if (hasEvent) {
+        // 메모 or placeholder
+        if (hasMemo) {
             card.appendChild(this._el('text', {
-                x: -cardW / 2 + 12, y: 48,
-                fill: '#7A8A6A', 'font-size': '8', 'font-style': 'italic',
+                x: lx, y: 62,
+                fill: '#8B9A78', 'font-size': '9.5', 'font-weight': '400',
+                'font-style': 'italic', 'letter-spacing': '0.2',
+                'font-family': "'Noto Sans KR',sans-serif",
             }, `"${memoText}"`));
+        } else {
+            card.appendChild(this._el('text', {
+                x: lx, y: 62,
+                fill: '#C5BFB5', 'font-size': '9', 'font-weight': '400',
+                'font-family': "'Noto Sans KR',sans-serif",
+            }, '✏️ 터치해서 기억 남기기...'));
         }
-
-        // 좌측 컬러 바 (핀 색상)
-        card.appendChild(this._el('rect', {
-            x: -cardW / 2, y: 0, width: 4, height: cardH,
-            rx: '10 0 0 10', fill: ps.color, opacity: 0.7,
-        }));
 
         g.appendChild(card);
         this.svg.appendChild(g);

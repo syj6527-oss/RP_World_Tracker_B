@@ -128,6 +128,17 @@ async function scanMessage(text, source = 'USER') {
                     if (s.showDetectToast) wtNotify(`${wtMascot()} 🆕 ${loc.name}`, 'new', 3500);
                     pi.inject(); if (ui.panelVisible) ui.refresh();
                     ui.showAutoToast(loc);
+                    // ★ 새 장소에서도 이벤트 자동 추출
+                    if (source === 'AI' && text.length > 30) {
+                        const ev = _extractEventSummary(text, loc.name);
+                        if (ev) {
+                            if (!loc.events) loc.events = [];
+                            loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now() });
+                            if (loc.events.length > 20) loc.events = loc.events.slice(-20);
+                            await lm.updateLocation(loc.id, { events: loc.events });
+                            ui.showEventNotify(loc.name, { text: ev.text, tag: ev.mood }, loc.id);
+                        }
+                    }
                 }
             }
             return true;

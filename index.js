@@ -143,6 +143,22 @@ async function scanMessage(text, source = 'USER') {
             }
             return true;
         }
+
+        // ★ 장소 감지 실패해도, 현재 위치가 있으면 이벤트만 추출
+        if (source === 'AI' && text.length > 30 && lm.currentLocationId) {
+            const ev = _extractEventSummary(text, '');
+            if (ev) {
+                const loc = lm.locations.find(l => l.id === lm.currentLocationId);
+                if (loc) {
+                    if (!loc.events) loc.events = [];
+                    loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now() });
+                    if (loc.events.length > 20) loc.events = loc.events.slice(-20);
+                    await lm.updateLocation(loc.id, { events: loc.events });
+                    ui.showEventNotify(loc.name, { text: ev.text, tag: ev.mood }, loc.id);
+                }
+            }
+        }
+
         return false;
     } catch(e) { console.error(`[${EXTENSION_NAME}] Scan:`, e); return false; }
 }
@@ -324,6 +340,9 @@ function _extractEventSummary(text, locName) {
     const clean = text.replace(/<[^>]*>/g, '').trim();
     if (clean.length < 20) return null;
 
+    // 메타데이터/시스템 텍스트 필터 (이벤트 아님)
+    const metaFilter = /^[-*]\s*(Time|Date|Location|Characters|Outfit|Items|Scene|Status|DATE CHANGE|날짜|시간|장소|의상|아이템)[\s:]/i;
+
     const patterns = [
         // 💕 감정/관계/로맨스 (memory)
         { rx: /키스|kiss|포옹|hug|안[았겼]|품[에었]|사랑|love|고백|confess|첫만남|first met/i, type: 'memory', mood: '💕' },
@@ -350,6 +369,8 @@ function _extractEventSummary(text, locName) {
 
     for (const s of sentences) {
         const trimmed = s.trim();
+        // 메타데이터 문장 스킵
+        if (metaFilter.test(trimmed)) continue;
         for (const p of patterns) {
             if (p.rx.test(trimmed)) {
                 let summary = trimmed;

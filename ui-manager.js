@@ -1306,11 +1306,17 @@ export class UIManager {
         const events = loc?.events || [];
         if (!events.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:4px;font-style:italic">아직 이벤트가 없어요</div>'); return; }
         const self = this;
-        events.forEach((ev, i) => {
-            const item = $(`<div style="display:flex;align-items:flex-start;gap:4px;padding:4px 6px;background:var(--wt-surface);border-radius:4px;font-size:11px">
-                <span style="flex:1;color:var(--wt-text);line-height:1.3">${ev.text}</span>
-                <span style="font-size:9px;color:#9A8A7A;white-space:nowrap">${ev.date || ''}</span>
-                <button class="wt-btn-icon" style="font-size:10px;padding:1px 3px;color:var(--wt-pink)" data-eidx="${i}">✕</button>
+        // 최근 3개만 표시 (역순 = 최신 먼저)
+        const recent = events.slice(-3).reverse();
+        recent.forEach((ev, i) => {
+            const realIdx = events.length - 1 - i;
+            const mood = ev.mood || '📝';
+            const dateStr = ev.date || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
+            const item = $(`<div style="display:flex;align-items:flex-start;gap:4px;padding:6px 8px;background:var(--wt-surface);border-radius:8px;font-size:11px;line-height:1.4">
+                <span style="flex-shrink:0">${mood}</span>
+                <span style="flex:1;color:var(--wt-text)">${ev.text}</span>
+                <span style="font-size:9px;color:#B0A898;white-space:nowrap;flex-shrink:0">${dateStr}</span>
+                <button class="wt-btn-icon" style="font-size:10px;padding:1px 3px;color:var(--wt-pink);flex-shrink:0" data-eidx="${realIdx}">✕</button>
             </div>`);
             item.find('button').on('click', async function() {
                 events.splice(parseInt($(this).attr('data-eidx')), 1);
@@ -1319,6 +1325,13 @@ export class UIManager {
             });
             list.append(item);
         });
+
+        // 3개 초과 시 "전체 기억 보기" 버튼
+        if (events.length > 3) {
+            const btn = $(`<button style="width:100%;margin-top:6px;padding:8px;background:transparent;border:1.5px dashed #D8D4C8;border-radius:8px;font-size:12px;color:#9A8A7A;cursor:pointer;font-family:inherit">📖 전체 기억 보기 (${events.length}건)</button>`);
+            btn.on('click', () => this._showEventPanel(locId));
+            list.append(btn);
+        }
     }
 
     async _addEvent() {
@@ -1336,10 +1349,162 @@ export class UIManager {
         toastSuccess('📝 이벤트 추가!');
     }
 
+    // ========== 이벤트 전체 보기 (패널 뷰 전환) ==========
+    _showEventPanel(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+        const events = loc.events || [];
+        const ps = this._pinStyle ? this._pinStyle(loc.name) : { emoji: '📍', color: '#5E84E2' };
+
+        // 현재 패널 내용 저장
+        const body = $('#wt-panel-body');
+        if (!this._savedPanelHTML) this._savedPanelHTML = body.html();
+
+        // 이벤트 패널 HTML
+        let evHTML = `
+        <div id="wt-event-panel" style="padding:8px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <button id="wt-ev-back" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px">←</button>
+                <div style="flex:1">
+                    <div style="font-size:16px;font-weight:800;color:var(--wt-brown,#775537)">${loc.name}</div>
+                    <div style="font-size:11px;color:#9A8A7A">📖 기억 ${events.length}건</div>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;padding-right:4px">`;
+
+        if (!events.length) {
+            evHTML += `<div style="text-align:center;padding:24px;color:#B0A898;font-style:italic">아직 기억이 없어요</div>`;
+        } else {
+            // 역순 (최신 먼저)
+            [...events].reverse().forEach((ev, i) => {
+                const realIdx = events.length - 1 - i;
+                const mood = ev.mood || '📝';
+                const dateStr = ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '';
+                const timeStr = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }) : '';
+                const sourceTag = ev.source === 'AI' ? '🤖' : ev.source === 'USER' ? '✍️' : '';
+
+                evHTML += `
+                <div class="wt-ev-card" style="background:var(--wt-surface,#FAFAF5);border-radius:10px;padding:10px 12px;border:1px solid #EAE6DC">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                        <span style="font-size:16px">${mood}</span>
+                        <span style="flex:1;font-size:10px;color:#B0A898">${dateStr} ${timeStr} ${sourceTag}</span>
+                        <button class="wt-ev-del" data-eidx="${realIdx}" style="background:none;border:none;font-size:12px;color:#D4A0A0;cursor:pointer;padding:2px 4px">✕</button>
+                    </div>
+                    <div style="font-size:12.5px;line-height:1.6;color:var(--wt-text,#5A4030);white-space:pre-wrap">${ev.text}</div>
+                </div>`;
+            });
+        }
+
+        evHTML += `</div></div>`;
+
+        body.html(evHTML);
+
+        // 뒤로가기
+        const self = this;
+        $('#wt-ev-back').on('click', () => {
+            if (self._savedPanelHTML) {
+                body.html(self._savedPanelHTML);
+                self._savedPanelHTML = null;
+                self._rebindPanel();
+                self.refresh();
+            }
+        });
+
+        // 삭제 버튼
+        $('.wt-ev-del').on('click', async function() {
+            const idx = parseInt($(this).attr('data-eidx'));
+            events.splice(idx, 1);
+            await self.lm.updateLocation(locId, { events });
+            self._showEventPanel(locId); // 새로고침
+        });
+    }
+
+    // 패널 복귀 시 이벤트 리바인드
+    _rebindPanel() {
+        try {
+            // 핵심 이벤트 리스너 재등록
+            const self = this;
+            $('.wt-loc-item').off('click').on('click', function() { self.showPop($(this).attr('data-id')); });
+            $('#wt-add-name').off('keydown').on('keydown', (e) => { if (e.key === 'Enter') this._addLoc(); });
+            $('#wt-add-btn').off('click').on('click', () => this._addLoc());
+        } catch(e) { console.log('[wt] rebind:', e); }
+    }
+
+    // ========== 전체 이벤트 패널 뷰 ==========
+    _showEventPanel(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+        const events = loc.events || [];
+        const ps = { emoji: '📍' }; // 기본 이모지
+
+        // 현재 패널 바디 저장
+        const body = $('#wt-panel-body');
+        if (!this._savedPanelHTML) this._savedPanelHTML = body.html();
+
+        // 헤더
+        let html = `<div style="padding:8px 12px">`;
+        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">`;
+        html += `<button id="wt-event-back" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px;color:#775537">←</button>`;
+        html += `<div style="flex:1">`;
+        html += `<div style="font-size:16px;font-weight:800;color:#2D2418">${loc.name}</div>`;
+        html += `<div style="font-size:11px;color:#B0A898">📖 기억 ${events.length}건</div>`;
+        html += `</div></div>`;
+
+        // 이벤트 없음
+        if (!events.length) {
+            html += `<div style="text-align:center;padding:40px 20px;color:#B0A898;font-size:13px;font-style:italic">`;
+            html += `아직 이 장소에 기억이 없어요<br>RP를 진행하면 자동으로 쌓여요 🐶`;
+            html += `</div>`;
+        } else {
+            // 이벤트 리스트 (역순 = 최신 먼저)
+            html += `<div style="display:flex;flex-direction:column;gap:8px">`;
+            [...events].reverse().forEach((ev, i) => {
+                const realIdx = events.length - 1 - i;
+                const mood = ev.mood || '📝';
+                const dateStr = ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { year:'numeric', month:'short', day:'numeric' }) : (ev.date || '');
+                const timeStr = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }) : '';
+                const src = ev.source === 'USER' ? '✍️' : '🤖';
+
+                html += `<div class="wt-event-card" data-eidx="${realIdx}" style="background:#FAFAF5;border:1px solid #EAE6DC;border-radius:12px;padding:10px 12px;position:relative">`;
+                html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">`;
+                html += `<span style="font-size:14px">${mood}</span>`;
+                html += `<div style="display:flex;align-items:center;gap:6px">`;
+                html += `<span style="font-size:9px;color:#B0A898">${src}</span>`;
+                html += `<span style="font-size:10px;color:#B0A898">${dateStr} ${timeStr}</span>`;
+                html += `<button class="wt-event-del" data-eidx="${realIdx}" style="background:none;border:none;font-size:11px;color:#D4A0A0;cursor:pointer;padding:2px 4px">✕</button>`;
+                html += `</div></div>`;
+                html += `<div style="font-size:12.5px;color:#3D3028;line-height:1.5">${ev.text}</div>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        body.html(html);
+
+        // 뒤로가기
+        const self = this;
+        $('#wt-event-back').on('click', () => self._closeEventPanel());
+
+        // 이벤트 삭제
+        $('.wt-event-del').on('click', async function() {
+            const idx = parseInt($(this).attr('data-eidx'));
+            events.splice(idx, 1);
+            await self.lm.updateLocation(locId, { events });
+            self._showEventPanel(locId); // 새로고침
+        });
+    }
+
+    _closeEventPanel() {
+        if (this._savedPanelHTML) {
+            $('#wt-panel-body').html(this._savedPanelHTML);
+            this._savedPanelHTML = null;
+            this.refresh();
+        }
+    }
+
     // 자동 이벤트 기록 — AI 응답에서 키워드 추출 후 플로팅 알림
     showEventNotify(locName, ev, locId) {
-        const sendBtn = document.querySelector('#send_but');
-        if (!sendBtn || sendBtn.offsetParent === null) return;
         $('#wt-event-overlay').remove();
 
         // ev가 문자열이면 호환 (구버전)

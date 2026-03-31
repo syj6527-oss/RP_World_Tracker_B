@@ -339,16 +339,17 @@ async function _tryEvent(text, locId, source) {
             // 2000자 제한 (토큰 절약)
             const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
 
-            const prompt = `You are a poetic memory keeper for an RP story. Extract the most emotionally significant moment from this scene and summarize it in exactly 2 sentences.
+            const prompt = `You are a place-event memory keeper for an RP story. Extract the most significant moment from this scene and create a 2-sentence summary.
 
 Rules:
 - Write in the SAME LANGUAGE as the input text
-- Sentence 1: Include an iconic dialogue quote (if any) with the emotional action. If no dialogue, describe the key moment.
-- Sentence 2: Capture the deeper emotional meaning or what was confirmed/realized between the characters.
-- Keep total length under 120 characters
-- Be atmospheric and poetic, not clinical
+- Sentence 1: What happened (event) + emotional atmosphere. Include an iconic dialogue quote if present.
+- Sentence 2: What was emotionally confirmed between characters OR what is about to happen next (foreshadowing/tension).
+- Focus on: PLACE meaning + EVENT + EMOTION + FORESHADOWING
+- Skip mundane descriptions. Capture only the core tension and significance.
+- Keep total under 120 chars. Be poetic, not clinical.
 
-If no significant event (just walking, sitting, daily actions): respond with {"mood":null,"summary":null}
+If no significant event (just walking, sitting, daily actions): {"mood":null,"summary":null}
 
 Respond with ONLY a JSON object:
 {"mood":"💕 or 📅 or ⚡","summary":"your 2-sentence summary"}
@@ -356,9 +357,9 @@ Respond with ONLY a JSON object:
 Mood: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
 Examples:
-{"mood":"💕","summary":"\"넌 날 죽일 거야, 하사.\" 거친 속삭임과 함께 이마를 맞댔다. 서두르지 않는 키스 속에서, 서로만은 놓지 않겠다는 걸 확인했다."}
-{"mood":"⚡","summary":"칼날이 목을 스치는 순간, 눈이 마주쳤다. 적이었던 두 사람 사이에 처음으로 망설임이 생겼다."}
-{"mood":"📅","summary":"\"내일, 여기서.\" 짧은 약속이었지만 손끝이 떨렸다. 다시 만날 수 있다는 확신만으로 충분했다."}
+{"mood":"💕","summary":"위스키 향이 밴 프라이스의 어두운 방에서 \"넌 날 죽일 거야, 하사\"라는 거친 속삭임과 함께 깊은 키스를 나눴다. 그녀를 침대 쪽으로 이끌며, 이 은밀한 공간에서 더 깊은 밤이 시작될 것을 예고한다."}
+{"mood":"⚡","summary":"어둠이 깔린 골목에서 칼날이 목을 스치는 순간, 적이었던 두 사람의 눈이 마주쳤다. 이 긴장의 장소에서 생긴 균열이, 다음 만남을 전과 같지 않게 만들 것을 암시한다."}
+{"mood":"📅","summary":"노을이 지는 옥상에서 \"내일, 여기서\" 라는 짧은 약속이 오갔다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로 예감했다."}
 
 Text:
 ${trimmed}`;

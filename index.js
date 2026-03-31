@@ -305,17 +305,18 @@ async function scanChatHistory(ctx) {
 jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSION_NAME}] Init:`, e); } });
 
 // ========== 이벤트 추출 + 저장 헬퍼 ==========
-const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up|훔[쳤치]|stole|steal|snuck|sneak|침입|broke in|farewell|작별|맹세|swear|vow|재회|reunion|잃어버|lost|missing/i;
+const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up|훔[쳤치]|stole|steal|snuck|sneak|침입|broke in|farewell|작별|맹세|swear|vow|재회|reunion|잃어버|잃[은었을]|lost|missing/i;
 let _lastEventTime = 0;
+let _lastEventLocId = null; // 마지막 이벤트 저장 장소
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
-const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|분실|사라[졌진]|lost|lose|missing|vanish|disappear/i;
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear/i;
 
 async function _tryEvent(text, locId, source) {
     dbg(`📋 _tryEvent (${source}) len=${text.length}`);
     if (text.length < 25) { dbg('⏭️ Text too short'); return; }
-    // 1턴 1이벤트: 5초 내 중복 방지
-    if (Date.now() - _lastEventTime < 5000) { dbg('⏭️ Event cooldown'); return; }
+    // 같은 장소 5초 내 중복 방지 (다른 장소는 OK!)
+    if (Date.now() - _lastEventTime < 5000 && _lastEventLocId === locId) { dbg('⏭️ Event cooldown (same loc)'); return; }
     // USER는 강한 키워드만, AI는 전체 트리거
     if (source === 'USER' && !_strongKw.test(text)) { dbg('⏭️ USER no strong keyword'); return; }
     if (source === 'AI' && !_triggerKw.test(text)) { dbg('⏭️ AI no trigger keyword'); return; }
@@ -418,6 +419,7 @@ ${trimmed}${userCtx}`;
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
     _lastEventTime = Date.now();
+    _lastEventLocId = locId;
     // 알림 (오버레이 → 읽기 전용)
     try {
         ui.showEventNotify(loc.name, { text: evText, tag: evMood }, locId);

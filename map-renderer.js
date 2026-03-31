@@ -524,10 +524,14 @@ export class MapRenderer {
         // 카드 터치/클릭 → 팝오버 열기
         const self = this;
         const cardLocId = locId;
+        // mousedown/mouseup 전파 차단 (팝업 닫힘 방지)
+        g.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+        g.addEventListener('mouseup', (e) => { e.stopPropagation(); });
         g.addEventListener('click', (e) => {
             e.stopPropagation();
             if (self.onPopupCardClick) self.onPopupCardClick(cardLocId);
         });
+        g.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
         g.addEventListener('touchend', (e) => {
             if (self._wasDrag) return;
             e.stopPropagation();

@@ -173,8 +173,9 @@ async function init() {
             }
 
             dbg(`📨 AI:${(aiMsg.mes||'').length}c User:${(userMsg?.mes||'').length}c`);
-            if (userMsg?.mes?.trim()) await scanMessage(userMsg.mes, 'USER');
+            // ★ AI 먼저! (풍부한 텍스트 → LLM 요약에 유리)
             if (aiMsg.mes?.trim()) await scanMessage(aiMsg.mes, 'AI');
+            if (userMsg?.mes?.trim()) await scanMessage(userMsg.mes, 'USER');
         } catch(e) { console.error(`[${EXTENSION_NAME}] Handle:`, e); }
     }
 
@@ -300,30 +301,85 @@ jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSIO
 
 // ========== 이벤트 추출 + 저장 헬퍼 ==========
 const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up/i;
+let _eventTurnLock = 0; // 한 턴에 1이벤트만
+
+// 전체 패턴 (AI용 — 가벼운 트리거)
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|미소|smile|웃[었다]|laugh|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|mouth.*devour|cupped.*face|passion|intimate|desire|breathless|gasp|moan|shudder|groan/i;
 
 async function _tryEvent(text, locId, source) {
     if (text.length < 25) return;
-    // USER는 강한 키워드 있을 때만
+    if (_eventTurnLock === lastId) return;
     if (source === 'USER' && !_strongKw.test(text)) return;
-
-    const ev = _extractEventSummary(text, '');
-    if (!ev) return;
+    if (source === 'AI' && !_triggerKw.test(text)) return;
 
     const loc = lm.locations.find(l => l.id === locId);
     if (!loc) return;
 
-    // 중복 방지 (최근 30초 내 동일 텍스트)
+    // 중복 방지 (최근 30초 내)
     if (loc.events?.length) {
         const last = loc.events[loc.events.length - 1];
-        if (last.text === ev.text && Date.now() - last.timestamp < 30000) return;
+        if (Date.now() - last.timestamp < 30000) return;
+    }
+
+    let evText = null, evMood = '💕';
+
+    // ★ Phase 2: LLM 요약 시도
+    try {
+        const { generateQuietPrompt } = SillyTavern.getContext();
+        if (generateQuietPrompt) {
+            // HTML 제거 + 메타데이터 제거
+            const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
+            if (clean.length < 30) return;
+
+            // 2000자 제한 (토큰 절약)
+            const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
+
+            const prompt = `Analyze this RP scene and extract the single most important emotional or narrative event. Respond with ONLY a JSON object, no other text.
+If there is a significant event: {"mood":"💕 or 📅 or ⚡","summary":"one-line summary in the same language as the text, max 60 chars"}
+If no significant event (just daily actions like walking, sitting, arriving): {"mood":null,"summary":null}
+
+Mood guide:
+💕 = emotional/romantic (kiss, confession, tears, intimacy, tender moment)
+📅 = promise/future plan (appointment, date, promise to meet)
+⚡ = incident/conflict (fight, betrayal, discovery, danger, escape)
+
+Text:
+${trimmed}`;
+
+            const result = await generateQuietPrompt(prompt);
+            if (result) {
+                // JSON 파싱
+                const jsonMatch = result.match(/\{[\s\S]*?\}/);
+                if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (parsed.mood && parsed.summary) {
+                        evText = parsed.summary;
+                        evMood = parsed.mood;
+                        dbg(`🤖 LLM Event: "${evText}" (${evMood})`);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        dbg(`⚠️ LLM event extraction failed, falling back to regex: ${e.message}`);
+    }
+
+    // ★ 폴백: LLM 실패 시 regex 추출
+    if (!evText) {
+        const ev = _extractEventSummary(text, '');
+        if (!ev) return;
+        evText = ev.text;
+        evMood = ev.mood;
+        dbg(`📝 Regex Event: "${evText}" (${evMood})`);
     }
 
     if (!loc.events) loc.events = [];
-    loc.events.push({ text: ev.text, type: ev.type, mood: ev.mood, timestamp: Date.now(), source });
+    loc.events.push({ text: evText, mood: evMood, timestamp: Date.now(), source });
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
-    ui.showEventNotify(loc.name, { text: ev.text, tag: ev.mood }, locId);
-    dbg(`${ev.mood} Event: "${ev.text}" @ ${loc.name} (${source})`);
+    _eventTurnLock = lastId;
+    ui.showEventNotify(loc.name, { text: evText, tag: evMood }, locId);
+    dbg(`${evMood} Event: "${evText}" @ ${loc.name} (${source})`);
 }
 
 // ========== 이벤트 요약 추출 (감정/사건 키워드 + 타입 분류) ==========
@@ -373,7 +429,7 @@ function _extractEventSummary(text, locName) {
         for (const p of patterns) {
             if (p.rx.test(trimmed)) {
                 let summary = trimmed;
-                if (summary.length > 40) summary = summary.substring(0, 40) + '...';
+                if (summary.length > 60) summary = summary.substring(0, 60) + '...';
                 return { text: summary, type: p.type, mood: p.mood };
             }
         }

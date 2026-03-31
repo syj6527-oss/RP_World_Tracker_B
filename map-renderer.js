@@ -509,7 +509,7 @@ export class MapRenderer {
                 x: lx, y: 62,
                 fill: '#C5BFB5', 'font-size': '9', 'font-weight': '400',
                 'font-family': "'Noto Sans KR',sans-serif",
-            }, '✏️ 터치해서 기억 남기기...'));
+            }, '📝 아직 기록이 없습니다'));
         }
 
         g.appendChild(card);

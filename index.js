@@ -43,6 +43,7 @@ const defaults = {
 };
 
 let db, lm, det, pi, ui;
+let _userContext = ''; // 유저 입력 컨텍스트 (이벤트 추출용)
 
 // ========== 채팅 화면 활성 여부 (캐릭터 설정/선택 화면 방지) ==========
 function isChatActive() {
@@ -174,10 +175,12 @@ async function init() {
             }
 
             dbg(`📨 AI:${(aiMsg.mes||'').length}c User:${(userMsg?.mes||'').length}c`);
-            // ★ USER 먼저 (장소 등록) → AI 다음 (장소+이벤트)
-            // USER는 장소만 감지 (이벤트는 AI가 더 정확)
+            // USER 먼저 (장소 감지)
             if (userMsg?.mes?.trim()) await scanMessage(userMsg.mes, 'USER');
+            // AI (장소+이벤트) — 유저 컨텍스트도 전달
+            _userContext = userMsg?.mes?.trim() || '';
             if (aiMsg.mes?.trim()) await scanMessage(aiMsg.mes, 'AI');
+            _userContext = '';
         } catch(e) { console.error(`[${EXTENSION_NAME}] Handle:`, e); }
     }
 
@@ -302,7 +305,7 @@ async function scanChatHistory(ctx) {
 jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSION_NAME}] Init:`, e); } });
 
 // ========== 이벤트 추출 + 저장 헬퍼 ==========
-const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up/i;
+const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up|훔[쳤치]|stole|steal|snuck|sneak|침입|broke in/i;
 let _lastEventTime = 0; // 마지막 이벤트 저장 시간
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
@@ -340,6 +343,9 @@ async function _tryEvent(text, locId, source) {
             // 2000자 제한 (토큰 절약)
             const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
 
+            // 유저 입력 컨텍스트 추가 (있으면)
+            const userCtx = _userContext ? `\n\n[User's action]: ${_userContext.replace(/<[^>]*>/g, '').substring(0, 300)}` : '';
+
             // 언어 설정
             const eLang = extension_settings[EXTENSION_NAME]?.eventLang || 'auto';
             const langInst = eLang === 'ko' ? 'Write the summary in Korean (한국어).'
@@ -369,7 +375,7 @@ Examples:
 {"mood":"📅","summary":"노을 지는 옥상에서 '내일, 여기서'라는 짧은 약속이 오갔다. 이 장소가 둘만의 비밀 거점이 될 것을 서로 예감했다."}
 
 Text:
-${trimmed}`;
+${trimmed}${userCtx}`;
 
             const result = await generateQuietPrompt(prompt);
             if (result) {

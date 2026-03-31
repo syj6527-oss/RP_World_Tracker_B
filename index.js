@@ -173,9 +173,10 @@ async function init() {
             }
 
             dbg(`📨 AI:${(aiMsg.mes||'').length}c User:${(userMsg?.mes||'').length}c`);
-            // ★ AI 먼저! (풍부한 텍스트 → LLM 요약에 유리)
-            if (aiMsg.mes?.trim()) await scanMessage(aiMsg.mes, 'AI');
+            // ★ USER 먼저 (장소 등록) → AI 다음 (장소+이벤트)
+            // USER는 장소만 감지 (이벤트는 AI가 더 정확)
             if (userMsg?.mes?.trim()) await scanMessage(userMsg.mes, 'USER');
+            if (aiMsg.mes?.trim()) await scanMessage(aiMsg.mes, 'AI');
         } catch(e) { console.error(`[${EXTENSION_NAME}] Handle:`, e); }
     }
 
@@ -304,14 +305,15 @@ const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|
 let _lastEventTime = 0; // 마지막 이벤트 저장 시간
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
-const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|미소|smile|웃[었다]|laugh|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue/i;
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue/i;
 
 async function _tryEvent(text, locId, source) {
     if (text.length < 25) return;
+    // AI만 이벤트 추출 (LLM 요약 품질 보장, USER는 장소만)
+    if (source === 'USER') return;
     // 1턴 1이벤트: 5초 내 중복 방지
     if (Date.now() - _lastEventTime < 5000) { dbg('⏭️ Event cooldown'); return; }
-    if (source === 'USER' && !_strongKw.test(text)) return;
-    if (source === 'AI' && !_triggerKw.test(text)) { dbg('⏭️ No trigger keyword'); return; }
+    if (!_triggerKw.test(text)) { dbg('⏭️ No trigger keyword'); return; }
     dbg(`🎯 Event trigger! (${source}) locId=${locId}`);
 
     const loc = lm.locations.find(l => l.id === locId);
@@ -337,14 +339,26 @@ async function _tryEvent(text, locId, source) {
             // 2000자 제한 (토큰 절약)
             const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
 
-            const prompt = `Analyze this RP scene and extract the single most important emotional or narrative event. Respond with ONLY a JSON object, no other text.
-If there is a significant event: {"mood":"💕 or 📅 or ⚡","summary":"one-line summary in the same language as the text, max 60 chars"}
-If no significant event (just daily actions like walking, sitting, arriving): {"mood":null,"summary":null}
+            const prompt = `You are a poetic memory keeper for an RP story. Extract the most emotionally significant moment from this scene and summarize it in exactly 2 sentences.
 
-Mood guide:
-💕 = emotional/romantic (kiss, confession, tears, intimacy, tender moment)
-📅 = promise/future plan (appointment, date, promise to meet)
-⚡ = incident/conflict (fight, betrayal, discovery, danger, escape)
+Rules:
+- Write in the SAME LANGUAGE as the input text
+- Sentence 1: Include an iconic dialogue quote (if any) with the emotional action. If no dialogue, describe the key moment.
+- Sentence 2: Capture the deeper emotional meaning or what was confirmed/realized between the characters.
+- Keep total length under 120 characters
+- Be atmospheric and poetic, not clinical
+
+If no significant event (just walking, sitting, daily actions): respond with {"mood":null,"summary":null}
+
+Respond with ONLY a JSON object:
+{"mood":"💕 or 📅 or ⚡","summary":"your 2-sentence summary"}
+
+Mood: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
+
+Examples:
+{"mood":"💕","summary":"\"넌 날 죽일 거야, 하사.\" 거친 속삭임과 함께 이마를 맞댔다. 서두르지 않는 키스 속에서, 서로만은 놓지 않겠다는 걸 확인했다."}
+{"mood":"⚡","summary":"칼날이 목을 스치는 순간, 눈이 마주쳤다. 적이었던 두 사람 사이에 처음으로 망설임이 생겼다."}
+{"mood":"📅","summary":"\"내일, 여기서.\" 짧은 약속이었지만 손끝이 떨렸다. 다시 만날 수 있다는 확신만으로 충분했다."}
 
 Text:
 ${trimmed}`;
@@ -414,8 +428,8 @@ function _extractEventSummary(text, locName) {
         { rx: /intertwine|entangle|straddle|pin.*down|beneath|above.*hover|grind|groan/i, type: 'memory', mood: '💕' },
         // 😢 슬픔
         { rx: /울[었다]|눈물|cry|tears|슬[퍼펐]|sad|위로|comfort|그리[워웠]|miss/i, type: 'memory', mood: '😢' },
-        // 😊 기쁨
-        { rx: /웃[었다]|미소|smile|laugh|행복|happy|즐[거겼]|기[뻐쁨]|joy/i, type: 'memory', mood: '😊' },
+        // 😊 기쁨 (강한 것만)
+        { rx: /행복|happy|환희|기[뻐쁨]|joy|축하|celebrat/i, type: 'memory', mood: '😊' },
         // ⚡ 사건 (incident)
         { rx: /싸[우웠움]|fight|충돌|clash|화[가났]|anger|분노|rage|배신|betray/i, type: 'incident', mood: '⚡' },
         { rx: /발견|discover|비밀|secret|숨[겼긴]|hide|도망|escape|추[격적]|chase/i, type: 'incident', mood: '🔍' },

@@ -339,27 +339,27 @@ async function _tryEvent(text, locId, source) {
             // 2000자 제한 (토큰 절약)
             const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
 
-            const prompt = `You are a place-event memory keeper for an RP story. Extract the most significant moment from this scene and create a 2-sentence summary.
+            const prompt = `You are a place-event memory keeper for an RP story. Read the scene and write a 2-sentence memory summary.
 
 Rules:
 - Write in the SAME LANGUAGE as the input text
-- Sentence 1: What happened (event) + emotional atmosphere. Include an iconic dialogue quote if present.
-- Sentence 2: What was emotionally confirmed between characters OR what is about to happen next (foreshadowing/tension).
-- Focus on: PLACE meaning + EVENT + EMOTION + FORESHADOWING
-- Skip mundane descriptions. Capture only the core tension and significance.
-- Keep total under 120 chars. Be poetic, not clinical.
+- Sentence 1: Describe the atmosphere of the place + what happened (key event). Include a short iconic dialogue quote if one exists.
+- Sentence 2: What emotional truth was confirmed OR what is foreshadowed to happen next.
+- Combine: place atmosphere + event + emotion + foreshadowing
+- Be poetic and immersive, not clinical or dry.
+- Each sentence should be 30~60 characters long.
 
-If no significant event (just walking, sitting, daily actions): {"mood":null,"summary":null}
+If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null}
 
-Respond with ONLY a JSON object:
-{"mood":"💕 or 📅 or ⚡","summary":"your 2-sentence summary"}
+Respond with ONLY a JSON object, no markdown, no explanation:
+{"mood":"💕","summary":"sentence1. sentence2."}
 
-Mood: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
+Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
 Examples:
-{"mood":"💕","summary":"위스키 향이 밴 프라이스의 어두운 방에서 \"넌 날 죽일 거야, 하사\"라는 거친 속삭임과 함께 깊은 키스를 나눴다. 그녀를 침대 쪽으로 이끌며, 이 은밀한 공간에서 더 깊은 밤이 시작될 것을 예고한다."}
-{"mood":"⚡","summary":"어둠이 깔린 골목에서 칼날이 목을 스치는 순간, 적이었던 두 사람의 눈이 마주쳤다. 이 긴장의 장소에서 생긴 균열이, 다음 만남을 전과 같지 않게 만들 것을 암시한다."}
-{"mood":"📅","summary":"노을이 지는 옥상에서 \"내일, 여기서\" 라는 짧은 약속이 오갔다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로 예감했다."}
+{"mood":"💕","summary":"위스키 향이 밴 어두운 방에서 거친 속삭임과 함께 깊은 키스를 나눴다. 침대 쪽으로 이끌리며, 이 은밀한 공간에서 더 깊은 밤이 시작될 것을 예고한다."}
+{"mood":"⚡","summary":"어둠이 깔린 골목에서 칼날이 목을 스치며 적의 눈과 마주쳤다. 이 긴장의 장소에서 생긴 균열이 다음 만남을 바꿔놓을 것을 암시한다."}
+{"mood":"📅","summary":"노을 지는 옥상에서 '내일, 여기서'라는 짧은 약속이 오갔다. 이 장소가 둘만의 비밀 거점이 될 것을 서로 예감했다."}
 
 Text:
 ${trimmed}`;

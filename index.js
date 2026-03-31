@@ -301,16 +301,18 @@ jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSIO
 
 // ========== 이벤트 추출 + 저장 헬퍼 ==========
 const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up/i;
-let _eventTurnLock = 0; // 한 턴에 1이벤트만
+let _lastEventTime = 0; // 마지막 이벤트 저장 시간
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
-const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|미소|smile|웃[었다]|laugh|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|mouth.*devour|cupped.*face|passion|intimate|desire|breathless|gasp|moan|shudder|groan/i;
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|미소|smile|웃[었다]|laugh|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue/i;
 
 async function _tryEvent(text, locId, source) {
     if (text.length < 25) return;
-    if (_eventTurnLock === lastId) return;
+    // 1턴 1이벤트: 5초 내 중복 방지
+    if (Date.now() - _lastEventTime < 5000) { dbg('⏭️ Event cooldown'); return; }
     if (source === 'USER' && !_strongKw.test(text)) return;
-    if (source === 'AI' && !_triggerKw.test(text)) return;
+    if (source === 'AI' && !_triggerKw.test(text)) { dbg('⏭️ No trigger keyword'); return; }
+    dbg(`🎯 Event trigger! (${source}) locId=${locId}`);
 
     const loc = lm.locations.find(l => l.id === locId);
     if (!loc) return;
@@ -325,7 +327,8 @@ async function _tryEvent(text, locId, source) {
 
     // ★ Phase 2: LLM 요약 시도
     try {
-        const { generateQuietPrompt } = SillyTavern.getContext();
+        const ctx = getContext();
+        const generateQuietPrompt = ctx?.generateQuietPrompt;
         if (generateQuietPrompt) {
             // HTML 제거 + 메타데이터 제거
             const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
@@ -377,7 +380,7 @@ ${trimmed}`;
     loc.events.push({ text: evText, mood: evMood, timestamp: Date.now(), source });
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
-    _eventTurnLock = lastId;
+    _lastEventTime = Date.now(); // 1턴 1이벤트 락
     ui.showEventNotify(loc.name, { text: evText, tag: evMood }, locId);
     dbg(`${evMood} Event: "${evText}" @ ${loc.name} (${source})`);
 }

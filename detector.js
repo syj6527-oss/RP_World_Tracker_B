@@ -88,7 +88,7 @@ export class LocationDetector {
             'park','garden','forest','beach','lake',
             'plaza','square','palace','manor','mansion','apartment','building',
             'kitchen','bedroom','bathroom','basement','attic','garage','living room',
-            'gym','arena','stadium','court','field','ground','range',
+            'gym','arena','stadium','court','field','ground',
             'base','camp','bunker','barracks','armory','quarters','dormitory','dorm',
             'lab','laboratory','workshop','warehouse','prison','dungeon','cave',
             'dock','port','harbor','airport','terminal',
@@ -266,7 +266,7 @@ export class LocationDetector {
             const hasM = this.engMoveVerbs.some(v => lo.includes(v)) || /\b(?:into|toward|towards)\b/.test(lo);
             if (moveOnly && !hasM) continue;
             if (!moveOnly && hasM) continue;
-            if (!moveOnly && !/\b(?:in|inside|within|at|of|around)\s+(?:the|a)\b/.test(lo) && !/\bthe\s+/.test(lo)) continue;
+            if (!moveOnly && !/\b(?:in|inside|within|at|of|around)\s+(?:the|a|his|her|my|your|their|our)\b/.test(lo) && !/\bthe\s+/.test(lo) && !/\b(?:in|inside|at)\s+\w+'s\b/.test(lo)) continue;
 
             for (const pw of this.placeWords) {
                 if (this.transitEn.includes(pw)) continue;

@@ -1376,8 +1376,23 @@ export class UIManager {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
         const events = loc.events || [];
-        const date = new Date().toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
-        events.push({ text, date, timestamp: Date.now() });
+
+        // title 자동 생성
+        let title = text.length <= 15 ? text : text.substring(0, 15) + '...';
+
+        // 긴 텍스트면 LLM으로 title 생성
+        if (text.length > 20) {
+            try {
+                const ctx = getContext();
+                const gen = ctx?.generateQuietPrompt;
+                if (gen) {
+                    const result = await gen(`Create a short, witty title (max 15 chars) for this event that emphasizes the place's meaning. Write like "OO한 곳". Respond with ONLY the title text, nothing else.\n\nEvent: ${text.substring(0, 300)}`);
+                    if (result?.trim()) title = result.trim().substring(0, 20);
+                }
+            } catch(e) {}
+        }
+
+        events.push({ text, title, mood: '📝', timestamp: Date.now(), source: 'manual' });
         await this.lm.updateLocation(locId, { events });
         $('#wt-pop-event-input').val('');
         this._updEventsList(locId);
@@ -1596,4 +1611,110 @@ export class UIManager {
     }
 
     _fmt(ts) { return new Date(ts).toLocaleDateString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+
+    // ========== 드래그 요약 (텍스트 선택 → 📝 → LLM 요약 → 이벤트 저장) ==========
+    registerDragSummary() {
+        // 📝 플로팅 버튼 생성
+        const btn = document.createElement('div');
+        btn.id = 'wt-drag-btn';
+        btn.innerHTML = '📝';
+        btn.style.cssText = 'display:none;position:fixed;bottom:80px;right:16px;width:44px;height:44px;border-radius:50%;background:#F7EC8D;border:2px solid #F6A93A;box-shadow:0 4px 12px rgba(0,0,0,0.2);font-size:20px;text-align:center;line-height:44px;cursor:pointer;z-index:2147483645;transition:transform 0.2s;user-select:none';
+        document.body.appendChild(btn);
+
+        let selectedText = '';
+        const self = this;
+
+        // 텍스트 선택 감지
+        document.addEventListener('selectionchange', () => {
+            const sel = window.getSelection();
+            const text = sel?.toString().trim() || '';
+            // 채팅 영역에서 선택된 텍스트만 (20자 이상)
+            if (text.length >= 20) {
+                selectedText = text;
+                btn.style.display = 'block';
+                btn.style.transform = 'scale(1.1)';
+                setTimeout(() => btn.style.transform = 'scale(1)', 150);
+            } else {
+                selectedText = '';
+                btn.style.display = 'none';
+            }
+        });
+
+        // 📝 클릭 → LLM 요약 → 이벤트 저장
+        btn.addEventListener('click', async () => {
+            if (!selectedText || !self.lm.currentLocationId) {
+                btn.style.display = 'none';
+                return;
+            }
+
+            const loc = self.lm.locations.find(l => l.id === self.lm.currentLocationId);
+            if (!loc) { btn.style.display = 'none'; return; }
+
+            // 로딩 표시
+            btn.innerHTML = '⏳';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                const ctx = getContext();
+                const generateQuietPrompt = ctx?.generateQuietPrompt;
+                const userName = ctx?.name1 || 'User';
+                const charName = ctx?.name2 || 'Character';
+                const s = extension_settings[EXTENSION_NAME];
+                const eLang = s?.eventLang || 'auto';
+                const langInst = eLang === 'ko' ? 'Write in Korean.'
+                               : eLang === 'en' ? 'Write in English.'
+                               : 'Write in the same language as the text.';
+
+                let evTitle = null, evText = null, evMood = '📝';
+                const trimmed = selectedText.substring(0, 1500);
+
+                if (generateQuietPrompt) {
+                    const prompt = `Summarize this RP scene excerpt as a place-event memory. ${langInst}
+Character info: protagonist="${userName}", main character="${charName}".
+Respond with ONLY JSON: {"mood":"💕 or 📅 or ⚡","title":"place-meaning hook max 15chars","summary":"detailed 2-sentence summary"}
+If mundane: {"mood":null}
+
+Text: ${trimmed}`;
+
+                    const result = await generateQuietPrompt(prompt);
+                    if (result) {
+                        const m = result.match(/\{[\s\S]*?\}/);
+                        if (m) {
+                            const p = JSON.parse(m[0]);
+                            if (p.mood && p.summary) {
+                                evTitle = p.title || p.summary.substring(0, 15) + '...';
+                                evText = p.summary;
+                                evMood = p.mood;
+                            }
+                        }
+                    }
+                }
+
+                // LLM 실패 시 선택 텍스트 그대로
+                if (!evText) {
+                    evText = trimmed.length > 60 ? trimmed.substring(0, 60) + '...' : trimmed;
+                    evTitle = trimmed.length > 15 ? trimmed.substring(0, 15) + '...' : trimmed;
+                }
+
+                // 저장
+                if (!loc.events) loc.events = [];
+                loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: Date.now(), source: 'drag' });
+                if (loc.events.length > 20) loc.events = loc.events.slice(-20);
+                await self.lm.updateLocation(loc.id, { events: loc.events });
+
+                // 알림
+                self.showEventNotify(loc.name, { text: evText, tag: evMood }, loc.id);
+                window.getSelection()?.removeAllRanges();
+
+            } catch(e) {
+                console.error('[wt] Drag summary error:', e);
+                toastr?.warning?.('요약 실패');
+            }
+
+            btn.innerHTML = '📝';
+            btn.style.pointerEvents = 'auto';
+            btn.style.display = 'none';
+            selectedText = '';
+        });
+    }
 }

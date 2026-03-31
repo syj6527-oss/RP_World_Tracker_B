@@ -142,7 +142,7 @@ async function init() {
     det = new LocationDetector(lm);
     pi = new PromptInjector(lm);
     ui = new UIManager(lm, pi);
-    ui.createSettingsPanel(); ui.createSidePanel(); ui.registerWandButton();
+    ui.createSettingsPanel(); ui.createSidePanel(); ui.registerWandButton(); ui.registerDragSummary();
 
     let lastId = null;
     let _handleCount = 0;

@@ -421,11 +421,6 @@ ${trimmed}${userCtx}`;
     if (dateMatch) {
         rpDate = `${dateMatch[1]}/${parseInt(dateMatch[2])}/${parseInt(dateMatch[3])}`;
     }
-    // 자동 감지 실패 시 → 수동 입력 폴백
-    if (!rpDate) {
-        const manualDate = $('#wt-pop-rpdate').val()?.trim();
-        if (manualDate) rpDate = manualDate;
-    }
 
     if (!loc.events) loc.events = [];
     loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: Date.now(), rpDate, source });

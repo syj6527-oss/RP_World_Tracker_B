@@ -37,11 +37,15 @@ export class UIManager {
                 </div>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label>🧠 감지 모델</label></div>
-                <div class="wt-s-row"><select id="wt-s-profile" class="text_pole wt-select wt-select-full"><option value="">없음 (regex만)</option></select></div>
-                <div class="wt-s-row"><button id="wt-s-profile-save" class="menu_button" style="font-size:12px;padding:4px 12px">💾 모델 저장</button><span id="wt-s-profile-status" style="font-size:11px;color:#9A8A7A;margin-left:6px"></span></div>
+                <div class="wt-s-row" style="display:flex;gap:4px;align-items:center">
+                    <select id="wt-s-profile" class="text_pole wt-select" style="flex:1;font-size:11px"><option value="">없음 (regex만)</option></select>
+                    <button id="wt-s-profile-save" class="menu_button" style="font-size:11px;padding:6px 10px;white-space:nowrap">💾 저장</button>
+                </div>
+                <span id="wt-s-profile-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px"></span>
                 <div class="wt-divider"></div>
-                <div class="wt-s-row"><label>🌐 이벤트 요약 언어</label>
-                    <select id="wt-s-eventlang" class="text_pole wt-select"><option value="auto">🔄 자동 (RP 언어)</option><option value="ko">🇰🇷 한국어</option><option value="en">🇺🇸 English</option></select>
+                <div class="wt-s-row" style="display:flex;align-items:center;gap:6px">
+                    <label style="white-space:nowrap">🌐 요약 언어</label>
+                    <select id="wt-s-eventlang" class="text_pole wt-select" style="flex:1;font-size:11px"><option value="auto">🔄 자동 (RP 언어)</option><option value="ko">🇰🇷 한국어</option><option value="en">🇺🇸 English</option></select>
                 </div>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label>📦 전체 데이터 관리</label></div>
@@ -1315,20 +1319,42 @@ export class UIManager {
         const events = loc?.events || [];
         if (!events.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:4px;font-style:italic">아직 이벤트가 없어요</div>'); return; }
         const self = this;
-        // 최근 3개만 표시 (역순 = 최신 먼저)
         const recent = events.slice(-3).reverse();
         recent.forEach((ev, i) => {
             const realIdx = events.length - 1 - i;
             const mood = ev.mood || '📝';
-            const dateStr = ev.date || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
-            const item = $(`<div style="display:flex;align-items:flex-start;gap:4px;padding:6px 8px;background:var(--wt-surface);border-radius:8px;font-size:11px;line-height:1.4">
-                <span style="flex-shrink:0">${mood}</span>
-                <span style="flex:1;color:var(--wt-text)">${ev.text}</span>
-                <span style="font-size:9px;color:#B0A898;white-space:nowrap;flex-shrink:0">${dateStr}</span>
-                <button class="wt-btn-icon" style="font-size:10px;padding:1px 3px;color:var(--wt-pink);flex-shrink:0" data-eidx="${realIdx}">✕</button>
+            const title = ev.title || (ev.text?.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text || '');
+            const dateStr = ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '';
+            const hasDetail = ev.text && ev.text !== title && ev.text.length > 15;
+
+            const item = $(`<div style="background:var(--wt-surface);border-radius:8px;overflow:hidden;font-size:11px">
+                <div class="wt-ev-header" style="display:flex;align-items:center;gap:4px;padding:6px 8px;cursor:${hasDetail ? 'pointer' : 'default'}">
+                    <span style="flex-shrink:0">${mood}</span>
+                    <span style="flex:1;color:var(--wt-text);font-weight:600">${title}</span>
+                    <span style="font-size:9px;color:#B0A898;white-space:nowrap;flex-shrink:0">${dateStr}</span>
+                    ${hasDetail ? '<span class="wt-ev-arrow" style="font-size:9px;color:#B0A898;flex-shrink:0;transition:transform 0.2s">▼</span>' : ''}
+                    <button class="wt-ev-del" style="font-size:10px;padding:1px 3px;color:var(--wt-pink);flex-shrink:0;background:none;border:none;cursor:pointer" data-eidx="${realIdx}">✕</button>
+                </div>
+                ${hasDetail ? `<div class="wt-ev-detail" style="display:none;padding:4px 8px 8px 26px;font-size:11px;line-height:1.5;color:#7A7060;border-top:1px dashed #EAE6DC">${ev.text}</div>` : ''}
             </div>`);
-            item.find('button').on('click', async function() {
-                events.splice(parseInt($(this).attr('data-eidx')), 1);
+
+            // 접기/펼치기
+            if (hasDetail) {
+                item.find('.wt-ev-header').on('click', function(e) {
+                    if ($(e.target).hasClass('wt-ev-del')) return;
+                    const detail = item.find('.wt-ev-detail');
+                    const arrow = item.find('.wt-ev-arrow');
+                    detail.slideToggle(200);
+                    arrow.text(detail.is(':visible') ? '▼' : '▲');
+                });
+            }
+
+            // 삭제
+            item.find('.wt-ev-del').on('click', async function(e) {
+                e.stopPropagation();
+                const idx = parseInt($(this).attr('data-eidx'));
+                if (isNaN(idx)) return;
+                events.splice(idx, 1);
                 await self.lm.updateLocation(locId, { events });
                 self._updEventsList(locId);
             });
@@ -1384,22 +1410,23 @@ export class UIManager {
         if (!events.length) {
             evHTML += `<div style="text-align:center;padding:24px;color:#B0A898;font-style:italic">아직 기억이 없어요</div>`;
         } else {
-            // 역순 (최신 먼저)
             [...events].reverse().forEach((ev, i) => {
                 const realIdx = events.length - 1 - i;
                 const mood = ev.mood || '📝';
+                const title = ev.title || (ev.text?.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text || '');
                 const dateStr = ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '';
-                const timeStr = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }) : '';
-                const sourceTag = ev.source === 'AI' ? '🤖' : ev.source === 'USER' ? '✍️' : '';
+                const cardId = `wt-ev-${realIdx}`;
 
                 evHTML += `
-                <div class="wt-ev-card" style="background:var(--wt-surface,#FAFAF5);border-radius:10px;padding:10px 12px;border:1px solid #EAE6DC">
-                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-                        <span style="font-size:16px">${mood}</span>
-                        <span style="flex:1;font-size:10px;color:#B0A898">${dateStr} ${timeStr} ${sourceTag}</span>
+                <div class="wt-ev-card" style="background:var(--wt-surface,#FAFAF5);border-radius:10px;border:1px solid #EAE6DC;overflow:hidden">
+                    <div class="wt-ev-header" data-card="${cardId}" style="display:flex;align-items:center;gap:6px;padding:10px 12px;cursor:pointer">
+                        <span style="font-size:14px">${mood}</span>
+                        <span style="flex:1;font-size:13px;font-weight:600;color:var(--wt-text,#5A4030)">${title}</span>
+                        <span style="font-size:10px;color:#B0A898;white-space:nowrap">${dateStr}</span>
+                        <span class="wt-ev-arrow" style="font-size:10px;color:#B0A898;transition:transform 0.2s">▼</span>
                         <button class="wt-ev-del" data-eidx="${realIdx}" style="background:none;border:none;font-size:12px;color:#D4A0A0;cursor:pointer;padding:2px 4px">✕</button>
                     </div>
-                    <div style="font-size:12.5px;line-height:1.6;color:var(--wt-text,#5A4030);white-space:pre-wrap">${ev.text}</div>
+                    <div id="${cardId}" style="display:none;padding:0 12px 10px;font-size:12px;line-height:1.6;color:#7A7060;white-space:pre-wrap;border-top:1px dashed #EAE6DC">${ev.text || ''}</div>
                 </div>`;
             });
         }
@@ -1419,8 +1446,24 @@ export class UIManager {
             }
         });
 
+        // 아코디언 토글
+        $('.wt-ev-header').on('click', function(e) {
+            if ($(e.target).hasClass('wt-ev-del')) return; // 삭제 버튼 제외
+            const cardId = $(this).attr('data-card');
+            const content = $(`#${cardId}`);
+            const arrow = $(this).find('.wt-ev-arrow');
+            if (content.is(':visible')) {
+                content.slideUp(200);
+                arrow.css('transform', 'rotate(0deg)');
+            } else {
+                content.slideDown(200);
+                arrow.css('transform', 'rotate(180deg)');
+            }
+        });
+
         // 삭제 버튼
-        $('.wt-ev-del').on('click', async function() {
+        $('.wt-ev-del').on('click', async function(e) {
+            e.stopPropagation();
             const idx = parseInt($(this).attr('data-eidx'));
             events.splice(idx, 1);
             await self.lm.updateLocation(locId, { events });

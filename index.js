@@ -427,6 +427,13 @@ ${trimmed}${userCtx}`;
     } catch(e) {
         dbg(`⚠️ Notify failed: ${e.message}`);
     }
+    // ★ 팝오버 열려있으면 이벤트 목록 자동 갱신
+    try {
+        const openId = $('#wt-popover').attr('data-id');
+        if (openId === locId && $('#wt-popover').is(':visible')) {
+            ui._updEventsList(locId);
+        }
+    } catch(e) {}
     dbg(`${evMood} Event: "${evText}" @ ${loc.name} (${source})`);
 }
 

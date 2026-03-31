@@ -1704,6 +1704,11 @@ Text: ${trimmed}`;
 
                 // 알림
                 self.showEventNotify(loc.name, { text: evText, tag: evMood }, loc.id);
+                // ★ 팝오버 열려있으면 이벤트 목록 자동 갱신
+                const openId = $('#wt-popover').attr('data-id');
+                if (openId === loc.id && $('#wt-popover').is(':visible')) {
+                    self._updEventsList(loc.id);
+                }
                 window.getSelection()?.removeAllRanges();
 
             } catch(e) {

@@ -415,8 +415,20 @@ ${trimmed}${userCtx}`;
         dbg(`📝 Regex Event: "${evTitle}" | "${evText}" (${evMood})`);
     }
 
+    // ★ RP 날짜 추출 (메타데이터에서)
+    let rpDate = '';
+    const dateMatch = text.match(/[-*]\s*(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
+    if (dateMatch) {
+        rpDate = `${dateMatch[1]}/${parseInt(dateMatch[2])}/${parseInt(dateMatch[3])}`;
+    }
+    // 자동 감지 실패 시 → 수동 입력 폴백
+    if (!rpDate) {
+        const manualDate = $('#wt-pop-rpdate').val()?.trim();
+        if (manualDate) rpDate = manualDate;
+    }
+
     if (!loc.events) loc.events = [];
-    loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: Date.now(), source });
+    loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: Date.now(), rpDate, source });
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
     _lastEventTime = Date.now();

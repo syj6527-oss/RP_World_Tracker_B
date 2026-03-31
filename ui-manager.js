@@ -225,7 +225,10 @@ export class UIManager {
                         </div>
                         <textarea id="wt-pop-memo" class="wt-input wt-textarea" placeholder="메모..." rows="2"></textarea>
                         <div id="wt-pop-events-section" style="margin-top:4px">
-                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📝 이벤트 기록</div>
+                            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                                <span style="font-size:12px;color:#9A8A7A">📝 이벤트 기록</span>
+                                <input type="text" id="wt-pop-rpdate" class="wt-input" placeholder="RP 날짜" style="width:90px;font-size:10px;padding:2px 6px;text-align:center;color:#5E84E2" title="자동 감지 실패 시 수동 입력 (예: 2025/7/12)"/>
+                            </div>
                             <div id="wt-pop-events-list" style="display:flex;flex-direction:column;gap:3px;max-height:120px;overflow-y:auto"></div>
                             <div style="display:flex;gap:4px;margin-top:4px">
                                 <input type="text" id="wt-pop-event-input" class="wt-input" placeholder="이벤트 추가..." style="flex:1;font-size:12px;padding:5px 8px"/>
@@ -791,6 +794,9 @@ export class UIManager {
         if (l.address) { $('#wt-pop-cur-addr').show(); $('#wt-pop-addr-text').text(l.address); } else { $('#wt-pop-cur-addr').hide(); }
         this._updDistSection(id);
         this._updEventsList(id);
+        // RP 날짜 표시 (최근 이벤트의 rpDate 또는 빈칸)
+        const lastRpDate = l.events?.slice().reverse().find(e => e.rpDate)?.rpDate || '';
+        $('#wt-pop-rpdate').val(lastRpDate);
         // 지도 섹션 상태 저장 후 숨김
         this._mapWasVisible = $('#wt-map-section').is(':visible');
         if (this._mapWasVisible) {
@@ -1324,7 +1330,7 @@ export class UIManager {
             const realIdx = events.length - 1 - i;
             const mood = ev.mood || '📝';
             const title = ev.title || (ev.text?.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text || '');
-            const dateStr = ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '';
+            const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
             const hasDetail = ev.text && ev.text !== title && ev.text.length > 15;
 
             const item = $(`<div style="background:var(--wt-surface);border-radius:8px;overflow:hidden;font-size:11px">
@@ -1429,7 +1435,7 @@ export class UIManager {
                 const realIdx = events.length - 1 - i;
                 const mood = ev.mood || '📝';
                 const title = ev.title || (ev.text?.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text || '');
-                const dateStr = ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '';
+                const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
                 const cardId = `wt-ev-${realIdx}`;
 
                 evHTML += `
@@ -1528,7 +1534,7 @@ export class UIManager {
             [...events].reverse().forEach((ev, i) => {
                 const realIdx = events.length - 1 - i;
                 const mood = ev.mood || '📝';
-                const dateStr = ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { year:'numeric', month:'short', day:'numeric' }) : (ev.date || '');
+                const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { year:'numeric', month:'short', day:'numeric' }) : (ev.date || ''));
                 const timeStr = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }) : '';
                 const src = ev.source === 'USER' ? '✍️' : '🤖';
 

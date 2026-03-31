@@ -43,6 +43,7 @@ const defaults = {
 };
 
 let db, lm, det, pi, ui;
+let _userContext = ''; // 유저 입력 컨텍스트 (이벤트 추출용)
 
 // ========== 채팅 화면 활성 여부 (캐릭터 설정/선택 화면 방지) ==========
 function isChatActive() {
@@ -174,10 +175,12 @@ async function init() {
             }
 
             dbg(`📨 AI:${(aiMsg.mes||'').length}c User:${(userMsg?.mes||'').length}c`);
-            // ★ USER 먼저 (장소 등록) → AI 다음 (장소+이벤트)
-            // USER는 장소만 감지 (이벤트는 AI가 더 정확)
+            // USER 먼저 (장소 감지)
             if (userMsg?.mes?.trim()) await scanMessage(userMsg.mes, 'USER');
+            // AI (장소+이벤트) — 유저 컨텍스트도 전달
+            _userContext = userMsg?.mes?.trim() || '';
             if (aiMsg.mes?.trim()) await scanMessage(aiMsg.mes, 'AI');
+            _userContext = '';
         } catch(e) { console.error(`[${EXTENSION_NAME}] Handle:`, e); }
     }
 
@@ -302,19 +305,20 @@ async function scanChatHistory(ctx) {
 jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSION_NAME}] Init:`, e); } });
 
 // ========== 이벤트 추출 + 저장 헬퍼 ==========
-const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up/i;
+const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up|훔[쳤치]|stole|steal|snuck|sneak|침입|broke in/i;
 let _lastEventTime = 0; // 마지막 이벤트 저장 시간
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
-const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue/i;
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge/i;
 
 async function _tryEvent(text, locId, source) {
-    if (text.length < 25) return;
-    // AI만 이벤트 추출 (LLM 요약 품질 보장, USER는 장소만)
-    if (source === 'USER') return;
+    dbg(`📋 _tryEvent (${source}) len=${text.length}`);
+    if (text.length < 25) { dbg('⏭️ Text too short'); return; }
     // 1턴 1이벤트: 5초 내 중복 방지
     if (Date.now() - _lastEventTime < 5000) { dbg('⏭️ Event cooldown'); return; }
-    if (!_triggerKw.test(text)) { dbg('⏭️ No trigger keyword'); return; }
+    // USER는 강한 키워드만, AI는 전체 트리거
+    if (source === 'USER' && !_strongKw.test(text)) { dbg('⏭️ USER no strong keyword'); return; }
+    if (source === 'AI' && !_triggerKw.test(text)) { dbg('⏭️ AI no trigger keyword'); return; }
     dbg(`🎯 Event trigger! (${source}) locId=${locId}`);
 
     const loc = lm.locations.find(l => l.id === locId);
@@ -340,6 +344,13 @@ async function _tryEvent(text, locId, source) {
             // 2000자 제한 (토큰 절약)
             const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
 
+            // 유저 입력 컨텍스트 추가 (있으면)
+            const userCtx = _userContext ? `\n\n[User's action]: ${_userContext.replace(/<[^>]*>/g, '').substring(0, 300)}` : '';
+
+            // 캐릭터 이름 가져오기
+            const userName = ctx.name1 || 'User';
+            const charName = ctx.name2 || 'Character';
+
             // 언어 설정
             const eLang = extension_settings[EXTENSION_NAME]?.eventLang || 'auto';
             const langInst = eLang === 'ko' ? 'Write the summary in Korean (한국어).'
@@ -348,11 +359,14 @@ async function _tryEvent(text, locId, source) {
 
             const prompt = `You are a place-event memory keeper for an RP story. Read the scene and write a 2-sentence memory summary.
 
+Character info: The user/protagonist is "${userName}". The main character is "${charName}".
+
 Rules:
 - ${langInst}
-- Sentence 1: Describe the atmosphere of the place + what happened (key event). Include a short iconic dialogue quote if one exists.
+- ALWAYS include character names as subjects (WHO did what). Never use vague pronouns like "they" or "two people" without naming them first.
+- Sentence 1: Describe the atmosphere of the place + what happened (key event) with character names. Include a short iconic dialogue quote if one exists.
 - Sentence 2: What emotional truth was confirmed OR what is foreshadowed to happen next.
-- Combine: place atmosphere + event + emotion + foreshadowing
+- Combine: WHO + place atmosphere + event + emotion + foreshadowing
 - Be poetic and immersive, not clinical or dry.
 - Each sentence should be 30~60 characters long.
 
@@ -364,12 +378,12 @@ Respond with ONLY a JSON object, no markdown, no explanation:
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
 Examples:
-{"mood":"💕","summary":"위스키 향이 밴 어두운 방에서 거친 속삭임과 함께 깊은 키스를 나눴다. 침대 쪽으로 이끌리며, 이 은밀한 공간에서 더 깊은 밤이 시작될 것을 예고한다."}
-{"mood":"⚡","summary":"어둠이 깔린 골목에서 칼날이 목을 스치며 적의 눈과 마주쳤다. 이 긴장의 장소에서 생긴 균열이 다음 만남을 바꿔놓을 것을 암시한다."}
-{"mood":"📅","summary":"노을 지는 옥상에서 '내일, 여기서'라는 짧은 약속이 오갔다. 이 장소가 둘만의 비밀 거점이 될 것을 서로 예감했다."}
+{"mood":"💕","summary":"시가 향 밴 Price의 방에서 Soap과 느리고 깊은 키스를 나눴다. Price의 영역을 침범한 짜릿함이 둘의 관계를 더 위험하게 만들 것을 암시한다."}
+{"mood":"⚡","summary":"어둠 속 골목에서 Ghost의 칼날이 적의 목을 스쳤다. 이 긴장의 순간이 Ghost와 적 사이에 예상치 못한 균열을 만들었다."}
+{"mood":"📅","summary":"노을 지는 옥상에서 Alejandro가 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀 거점이 될 것을 서로 예감했다."}
 
 Text:
-${trimmed}`;
+${trimmed}${userCtx}`;
 
             const result = await generateQuietPrompt(prompt);
             if (result) {

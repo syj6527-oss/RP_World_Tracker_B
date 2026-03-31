@@ -380,8 +380,14 @@ ${trimmed}`;
     loc.events.push({ text: evText, mood: evMood, timestamp: Date.now(), source });
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
-    _lastEventTime = Date.now(); // 1턴 1이벤트 락
-    ui.showEventNotify(loc.name, { text: evText, tag: evMood }, locId);
+    _lastEventTime = Date.now();
+    // 알림 (오버레이 + 토스트 백업)
+    try {
+        ui.showEventNotify(loc.name, { text: evText, tag: evMood }, locId);
+    } catch(e) {
+        dbg(`⚠️ Overlay failed: ${e.message}`);
+    }
+    wtNotify(`${loc.name}에 ${evMood}가 등록되었습니다!`, 'move', 4000);
     dbg(`${evMood} Event: "${evText}" @ ${loc.name} (${source})`);
 }
 

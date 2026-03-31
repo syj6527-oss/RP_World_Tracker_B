@@ -358,19 +358,18 @@ async function _tryEvent(text, locId, source) {
                            : eLang === 'en' ? 'Write the summary in English.'
                            : 'Write in the SAME LANGUAGE as the input text.';
 
-            const prompt = `You are a place-event memory keeper for an RP story. Read the scene and write a 2-sentence memory summary.
+            const prompt = `You are a narrative memory keeper for an RP story. Read the scene and write a rich, detailed 2-sentence memory summary.
 
 Character info: The user/protagonist is named "${userName}". The main character is "${charName}".
-IMPORTANT: You MUST use "${userName}" by name in the summary, not "user" or pronouns. Always write like: "${userName}과 [character]가..."
+IMPORTANT: You MUST use "${userName}" by name in the summary. Always write like: "${userName}이/가 [character]와..."
 
 Rules:
 - ${langInst}
-- ALWAYS include character names as subjects (WHO did what). Never use vague pronouns like "they" or "two people" without naming them first.
-- Sentence 1: Describe the atmosphere of the place + what happened (key event) with character names. Include a short iconic dialogue quote if one exists.
-- Sentence 2: What emotional truth was confirmed OR what is foreshadowed to happen next.
-- Combine: WHO + place atmosphere + event + emotion + foreshadowing
-- Be poetic and immersive, not clinical or dry.
-- Each sentence should be 30~60 characters long.
+- ALWAYS include character names as subjects (WHO did what with WHOM).
+- Sentence 1: Describe WHERE it happened (place + atmosphere), WHAT ${userName} was doing, and the KEY EVENT that occurred. Be specific with details from the scene (objects, smells, actions). Include a key dialogue quote if impactful.
+- Sentence 2: Describe the emotional consequence, tension shift, or what this event foreshadows for the future. Be vivid and narrative.
+- Each sentence should be detailed and descriptive (60~120 characters each). Do NOT be too brief.
+- Write like a novel's diary entry — immersive, specific, atmospheric.
 
 If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null}
 
@@ -380,9 +379,9 @@ Respond with ONLY a JSON object, no markdown, no explanation:
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
 Examples:
-{"mood":"💕","summary":"시가 향 밴 Price의 방에서 Irin과 Soap이 느리고 깊은 키스를 나눴다. Price의 영역을 침범한 짜릿함이 둘의 관계를 더 위험하게 만들 것을 암시한다."}
-{"mood":"⚡","summary":"어둠 속 골목에서 Irin의 눈앞에 Ghost의 칼날이 번뜩였다. 이 긴장의 순간이 Irin과 Ghost 사이에 예상치 못한 균열을 만들었다."}
-{"mood":"📅","summary":"노을 지는 옥상에서 Alejandro가 Irin에게 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀 거점이 될 것을 서로 예감했다."}
+{"mood":"⚡","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다. Ghost의 묵언의 압박과 Dex의 으르렁거림이 섞이며, 이 밀폐된 공간에서 아슬아슬한 대화가 이어질 것을 암시한다."}
+{"mood":"💕","summary":"시가 향과 가죽 냄새가 밴 Price의 어두운 방에서 ${userName}과 Soap이 거칠지만 다정한 키스를 나눴다. 대장의 영역을 침범한 이 은밀한 행위가 둘의 관계를 더 위험하고 짜릿하게 만들 것을 예고한다."}
+{"mood":"📅","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로의 떨리는 손끝으로 예감했다."}
 
 Text:
 ${trimmed}${userCtx}`;

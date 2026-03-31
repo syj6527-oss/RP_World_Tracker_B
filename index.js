@@ -331,7 +331,7 @@ async function _tryEvent(text, locId, source) {
         if (Date.now() - last.timestamp < 30000) return;
     }
 
-    let evText = null, evMood = '💕';
+    let evText = null, evTitle = null, evMood = '💕';
 
     // ★ Phase 2: LLM 요약 시도
     try {
@@ -374,14 +374,14 @@ Rules:
 If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null}
 
 Respond with ONLY a JSON object, no markdown, no explanation:
-{"mood":"💕","summary":"sentence1. sentence2."}
+{"mood":"💕","title":"ultra-short hook max 15chars","summary":"detailed 2-sentence summary"}
 
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
 Examples:
-{"mood":"⚡","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다. Ghost의 묵언의 압박과 Dex의 으르렁거림이 섞이며, 이 밀폐된 공간에서 아슬아슬한 대화가 이어질 것을 암시한다."}
-{"mood":"💕","summary":"시가 향과 가죽 냄새가 밴 Price의 어두운 방에서 ${userName}과 Soap이 거칠지만 다정한 키스를 나눴다. 대장의 영역을 침범한 이 은밀한 행위가 둘의 관계를 더 위험하고 짜릿하게 만들 것을 예고한다."}
-{"mood":"📅","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로의 떨리는 손끝으로 예감했다."}
+{"mood":"⚡","title":"Ghost에게 뒷담화 들킴","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다. Ghost의 묵언의 압박과 Dex의 으르렁거림이 섞이며, 이 밀폐된 공간에서 아슬아슬한 대화가 이어질 것을 암시한다."}
+{"mood":"💕","title":"Soap과의 금지된 키스","summary":"시가 향과 가죽 냄새가 밴 Price의 어두운 방에서 ${userName}과 Soap이 거칠지만 다정한 키스를 나눴다. 대장의 영역을 침범한 이 은밀한 행위가 둘의 관계를 더 위험하고 짜릿하게 만들 것을 예고한다."}
+{"mood":"📅","title":"옥상의 비밀 약속","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로의 떨리는 손끝으로 예감했다."}
 
 Text:
 ${trimmed}${userCtx}`;
@@ -394,8 +394,9 @@ ${trimmed}${userCtx}`;
                     const parsed = JSON.parse(jsonMatch[0]);
                     if (parsed.mood && parsed.summary) {
                         evText = parsed.summary;
+                        evTitle = parsed.title || parsed.summary.substring(0, 15) + '...';
                         evMood = parsed.mood;
-                        dbg(`🤖 LLM Event: "${evText}" (${evMood})`);
+                        dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
                     }
                 }
             }
@@ -409,12 +410,13 @@ ${trimmed}${userCtx}`;
         const ev = _extractEventSummary(text, '');
         if (!ev) return;
         evText = ev.text;
+        evTitle = ev.text.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text;
         evMood = ev.mood;
-        dbg(`📝 Regex Event: "${evText}" (${evMood})`);
+        dbg(`📝 Regex Event: "${evTitle}" | "${evText}" (${evMood})`);
     }
 
     if (!loc.events) loc.events = [];
-    loc.events.push({ text: evText, mood: evMood, timestamp: Date.now(), source });
+    loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: Date.now(), source });
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
     _lastEventTime = Date.now();

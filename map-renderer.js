@@ -445,15 +445,15 @@ export class MapRenderer {
             }
         }
 
-        // 메모/이벤트
+        // 메모/이벤트 (팝업 카드 = title 우선, 짧은 훅)
         let memoText = '';
         if (loc.events?.length) {
             const latest = loc.events[loc.events.length - 1];
-            memoText = latest.text || '';
+            memoText = latest.title || latest.text || '';
         } else if (loc.memo) {
             memoText = loc.memo;
         }
-        if (memoText.length > 28) memoText = memoText.substring(0, 28) + '...';
+        if (memoText.length > 18) memoText = memoText.substring(0, 18) + '...';
         const hasMemo = memoText.length > 0;
 
         // 카드 사이즈

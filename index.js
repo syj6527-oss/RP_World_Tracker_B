@@ -359,7 +359,8 @@ async function _tryEvent(text, locId, source) {
 
             const prompt = `You are a place-event memory keeper for an RP story. Read the scene and write a 2-sentence memory summary.
 
-Character info: The user/protagonist is "${userName}". The main character is "${charName}".
+Character info: The user/protagonist is named "${userName}". The main character is "${charName}".
+IMPORTANT: You MUST use "${userName}" by name in the summary, not "user" or pronouns. Always write like: "${userName}과 [character]가..."
 
 Rules:
 - ${langInst}
@@ -378,9 +379,9 @@ Respond with ONLY a JSON object, no markdown, no explanation:
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
 Examples:
-{"mood":"💕","summary":"시가 향 밴 Price의 방에서 Soap과 느리고 깊은 키스를 나눴다. Price의 영역을 침범한 짜릿함이 둘의 관계를 더 위험하게 만들 것을 암시한다."}
-{"mood":"⚡","summary":"어둠 속 골목에서 Ghost의 칼날이 적의 목을 스쳤다. 이 긴장의 순간이 Ghost와 적 사이에 예상치 못한 균열을 만들었다."}
-{"mood":"📅","summary":"노을 지는 옥상에서 Alejandro가 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀 거점이 될 것을 서로 예감했다."}
+{"mood":"💕","summary":"시가 향 밴 Price의 방에서 Irin과 Soap이 느리고 깊은 키스를 나눴다. Price의 영역을 침범한 짜릿함이 둘의 관계를 더 위험하게 만들 것을 암시한다."}
+{"mood":"⚡","summary":"어둠 속 골목에서 Irin의 눈앞에 Ghost의 칼날이 번뜩였다. 이 긴장의 순간이 Irin과 Ghost 사이에 예상치 못한 균열을 만들었다."}
+{"mood":"📅","summary":"노을 지는 옥상에서 Alejandro가 Irin에게 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀 거점이 될 것을 서로 예감했다."}
 
 Text:
 ${trimmed}${userCtx}`;

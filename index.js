@@ -39,6 +39,7 @@ const defaults = {
     enabled:true, autoDetect:true, showDetectToast:true,
     aiInjection:true, memoryMode:'natural', memorySummaryDays:7, panelOpacity:100,
     debugMode:false, mapMode:'node', fantasyTheme:false,
+    eventLang:'auto', // auto=RP언어, ko=한국어, en=English
 };
 
 let db, lm, det, pi, ui;
@@ -339,10 +340,16 @@ async function _tryEvent(text, locId, source) {
             // 2000자 제한 (토큰 절약)
             const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
 
+            // 언어 설정
+            const eLang = extension_settings[EXTENSION_NAME]?.eventLang || 'auto';
+            const langInst = eLang === 'ko' ? 'Write the summary in Korean (한국어).'
+                           : eLang === 'en' ? 'Write the summary in English.'
+                           : 'Write in the SAME LANGUAGE as the input text.';
+
             const prompt = `You are a place-event memory keeper for an RP story. Read the scene and write a 2-sentence memory summary.
 
 Rules:
-- Write in the SAME LANGUAGE as the input text
+- ${langInst}
 - Sentence 1: Describe the atmosphere of the place + what happened (key event). Include a short iconic dialogue quote if one exists.
 - Sentence 2: What emotional truth was confirmed OR what is foreshadowed to happen next.
 - Combine: place atmosphere + event + emotion + foreshadowing
@@ -396,13 +403,12 @@ ${trimmed}`;
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
     _lastEventTime = Date.now();
-    // 알림 (오버레이 + 토스트 백업)
+    // 알림 (오버레이 → 읽기 전용)
     try {
         ui.showEventNotify(loc.name, { text: evText, tag: evMood }, locId);
     } catch(e) {
-        dbg(`⚠️ Overlay failed: ${e.message}`);
+        dbg(`⚠️ Notify failed: ${e.message}`);
     }
-    wtNotify(`${loc.name}에 ${evMood}가 등록되었습니다!`, 'move', 4000);
     dbg(`${evMood} Event: "${evText}" @ ${loc.name} (${source})`);
 }
 

@@ -40,6 +40,10 @@ export class UIManager {
                 <div class="wt-s-row"><select id="wt-s-profile" class="text_pole wt-select wt-select-full"><option value="">없음 (regex만)</option></select></div>
                 <div class="wt-s-row"><button id="wt-s-profile-save" class="menu_button" style="font-size:12px;padding:4px 12px">💾 모델 저장</button><span id="wt-s-profile-status" style="font-size:11px;color:#9A8A7A;margin-left:6px"></span></div>
                 <div class="wt-divider"></div>
+                <div class="wt-s-row"><label>🌐 이벤트 요약 언어</label>
+                    <select id="wt-s-eventlang" class="text_pole wt-select"><option value="auto">🔄 자동 (RP 언어)</option><option value="ko">🇰🇷 한국어</option><option value="en">🇺🇸 English</option></select>
+                </div>
+                <div class="wt-divider"></div>
                 <div class="wt-s-row"><label>📦 전체 데이터 관리</label></div>
                 <div class="wt-s-row" style="display:flex;gap:4px">
                     <button id="wt-s-export-all" class="menu_button" style="flex:1;font-size:11px;padding:6px">💾 전체 백업</button>
@@ -62,6 +66,7 @@ export class UIManager {
         bind('#wt-s-enabled','enabled',true); bind('#wt-s-detect','autoDetect',true); bind('#wt-s-toast','showDetectToast',true); bind('#wt-s-inject','aiInjection',true);
         $('#wt-s-inject').on('change', () => { s.aiInjection ? this.pi?.inject() : this.pi?.clear(); });
         $('#wt-s-mem').val(s?.memoryMode||'natural').on('change', () => { s.memoryMode=$('#wt-s-mem').val(); saveSettingsDebounced(); this.pi?.inject(); });
+        $('#wt-s-eventlang').val(s?.eventLang||'auto').on('change', () => { s.eventLang=$('#wt-s-eventlang').val(); saveSettingsDebounced(); });
         // 🧠 감지 모델 프로필 로드
         this._loadProfiles();
         $('#wt-s-profile').on('change', () => { $('#wt-s-profile-status').text('⚠️ 미저장').css('color','#F5A8A8'); });
@@ -1507,37 +1512,23 @@ export class UIManager {
     showEventNotify(locName, ev, locId) {
         $('#wt-event-overlay').remove();
 
-        // ev가 문자열이면 호환 (구버전)
         const evText = typeof ev === 'string' ? ev : ev.text;
         const evTag = typeof ev === 'object' ? (ev.tag || '📝') : '📝';
+        const preview = evText.length > 80 ? evText.substring(0, 80) + '...' : evText;
 
-        const overlay = $(`<div id="wt-event-overlay" style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:300px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #5E84E2;border-radius:14px;padding:10px 12px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
-            <div style="font-size:12px;font-weight:700;color:#775537;margin-bottom:4px">${evTag} ${locName}</div>
-            <input type="text" id="wt-event-edit" value="${evText}" style="width:100%;border:1px solid #E8E4D8;border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;box-sizing:border-box"/>
-            <div style="display:flex;gap:6px;margin-top:6px">
-                <button id="wt-event-save" style="flex:1;padding:6px;background:#5E84E2;border:none;border-radius:6px;font-size:12px;font-weight:600;color:#fff;cursor:pointer">✏️ 수정 저장</button>
-                <button id="wt-event-skip" style="flex:1;padding:6px;background:transparent;border:1px solid #E8E4D8;border-radius:6px;font-size:12px;color:#9A8A7A;cursor:pointer">OK</button>
+        const overlay = $(`<div id="wt-event-overlay" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);width:320px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #5E84E2;border-radius:14px;padding:10px 14px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="font-size:16px">${evTag}</span>
+                <strong style="font-size:14px;color:#775537">${locName}</strong>
+                <span style="font-size:12px;color:#9A8A7A">기억 등록!</span>
             </div>
-            <div style="font-size:10px;color:#B0A898;text-align:center;margin-top:4px">자동 저장됨 · 수정이 필요하면 편집 후 저장</div>
+            <div style="font-size:11.5px;color:#5A4030;line-height:1.5;padding:6px 8px;background:rgba(0,0,0,0.03);border-radius:8px;margin-bottom:8px;white-space:pre-wrap">${preview}</div>
+            <button id="wt-event-ok" style="width:100%;padding:7px;background:#F7EC8D;border:1.5px solid #F6A93A;border-radius:8px;font-size:12px;font-weight:600;color:#775537;cursor:pointer;font-family:inherit">✅ 확인</button>
         </div>`);
 
         $('body').append(overlay);
-        const self = this;
-        overlay.find('#wt-event-save').on('click', async () => {
-            const text = overlay.find('#wt-event-edit').val().trim();
-            if (text && locId) {
-                const loc = self.lm.locations.find(l => l.id === locId);
-                if (loc && loc.events?.length) {
-                    // 마지막 이벤트 수정
-                    loc.events[loc.events.length - 1].text = text;
-                    await self.lm.updateLocation(locId, { events: loc.events });
-                    toastSuccess('✏️ 이벤트 수정!');
-                }
-            }
-            overlay.remove();
-        });
-        overlay.find('#wt-event-skip').on('click', () => overlay.remove());
-        setTimeout(() => overlay.remove(), 8000);
+        overlay.find('#wt-event-ok').on('click', () => overlay.remove());
+        setTimeout(() => overlay.remove(), 6000);
     }
 
     async _addDist() {

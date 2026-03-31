@@ -171,9 +171,11 @@ export class UIManager {
 
                 <!-- 팝오버 (인라인!) -->
                 <div id="wt-popover" class="wt-popover-inline" style="display:none">
-                    <div class="wt-pop-header">
-                        <input type="text" id="wt-pop-title" style="font-size:14px;font-weight:700;color:var(--wt-brown);background:transparent;border:none;border-bottom:1.5px dashed transparent;outline:none;flex:1;padding:2px 0;font-family:inherit" onfocus="this.style.borderBottomColor='var(--wt-yellow-d)'" onblur="this.style.borderBottomColor='transparent'"/>
-                        <button id="wt-pop-close" class="wt-btn-icon">✕</button>
+                    <div class="wt-pop-header" style="position:sticky;top:0;z-index:1;background:var(--wt-cream,#FEFEF2);padding:8px 0 4px">
+                        <input type="text" id="wt-pop-title" style="font-size:16px;font-weight:800;color:var(--wt-brown);background:transparent;border:none;border-bottom:1.5px dashed transparent;outline:none;flex:1;padding:2px 0;font-family:inherit" onfocus="this.style.borderBottomColor='var(--wt-yellow-d)'" onblur="this.style.borderBottomColor='transparent'"/>
+                        <button id="wt-pop-close" style="width:28px;height:28px;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0" title="닫기">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2.5 2.5L13.5 13.5M13.5 2.5L2.5 13.5" stroke="#9A8A7A" stroke-width="2.8" stroke-linecap="round"/></svg>
+                        </button>
                     </div>
                     <div class="wt-pop-body">
                         <div class="wt-pop-stats">
@@ -794,7 +796,9 @@ export class UIManager {
         $('#wt-popover').show();
         const pop = document.getElementById('wt-popover');
         const body = document.getElementById('wt-panel-body');
-        if (pop && body) body.scrollTop = pop.offsetTop - 10;
+        if (pop && body) body.scrollTop = pop.offsetTop - 5;
+        // 헤더가 확실히 보이도록
+        setTimeout(() => pop?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     }
     hidePop() {
         $('#wt-popover').hide();

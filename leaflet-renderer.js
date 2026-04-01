@@ -115,8 +115,8 @@ export class LeafletRenderer {
 
             // 핀 색상: 선택=빨강, 현재위치=초록, 기본=장소색상
             const pinColor = isSel ? '#EA4335' : isCur ? '#27AE60' : style.color;
-            const pinSize = isSel ? 44 : isCur ? 40 : 34;
-            const iconSize = isSel ? 18 : isCur ? 16 : 14;
+            const pinSize = isSel ? 36 : isCur ? 32 : 26;
+            const iconSize = isSel ? 14 : isCur ? 13 : 11;
 
             // 물방울 SVG 핀 + 내부 아이콘
             const iconHtml = `<div style="position:relative;display:flex;flex-direction:column;align-items:center">

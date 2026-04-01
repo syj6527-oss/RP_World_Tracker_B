@@ -154,7 +154,7 @@ export class UIManager {
                 <div id="wt-map-section" style="display:none">
                     <div class="wt-map-mode-bar">
                         <button id="wt-mode-node" class="wt-mode-btn wt-mode-active">🗺️ 약도</button>
-                        <button id="wt-mode-leaflet" class="wt-mode-btn">🌍 실제</button>
+                        <button id="wt-mode-leaflet" class="wt-mode-btn">🐾 Paw Map</button>
                         <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 지도</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar">
@@ -642,6 +642,7 @@ export class UIManager {
             $('#wt-panel-body').removeClass('wt-leaflet-full');
             $('#wt-loc-toggle,#wt-move-toggle,#wt-add-toggle,.wt-scene-loc,.wt-opacity-row').show();
             $('#wt-map-toggle').show();
+            $('#wt-btn-refresh').show();
             $('#wt-paw-nav').hide();
             this._hideBottomSheet();
             // leaflet wrap 스타일 복원
@@ -677,6 +678,7 @@ export class UIManager {
             $('#wt-loc-toggle,#wt-loc-wrap,#wt-move-toggle,#wt-move-wrap,#wt-add-toggle,#wt-add-form,.wt-scene-loc,.wt-opacity-row,#wt-popover').hide();
             $('#wt-map-section').show(); // 지도 섹션은 보여야 함
             $('#wt-map-toggle').hide(); // 접기 버튼 숨김
+            $('#wt-btn-refresh').hide(); // 약도 재생성 숨김
             $('#wt-paw-nav').show(); // 하단 탭 표시
             // 지도 컨테이너 풀사이즈
             const lWrap = document.querySelector('#wt-leaflet-wrap');
@@ -920,8 +922,10 @@ export class UIManager {
         if (events.length) {
             eventsHtml = events.slice(-5).reverse().map(ev => {
                 const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
-                return `<div style="background:#FAFAF5;border-radius:7px;padding:7px 9px;border:1px solid #EAE6DC;margin-bottom:4px">
-                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:#5A4030">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span></div>
+                const hasDetail = ev.text && ev.text !== ev.title && ev.text.length > 15;
+                return `<div class="wt-bs-ev-card" style="background:#FAFAF5;border-radius:7px;padding:7px 9px;border:1px solid #EAE6DC;margin-bottom:4px;cursor:${hasDetail ? 'pointer' : 'default'}">
+                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:#5A4030">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span>${hasDetail ? '<span class="wt-bs-ev-arrow" style="font-size:8px;color:#B0A898">▼</span>' : ''}</div>
+                    ${hasDetail ? `<div class="wt-bs-ev-detail" style="display:none;margin-top:5px;padding-top:5px;border-top:1px dashed #EAE6DC;font-size:9.5px;line-height:1.6;color:#7A7060">${ev.text}</div>` : ''}
                 </div>`;
             }).join('');
         } else {
@@ -975,10 +979,13 @@ export class UIManager {
                 <div id="wt-bs-review-list"></div>
             </div>`;
 
-        bs.html(html).show();
+        bs.html(html).show().css({ maxHeight: '55%', overflowY: 'auto', background: '#FEFEF2' });
+        this._bsStage = 2;
 
-        // 이벤트 바인딩 (이벤트 위임)
+        // 이벤트 바인딩
         const self = this;
+        // 핸들 클릭 → 3단계 토글
+        bs.find('.wt-bs-handle').on('click', () => self._toggleBsStage());
         bs.find('#wt-bs-x').on('click', () => self._hideBottomSheet());
         bs.find('.wt-bs-pill-btn').on('click', function() {
             const action = $(this).data('action');
@@ -993,86 +1000,109 @@ export class UIManager {
             $(this).css({ color: '#2B8A6E', borderBottomColor: '#2B8A6E' });
             bs.find('[id^="wt-bs-tab-"]').hide();
             bs.find(`#wt-bs-tab-${tab}`).show();
+            // 이벤트/리뷰 탭은 full로 확장
+            if (tab !== 'overview' && self._bsStage < 3) { self._bsStage = 3; bs.css({ maxHeight: '85%' }); }
+        });
+        // 7. 이벤트 아코디언 클릭 → 펼치기
+        bs.find('.wt-bs-ev-card').on('click', function() {
+            const det = $(this).find('.wt-bs-ev-detail');
+            const arrow = $(this).find('.wt-bs-ev-arrow');
+            if (det.length) {
+                det.slideToggle(200);
+                arrow.text(det.is(':visible') ? '▼' : '▲');
+            }
         });
         bs.find('#wt-bs-gen-review').on('click', () => self._generateReviews(locId));
     }
 
-    _hideBottomSheet() { $('#wt-bottomsheet').hide().empty(); }
+    _hideBottomSheet() { $('#wt-bottomsheet').hide().empty(); this._bsStage = 0; }
+
+    // ★ 바텀시트 3단계: peek(120px) → half(50%) → full(85%)
+    _bsStage = 0; // 0=hidden, 1=peek, 2=half, 3=full
+    _toggleBsStage() {
+        const bs = $('#wt-bottomsheet');
+        this._bsStage = (this._bsStage >= 3) ? 1 : this._bsStage + 1;
+        if (this._bsStage === 1) bs.css({ maxHeight: '130px', overflowY: 'hidden' });
+        if (this._bsStage === 2) bs.css({ maxHeight: '55%', overflowY: 'auto' });
+        if (this._bsStage === 3) bs.css({ maxHeight: '85%', overflowY: 'auto' });
+    }
 
     _bindBottomSheet() {
         // 하단 탭 전환
         $(document).on('click', '.wt-paw-tab', (e) => {
             const tab = $(e.currentTarget).data('tab');
+            // 탭 스타일 리셋
             $('.wt-paw-tab').each(function() {
                 $(this).find('span:last').css({ color: '#5F6368', fontWeight: '500' });
             });
             $(e.currentTarget).find('span:last').css({ color: '#1A73E8', fontWeight: '700' });
-            this._hideBottomSheet();
 
             if (tab === 'explore') {
-                // 탐색 탭: 지도 보이기
+                this._hideBottomSheet();
+                $('#wt-paw-mypage').remove();
                 $('#wt-map-section').show();
-                $('#wt-paw-mypage').remove();
+                // Leaflet 리사이즈 (지도 다시 보일 때)
+                setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
             } else if (tab === 'mypage') {
-                // 내 페이지: 지도 숨기고 목록 표시
-                $('#wt-map-section').hide();
-                this._showMyPage();
+                this._hideBottomSheet();
+                this._showMyPageBS();
             } else if (tab === 'timeline') {
-                $('#wt-map-section').hide();
+                this._hideBottomSheet();
                 $('#wt-paw-mypage').remove();
-                // 타임라인 (추후)
-                const body = $('#wt-panel-body');
-                body.append(`<div id="wt-paw-mypage" style="padding:20px;text-align:center;color:#9AA0A6;font-size:13px;font-style:italic">🕐 타임라인 — 다음 업데이트 예정!</div>`);
+                // 타임라인 바텀시트
+                const bs = $('#wt-bottomsheet');
+                bs.html(`<div style="display:flex;justify-content:center;padding:7px 0 3px"><div style="width:32px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+                    <div style="padding:16px;text-align:center;color:#9AA0A6;font-size:13px;font-style:italic">🕐 타임라인<br>다음 업데이트 예정!</div>`).show().css({ maxHeight: '30%', background: '#fff' });
             }
         });
+
+        // 바텀시트 핸들 클릭 → 3단계 토글
+        $(document).on('click', '.wt-bs-handle', () => this._toggleBsStage());
     }
 
-    // ========== 🔖 내 페이지 (구글맵 스타일) ==========
-    _showMyPage() {
+    // ========== 🔖 내 페이지 (바텀시트 형식) ==========
+    _showMyPageBS() {
         $('#wt-paw-mypage').remove();
         const locs = [...this.lm.locations].sort((a, b) => (b.lastVisited || 0) - (a.lastVisited || 0));
         const totalVisits = locs.reduce((s, l) => s + (l.visitCount || 0), 0);
         const mostVisited = locs.length ? [...locs].sort((a, b) => (b.visitCount || 0) - (a.visitCount || 0))[0] : null;
 
         let recentHtml = locs.slice(0, 5).map(l => {
-            const style = this.leafletRenderer?._locStyle?.(l.name) || { emoji: '📍' };
+            const st = this.leafletRenderer?._locStyle?.(l.name) || { emoji: '📍' };
             return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #F1F3F4;cursor:pointer" class="wt-mp-loc" data-id="${l.id}">
-                <div style="width:28px;height:28px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:14px">${style.emoji}</div>
-                <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:#202124;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.name}</div><div style="font-size:10px;color:#70757A">방문 ${l.visitCount || 0}회</div></div>
+                <div style="width:28px;height:28px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:14px">${st.emoji}</div>
+                <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${l.name}</div><div style="font-size:10px;color:#70757A">방문 ${l.visitCount||0}회</div></div>
                 <span style="font-size:14px;color:#9AA0A6">🔖</span>
             </div>`;
         }).join('');
 
-        const html = `<div id="wt-paw-mypage" style="padding:12px 14px;overflow-y:auto;flex:1">
-            <div style="font-size:16px;font-weight:800;color:#202124;margin-bottom:8px">내 페이지</div>
-            <div style="display:flex;gap:6px;margin-bottom:12px;overflow-x:auto">
-                <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${locs.length}</div><div style="font-size:8px;color:#70757A">총 장소</div></div>
-                <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${totalVisits}</div><div style="font-size:8px;color:#70757A">총 방문</div></div>
-                <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${mostVisited ? mostVisited.name : '—'}</div><div style="font-size:8px;color:#70757A">최다 방문</div></div>
-            </div>
-            <div style="font-size:12px;font-weight:700;color:#202124;margin-bottom:4px">최근 방문한 장소</div>
-            <div style="font-size:10px;color:#9AA0A6;margin-bottom:6px">지도 기록 및 저장 항목에서</div>
-            ${recentHtml || '<div style="font-size:11px;color:#9AA0A6;padding:12px;text-align:center">아직 방문 기록이 없어요</div>'}
-            <div style="font-size:12px;font-weight:700;color:#202124;margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center">내 목록 <span style="font-size:10px;color:#1A73E8;font-weight:500;cursor:pointer">+ 새 목록</span></div>
-            <div style="display:flex;flex-direction:column;gap:0">
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4"><span style="font-size:16px;width:24px;text-align:center">💜</span><div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">즐겨찾는 장소</div><div style="font-size:10px;color:#70757A">비공개 · ${locs.length}곳</div></div><span style="color:#9AA0A6">⋮</span></div>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4"><span style="font-size:16px;width:24px;text-align:center">⭐</span><div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">별표표시된 장소</div><div style="font-size:10px;color:#70757A">비공개</div></div><span style="color:#9AA0A6">⋮</span></div>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4"><span style="font-size:16px;width:24px;text-align:center">🚩</span><div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">가고 싶은 장소</div><div style="font-size:10px;color:#70757A">비공개</div></div><span style="color:#9AA0A6">⋮</span></div>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0"><span style="font-size:16px;width:24px;text-align:center">🧳</span><div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">여행 계획</div><div style="font-size:10px;color:#70757A">비공개</div></div><span style="color:#9AA0A6">⋮</span></div>
-            </div>
-        </div>`;
+        const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:7px 0 3px;cursor:pointer"><div style="width:32px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div style="padding:8px 14px;overflow-y:auto">
+                <div style="font-size:16px;font-weight:800;color:#202124;margin-bottom:8px">내 페이지</div>
+                <div style="display:flex;gap:6px;margin-bottom:12px;overflow-x:auto">
+                    <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap;min-width:60px;text-align:center"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${locs.length}</div><div style="font-size:8px;color:#70757A">총 장소</div></div>
+                    <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap;min-width:60px;text-align:center"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${totalVisits}</div><div style="font-size:8px;color:#70757A">총 방문</div></div>
+                    <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap;min-width:60px;text-align:center"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${mostVisited?.name||'—'}</div><div style="font-size:8px;color:#70757A">최다 방문</div></div>
+                </div>
+                <div style="font-size:12px;font-weight:700;color:#202124;margin-bottom:4px">최근 방문한 장소</div>
+                ${recentHtml || '<div style="padding:12px;text-align:center;color:#9AA0A6;font-size:11px">아직 없어요</div>'}
+                <div style="font-size:12px;font-weight:700;color:#202124;margin:14px 0 6px;display:flex;justify-content:space-between">내 목록 <span style="font-size:10px;color:#1A73E8;font-weight:500">+ 새 목록</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4">💜<div style="flex:1"><div style="font-size:12px;font-weight:600">즐겨찾는 장소</div><div style="font-size:10px;color:#70757A">비공개 · ${locs.length}곳</div></div>⋮</div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4">⭐<div style="flex:1"><div style="font-size:12px;font-weight:600">별표표시된 장소</div><div style="font-size:10px;color:#70757A">비공개</div></div>⋮</div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4">🚩<div style="flex:1"><div style="font-size:12px;font-weight:600">가고 싶은 장소</div><div style="font-size:10px;color:#70757A">비공개</div></div>⋮</div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 0">🧳<div style="flex:1"><div style="font-size:12px;font-weight:600">여행 계획</div><div style="font-size:10px;color:#70757A">비공개</div></div>⋮</div>
+            </div>`;
 
-        $('#wt-panel-body').append(html);
+        const bs = $('#wt-bottomsheet');
+        bs.html(html).show().css({ maxHeight: '75%', overflowY: 'auto', background: '#fff' });
+        this._bsStage = 2;
 
-        // 장소 클릭 → 지도로 돌아가서 바텀시트
         const self = this;
-        $('.wt-mp-loc').on('click', function() {
+        bs.find('.wt-mp-loc').on('click', function() {
             const id = $(this).data('id');
-            $('#wt-paw-mypage').remove();
-            $('#wt-map-section').show();
-            $('.wt-paw-tab').each(function() { $(this).find('span:last').css({ color: '#5F6368', fontWeight: '500' }); });
-            $('.wt-paw-tab[data-tab="explore"]').find('span:last').css({ color: '#1A73E8', fontWeight: '700' });
-            self._showBottomSheet(id);
+            self._hideBottomSheet();
+            $('.wt-paw-tab[data-tab="explore"]').click();
+            setTimeout(() => self._showBottomSheet(id), 300);
         });
     }
 

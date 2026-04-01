@@ -181,7 +181,7 @@ export class UIManager {
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 2.5L13.5 13.5M13.5 2.5L2.5 13.5" stroke="#9A8A7A" stroke-width="2.8" stroke-linecap="round"/></svg>
                         </button>
                     </div>
-                    <div class="wt-pop-body">
+                    <div class="wt-pop-body" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow-y:auto">
                         <div class="wt-pop-stats">
                             <div><span class="wt-stat-l">방문</span><span id="wt-pop-visits">0</span>회</div>
                             <div><span class="wt-stat-l">첫</span><span id="wt-pop-first">—</span></div>
@@ -226,7 +226,7 @@ export class UIManager {
                         <textarea id="wt-pop-memo" class="wt-input wt-textarea" placeholder="메모..." rows="2"></textarea>
                         <div id="wt-pop-events-section" style="margin-top:4px">
                             <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📝 이벤트 기록</div>
-                            <div id="wt-pop-events-list" style="display:flex;flex-direction:column;gap:3px;max-height:120px;overflow-y:auto"></div>
+                            <div id="wt-pop-events-list" style="display:flex;flex-direction:column;gap:3px;max-height:300px;overflow-y:auto"></div>
                             <div style="display:flex;gap:4px;margin-top:4px">
                                 <input type="text" id="wt-pop-event-input" class="wt-input" placeholder="이벤트 추가..." style="flex:1;font-size:12px;padding:5px 8px"/>
                                 <button id="wt-pop-event-add" class="wt-btn-accent wt-btn-s">+</button>

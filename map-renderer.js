@@ -10,6 +10,7 @@ export class MapRenderer {
         this._pinch = null; this._pan = null;
         this._cityBgEl = null;       // Hub별 배경 캐시
         this._cityHubKey = null;     // 현재 생성된 Hub 식별자
+        this._regenCounter = 0;       // 재생성 카운터 (매번 다른 맵)
         this._init();
     }
     _srand(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};}
@@ -43,7 +44,7 @@ export class MapRenderer {
     }
     _applyVB() { this.svg.setAttribute('viewBox', `${this.vb.x} ${this.vb.y} ${this.vb.w} ${this.vb.h}`); }
 
-    invalidateCity() { this._cityBgEl = null; this._cityHubKey = null; }
+    invalidateCity() { this._cityBgEl = null; this._cityHubKey = null; this._regenCounter = (this._regenCounter || 0) + 1; }
 
     // 핀 클릭 → ViewBox만 이동 + 팝업 카드
     recenterOn(locId) {
@@ -135,7 +136,7 @@ export class MapRenderer {
         // ★ ViewBox 영역 기반으로 도시 생성
         const hubKey = curLoc ? curLoc.id : 'empty';
         const chatId = this.lm.currentChatId || 'default';
-        const seed = this._hashStr(chatId + hubKey) % 10000 + 1;
+        const seed = this._hashStr(chatId + hubKey + (this._regenCounter || 0)) % 10000 + 1;
         if (!this._cityBgEl || this._cityHubKey !== hubKey) {
             this._buildHubCity(this.vb, seed);
             this._cityHubKey = hubKey;

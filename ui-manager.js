@@ -1776,45 +1776,45 @@ export class UIManager {
             // 이벤트 요약 (최근 5개)
             const evSummary = (loc.events || []).slice(-5).map(e => `${e.mood||'📝'} ${e.title||e.text||''}`).join(', ') || '아직 이벤트 없음';
 
-            const prompt = `You are generating Google Maps-style character reviews for a place in an RP story.
+            const reviewCount = 1 + Math.floor(Math.random() * 3);
+            const prompt = `Generate ${reviewCount} Google Maps-style reviews for an RP location. Each reviewer is a CHARACTER from the story with a distinct voice.
 
-Location: "${loc.name}"
-Memo: "${loc.memo || '없음'}"
-Status: "${loc.status || '없음'}"
-AI Notes: "${loc.aiNotes || '없음'}"
-Recent events: ${evSummary}
-Visit count: ${loc.visitCount || 0}
-
-Characters: User/Protagonist="${userName}", Main Character="${charName}"
+Place: "${loc.name}" | Memo: "${loc.memo || ''}" | Notes: "${loc.aiNotes || ''}" | Visits: ${loc.visitCount || 0}
+Events: ${evSummary}
+User="${userName}", Character="${charName}"
 ${langInst}
 
-Generate exactly ${1 + Math.floor(Math.random() * 3)} reviews. Each review comes from ONE of these randomly:
-- "${charName}" (main character) — write in their personality, reference real events at this place
-- "${userName}" (user/protagonist) — write their personal feelings about this place
-- A random NPC (invent a creative name+role, e.g. pet, neighbor, barista, stray cat, soldier, ghost, etc.)
+REVIEWER POOL (pick ${reviewCount} randomly, can repeat types):
+• "${charName}" — main character, write in their personality. Reference events. Show relationship with ${userName}.
+• "${userName}" — protagonist, personal emotional reaction to this place.
+• Pet/Animal — a pet, stray cat, military dog, bird, etc. Write from animal POV (smells, food, warmth, territory).
+• NPC — barista, neighbor, soldier, ghost, street vendor, etc. Quirky and unexpected.
+• Wild creature — crow watching from rooftop, alley cat, stray dog. Pure instinct-based review.
 
-The MIX should be RANDOM. Could be all NPCs, or only ${charName}, or a mix.
+VOICE RULES:
+• Tough character → blunt, short, reluctant praise
+• Gentle character → emotional, poetic, nostalgic
+• Animal → sensory (smell, warmth, food, nap spots). No human logic.
+• NPC → unique quirk that reveals something about the place
 
-Each review MUST have a unique voice matching the reviewer's personality:
-- Tough characters write blunt/short reviews
-- Gentle characters write emotional reviews
-- Animals/pets write from their perspective (food, smells, naps)
-- NPCs can be quirky and unexpected
+Also generate a 1-sentence poetic SUMMARY that captures the emotional contrast of this place (combine the warmest and coldest memories).
 
-Respond with ONLY a JSON array, no markdown no explanation:
-[{"name":"reviewer name","role":"brief role","avatar":"single emoji","stars":1-5,"text":"1-3 sentence review in character voice","daysAgo":1-30}]`;
+JSON ONLY, no markdown:
+{"summary":"poetic 1-sentence place summary","reviews":[{"name":"name","role":"role","avatar":"emoji","stars":1-5,"text":"1-2 sentences","daysAgo":1-30}]}`;
 
             const result = await gen(prompt);
             if (!result) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">생성 실패 — 다시 시도해주세요</div>'); return; }
 
             // JSON 파싱
-            const jsonMatch = result.match(/\[[\s\S]*?\]/);
+            const jsonMatch = result.match(/\{[\s\S]*\}/);
             if (!jsonMatch) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">파싱 실패 — 다시 시도해주세요</div>'); return; }
 
-            const reviews = JSON.parse(jsonMatch[0]);
+            const parsed = JSON.parse(jsonMatch[0]);
+            const reviews = parsed.reviews || parsed;
+            const aiSummary = parsed.summary || '';
             if (!Array.isArray(reviews) || !reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
 
-            this._renderReviews(list, reviews);
+            this._renderReviews(list, reviews, aiSummary);
 
         } catch(e) {
             console.error('[wt] Review gen error:', e);
@@ -1822,11 +1822,17 @@ Respond with ONLY a JSON array, no markdown no explanation:
         }
     }
 
-    _renderReviews(container, reviews) {
+    _renderReviews(container, reviews, aiSummary) {
         container.empty();
 
-        // AI 요약 (리뷰 텍스트 기반으로 간단 생성)
-        const allText = reviews.map(r => r.text).join(' ');
+        // AI 요약
+        if (aiSummary) {
+            container.append(`<div style="padding:8px 10px;background:rgba(94,132,226,.06);border-radius:8px;border:1px solid rgba(94,132,226,.1);margin-bottom:8px">
+                <div style="font-size:9px;color:#5E84E2;font-weight:600;margin-bottom:3px">🤖 AI 리뷰 요약</div>
+                <div style="font-size:10.5px;color:#5E84E2;line-height:1.5;font-style:italic">"${aiSummary}"</div>
+            </div>`);
+        }
+
         const avgStars = (reviews.reduce((s, r) => s + (r.stars || 3), 0) / reviews.length).toFixed(1);
         const starsFull = '★'.repeat(Math.round(avgStars)) + '☆'.repeat(5 - Math.round(avgStars));
 

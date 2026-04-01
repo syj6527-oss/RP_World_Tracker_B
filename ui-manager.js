@@ -967,7 +967,7 @@ export class UIManager {
         }
 
         const html = `
-            <div class="wt-bs-handle" onclick="window.__wtBsHandle&&window.__wtBsHandle()" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
             <div style="display:flex;align-items:flex-start;gap:10px;padding:2px 14px 8px">
                 <span style="font-size:24px;flex-shrink:0;margin-top:2px">${style.emoji}</span>
                 <div style="flex:1;min-width:0">
@@ -1012,7 +1012,8 @@ export class UIManager {
             </div>`;
 
         bs.html(html).show().css({ background: '#fff' });
-        this._applyBsStage(1);
+        this._applyBsStage(1); // peek
+        this._bindBsDrag(bs[0]); // ★ 터치 드래그 바인딩!
 
         // 이벤트 바인딩 (핸들은 글로벌 _bindBottomSheet가 처리)
         const self = this;
@@ -1052,23 +1053,85 @@ export class UIManager {
         this._renderCachedReviews(locId, '#wt-bs-review-list');
     }
 
-    _hideBottomSheet() { $('#wt-bottomsheet').hide().empty(); this._bsStage = 0; }
-
-    // ★ 바텀시트 3단계: peek(130px) → half(45vh) → full(80vh)
-    _bsStage = 0;
-    _applyBsStage(stage) {
-        const bs = $('#wt-bottomsheet');
-        if (!bs.is(':visible')) return;
-        this._bsStage = stage;
-        console.log('[wt] Stage applied:', stage);
-        if (stage === 1) bs.css({ maxHeight: '130px', overflowY: 'hidden' });
-        if (stage === 2) bs.css({ maxHeight: '45vh', overflowY: 'auto' });
-        if (stage === 3) bs.css({ maxHeight: '80vh', overflowY: 'auto' });
+    _hideBottomSheet() {
+        const bs = document.getElementById('wt-bottomsheet');
+        if (bs) { bs.style.display = 'none'; bs.innerHTML = ''; }
+        this._bsStage = 0;
     }
+
+    // ★ 바텀시트 3단계 + 터치 드래그 (구글맵 스타일)
+    _bsStage = 0;
+    _bsDragStartY = 0;
+    _bsDragStartH = 0;
+    _bsDragging = false;
+
+    _applyBsStage(stage) {
+        const bs = document.getElementById('wt-bottomsheet');
+        if (!bs || bs.style.display === 'none') return;
+        this._bsStage = stage;
+        bs.style.transition = 'max-height 0.3s cubic-bezier(0.4,0,0.2,1)';
+        if (stage === 0) { bs.style.display = 'none'; bs.innerHTML = ''; }
+        if (stage === 1) { bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden'; }
+        if (stage === 2) { bs.style.maxHeight = '50vh'; bs.style.overflowY = 'auto'; }
+        if (stage === 3) { bs.style.maxHeight = '85vh'; bs.style.overflowY = 'auto'; }
+    }
+
     _toggleBsStage() {
-        if (!$('#wt-bottomsheet').is(':visible')) return;
-        const nextStage = (this._bsStage >= 3) ? 1 : this._bsStage + 1;
-        this._applyBsStage(nextStage);
+        const bs = document.getElementById('wt-bottomsheet');
+        if (!bs || bs.style.display === 'none') return;
+        const next = (this._bsStage >= 3) ? 1 : this._bsStage + 1;
+        this._applyBsStage(next);
+    }
+
+    // ★ 터치 드래그 바인딩 (바텀시트 열릴 때마다 호출)
+    _bindBsDrag(bsEl) {
+        const self = this;
+        const handle = bsEl.querySelector('.wt-bs-handle');
+        if (!handle) return;
+
+        // 핸들 터치 시작
+        handle.addEventListener('touchstart', (e) => {
+            self._bsDragging = true;
+            self._bsDragStartY = e.touches[0].clientY;
+            self._bsDragStartH = bsEl.offsetHeight;
+            bsEl.style.transition = 'none'; // 드래그 중 애니메이션 끄기
+        }, { passive: true });
+
+        // 터치 이동 → 실시간 크기 조절
+        bsEl.addEventListener('touchmove', (e) => {
+            if (!self._bsDragging) return;
+            const deltaY = self._bsDragStartY - e.touches[0].clientY;
+            const newH = Math.max(80, Math.min(window.innerHeight * 0.85, self._bsDragStartH + deltaY));
+            bsEl.style.maxHeight = newH + 'px';
+            bsEl.style.overflowY = newH > 150 ? 'auto' : 'hidden';
+        }, { passive: true });
+
+        // 터치 끝 → 가장 가까운 단계로 스냅
+        const onEnd = () => {
+            if (!self._bsDragging) return;
+            self._bsDragging = false;
+            const h = bsEl.offsetHeight;
+            const vh = window.innerHeight;
+
+            // 스냅 포인트: peek=185px, half=50vh, full=85vh
+            if (h < 100) {
+                self._applyBsStage(0); // 닫기
+            } else if (h < vh * 0.32) {
+                self._applyBsStage(1); // peek
+            } else if (h < vh * 0.67) {
+                self._applyBsStage(2); // half
+            } else {
+                self._applyBsStage(3); // full
+            }
+        };
+        bsEl.addEventListener('touchend', onEnd, { passive: true });
+        bsEl.addEventListener('touchcancel', onEnd, { passive: true });
+
+        // 핸들 클릭 (PC 폴백) → 토글
+        handle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!self._bsDragging) self._toggleBsStage();
+        });
     }
 
     _navLock = false;

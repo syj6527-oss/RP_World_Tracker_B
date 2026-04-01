@@ -950,7 +950,7 @@ export class UIManager {
         }
 
         const html = `
-            <div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:30px"><div style="width:32px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
             <div style="display:flex;align-items:flex-start;gap:10px;padding:2px 14px 8px">
                 <span style="font-size:24px;flex-shrink:0;margin-top:2px">${style.emoji}</span>
                 <div style="flex:1;min-width:0">
@@ -997,9 +997,13 @@ export class UIManager {
         bs.html(html).show().css({ maxHeight: '55%', overflowY: 'auto', background: '#FEFEF2' });
         this._bsStage = 2;
 
-        // 이벤트 바인딩
+        // 이벤트 바인딩 — 직접 (jQuery 위임 X)
         const self = this;
-        // 핸들 → 글로벌 위임으로 처리 (_bindBottomSheet)
+        // ★ 핸들 클릭 → 3단계 토글
+        bs[0].querySelector('.wt-bs-handle')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            self._toggleBsStage();
+        });
         bs.find('#wt-bs-x').on('click', () => self._hideBottomSheet());
         bs.find('.wt-bs-pill-btn').on('click', function() {
             const action = $(this).data('action');
@@ -1041,45 +1045,39 @@ export class UIManager {
         if (this._bsStage === 3) bs.css({ maxHeight: '85%', overflowY: 'auto' });
     }
 
+    _navLock = false;
     _bindBottomSheet() {
-        // 1. 하단 탭 전환 (click만 — touchend 제거로 모바일 더블 발동 방지)
-        let _navLock = false;
-        $(document).on('click', '.wt-paw-tab', (e) => {
-            if (_navLock) return;
-            _navLock = true; setTimeout(() => _navLock = false, 300);
-            const tabEl = $(e.currentTarget);
-            const tab = tabEl.data('tab');
-            if (!tab) return;
-            // 탭 스타일 리셋
-            $('#wt-paw-nav .wt-paw-tab').each(function() {
-                $(this).find('span:last').css({ color: '#5F6368', fontWeight: '500' });
+        // ★ ST에서 $(document).on 위임 불안정 → 직접 바인딩
+        const self = this;
+        document.querySelectorAll('.wt-paw-tab').forEach(el => {
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (self._navLock) return;
+                self._navLock = true; setTimeout(() => self._navLock = false, 300);
+                const tab = this.dataset.tab;
+                if (!tab) return;
+                document.querySelectorAll('.wt-paw-tab').forEach(t => {
+                    const s = t.querySelector('span:last-child');
+                    if (s) { s.style.color = '#5F6368'; s.style.fontWeight = '500'; }
+                });
+                const s2 = this.querySelector('span:last-child');
+                if (s2) { s2.style.color = '#1A73E8'; s2.style.fontWeight = '700'; }
+
+                if (tab === 'explore') {
+                    self._hideBottomSheet();
+                    const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
+                    $('#wt-map-section').show();
+                    setTimeout(() => self.leafletRenderer?.invalidateSize(), 200);
+                } else if (tab === 'mypage') {
+                    self._hideBottomSheet();
+                    self._showMyPageBS();
+                } else if (tab === 'timeline') {
+                    self._hideBottomSheet();
+                    const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
+                    const bs = document.getElementById('wt-bottomsheet');
+                    if (bs) { bs.innerHTML = '<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:13px">🕐 타임라인 — 다음 업데이트 예정!</div>'; bs.style.display='block'; bs.style.maxHeight='25%'; bs.style.background='#fff'; }
+                }
             });
-            tabEl.find('span:last').css({ color: '#1A73E8', fontWeight: '700' });
-
-            if (tab === 'explore') {
-                this._hideBottomSheet();
-                $('#wt-paw-mypage').remove();
-                $('#wt-map-section').show();
-                setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
-            } else if (tab === 'mypage') {
-                this._hideBottomSheet();
-                this._showMyPageBS();
-            } else if (tab === 'timeline') {
-                this._hideBottomSheet();
-                $('#wt-paw-mypage').remove();
-                const bs = $('#wt-bottomsheet');
-                bs.html(`<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;min-height:44px;cursor:pointer"><div style="width:32px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
-                    <div style="padding:16px;text-align:center;color:#9AA0A6;font-size:13px;font-style:italic">🕐 타임라인<br>다음 업데이트 예정!</div>`).show().css({ maxHeight: '30%', background: '#fff' });
-            }
-        });
-
-        // 2. 바텀시트 핸들 클릭 → 3단계 토글
-        $(document).on('click', '.wt-bs-handle', () => this._toggleBsStage());
-
-        // 5. 지도 클릭 → 바텀시트 닫기
-        $(document).on('click', '#wt-leaflet-container', (e) => {
-            if ($(e.target).closest('.wt-bs, .wt-gmap-pin, .leaflet-marker-icon').length) return;
-            this._hideBottomSheet();
         });
     }
 

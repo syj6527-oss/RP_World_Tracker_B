@@ -29,6 +29,9 @@ export class PromptInjector {
         if (cur.status) L.push(`🌤️ Status: ${cur.status}`);
         if (cur.visitCount > 0) L.push(`📊 ${cur.visitCount === 1 ? 'First visit' : `Visit #${cur.visitCount}`}`);
         if (cur.memo) L.push(`💭 ${this._mem(cur)}`);
+        if (cur.aiNotes) L.push(`📋 Notes: ${cur.aiNotes}`);
+        const evs = this._events(cur);
+        if (evs) L.push(`📝 Memories here:\n${evs}`);
         const last = this._last(); if (last) L.push(`🚶 Last: ${last}`);
         const near = this._near(cur);
         if (near) L.push(`📌 Nearby:\n${near}`);
@@ -43,6 +46,25 @@ export class PromptInjector {
         const days = (Date.now()-loc.lastVisited)/86400000;
         if (days <= (s.memorySummaryDays||7)) return m;
         return m.length > 50 ? m.substring(0,50)+'... (faded)' : m+' (faded)';
+    }
+
+    _events(loc) {
+        const evs = (loc.events || []).filter(e => e.source !== 'move'); // 이동 이벤트 제외
+        if (!evs.length) return null;
+        const s = extension_settings[EXTENSION_NAME];
+        // 최근 3개만 (토큰 절약)
+        const recent = evs.slice(-3);
+        return recent.map(ev => {
+            const mood = ev.mood || '📝';
+            let text = ev.text || ev.title || '';
+            // 기억 모드: natural → 오래된 이벤트 흐림
+            if (s.memoryMode !== 'perfect' && ev.timestamp) {
+                const days = (Date.now() - ev.timestamp) / 86400000;
+                if (days > 30) text = ev.title ? `${ev.title}... (vague memory)` : text.substring(0, 30) + '... (faded)';
+                else if (days > 7) text = ev.title ? `${ev.title} — ${text.substring(0, 40)}...` : text.substring(0, 50) + '...';
+            }
+            return `- ${mood} ${text}`;
+        }).join('\n');
     }
 
     _last() {

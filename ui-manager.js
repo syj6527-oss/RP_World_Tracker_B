@@ -30,6 +30,7 @@ export class UIManager {
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-detect"/> 🔍 자동 감지</label></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-toast"/> 📍 이동 알림</label></div>
+                <div class="wt-s-row"><label><input type="checkbox" id="wt-s-moveevent"/> 🚶 이동 이벤트 기록</label></div>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-inject"/> 🤖 AI 프롬프트 주입</label></div>
                 <div class="wt-s-row"><label><span id="wt-secret" style="cursor:default">💭</span> 기억</label>
@@ -67,7 +68,7 @@ export class UIManager {
     _bindSettings() {
         const s = extension_settings[EXTENSION_NAME];
         const bind = (sel, key, def) => $(sel).prop('checked', s?.[key] ?? def).on('change', function(){ s[key]=$(this).is(':checked'); saveSettingsDebounced(); });
-        bind('#wt-s-enabled','enabled',true); bind('#wt-s-detect','autoDetect',true); bind('#wt-s-toast','showDetectToast',true); bind('#wt-s-inject','aiInjection',true);
+        bind('#wt-s-enabled','enabled',true); bind('#wt-s-detect','autoDetect',true); bind('#wt-s-toast','showDetectToast',true); bind('#wt-s-inject','aiInjection',true); bind('#wt-s-moveevent','moveEvent',true);
         $('#wt-s-inject').on('change', () => { s.aiInjection ? this.pi?.inject() : this.pi?.clear(); });
         $('#wt-s-mem').val(s?.memoryMode||'natural').on('change', () => { s.memoryMode=$('#wt-s-mem').val(); saveSettingsDebounced(); this.pi?.inject(); });
         $('#wt-s-eventlang').val(s?.eventLang||'auto').on('change', () => { s.eventLang=$('#wt-s-eventlang').val(); saveSettingsDebounced(); });
@@ -223,7 +224,11 @@ export class UIManager {
                                 <option value="flag">🪧 이정표</option>
                             </select>
                         </div>
-                        <textarea id="wt-pop-memo" class="wt-input wt-textarea" placeholder="메모..." rows="2"></textarea>
+                        <textarea id="wt-pop-memo" class="wt-input wt-textarea" placeholder="메모 (약도에 표시됨)..." rows="2"></textarea>
+                        <div id="wt-pop-ainotes-section" style="margin-top:2px">
+                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:3px">🤖 특이사항 <span style="font-size:10px;color:#B0A898">(AI에게만 전달)</span></div>
+                            <textarea id="wt-pop-ainotes" class="wt-input wt-textarea" placeholder="예: 0900 붐빔, 바리스타 민수, 2층 창가석 단골..." rows="3" style="font-size:11px;line-height:1.5"></textarea>
+                        </div>
                         <div id="wt-pop-events-section" style="margin-top:4px">
                             <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📝 이벤트 기록</div>
                             <div id="wt-pop-events-list" style="display:flex;flex-direction:column;gap:3px;max-height:300px;overflow-y:auto"></div>
@@ -779,6 +784,7 @@ export class UIManager {
         $('#wt-pop-first').text(l.rpFirstVisited || (l.firstVisited?this._fmt(l.firstVisited):'—'));
         $('#wt-pop-last').text(l.rpLastVisited || (l.lastVisited?this._fmt(l.lastVisited):'—'));
         $('#wt-pop-memo').val(l.memo||''); $('#wt-pop-status').val(l.status||'');
+        $('#wt-pop-ainotes').val(l.aiNotes||'');
         $('#wt-pop-aliases').val((l.aliases||[]).join(', '));
         // Task 5: 아이콘 타입 선택 복원
         $('#wt-pop-icon-type').val(l.locationType || '');
@@ -824,6 +830,7 @@ export class UIManager {
             memo:$('#wt-pop-memo').val().trim(),
             status:$('#wt-pop-status').val().trim(),
             aliases: aliases,
+            aiNotes:$('#wt-pop-ainotes').val().trim(),
             locationType: $('#wt-pop-icon-type').val() || '',  // Task 5: 아이콘 타입
         };
         // 이름 변경
@@ -1325,6 +1332,13 @@ export class UIManager {
             const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
             const hasDetail = ev.text && ev.text !== title && ev.text.length > 15;
 
+            // occurredAt 뱃지 (다른 장소에서 회상된 이벤트)
+            let occurBadge = '';
+            if (ev.recordedAt && ev.recordedAt !== locId) {
+                const recLoc = this.lm.locations.find(l => l.id === ev.recordedAt);
+                if (recLoc) occurBadge = `<span style="font-size:9px;color:#5E84E2;background:rgba(94,132,226,0.1);padding:1px 5px;border-radius:4px;white-space:nowrap">📍 ${recLoc.name}에서 회상</span>`;
+            }
+
             const item = $(`<div style="background:var(--wt-surface);border-radius:8px;overflow:hidden;font-size:11px">
                 <div class="wt-ev-header" style="padding:6px 8px;cursor:${hasDetail ? 'pointer' : 'default'}">
                     <div style="display:flex;align-items:center;gap:4px">
@@ -1333,6 +1347,7 @@ export class UIManager {
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px">
                         <span class="wt-ev-date-view" style="font-size:10px;color:#B0A898;white-space:nowrap">${dateStr}</span>
+                        ${occurBadge}
                         <input class="wt-ev-date-edit" type="text" value="${dateStr}" style="display:none;width:80px;font-size:10px;padding:2px 6px;border:1px solid #5E84E2;border-radius:4px;text-align:center;color:#5E84E2" />
                         <button class="wt-ev-date-btn" data-eidx="${realIdx}" style="font-size:12px;padding:2px 4px;min-width:24px;min-height:24px;background:none;border:none;cursor:pointer;flex-shrink:0;color:#B0A898" title="날짜 수정">✏️</button>
                         <span style="flex:1"></span>
@@ -1656,7 +1671,7 @@ export class UIManager {
         let selectedText = '';
         const self = this;
 
-        // 텍스트 선택 감지
+        // 텍스트 선택 감지 (PC: selectionchange, 모바일: touchend 백업)
         document.addEventListener('selectionchange', () => {
             const sel = window.getSelection();
             const text = sel?.toString().trim() || '';
@@ -1670,6 +1685,20 @@ export class UIManager {
                 selectedText = '';
                 btn.style.display = 'none';
             }
+        });
+
+        // 📱 모바일 백업: touchend 후 선택 확인 (selectionchange 미발동 대비)
+        document.addEventListener('touchend', () => {
+            setTimeout(() => {
+                const sel = window.getSelection();
+                const text = sel?.toString().trim() || '';
+                if (text.length >= 20 && btn.style.display === 'none') {
+                    selectedText = text;
+                    btn.style.display = 'block';
+                    btn.style.transform = 'scale(1.1)';
+                    setTimeout(() => btn.style.transform = 'scale(1)', 150);
+                }
+            }, 300); // 모바일 선택 확정 대기
         });
 
         // 📝 클릭 → LLM 요약 → 이벤트 저장

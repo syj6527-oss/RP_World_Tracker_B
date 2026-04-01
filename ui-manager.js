@@ -17,7 +17,14 @@ const catGroups = [
 ];
 
 export class UIManager {
-    constructor(lm, pi) { this.lm=lm; this.pi=pi; this.mapRenderer=null; this.leafletRenderer=null; this.panelVisible=false; }
+    constructor(lm, pi) {
+        this.lm=lm;
+        this.pi=pi;
+        this.mapRenderer=null;
+        this.leafletRenderer=null;
+        this.panelVisible=false;
+        this._reviewCache = new Map();
+    }
 
     // ========== 설정 패널 (SillyTavern 확장 설정) ==========
     createSettingsPanel() {
@@ -341,9 +348,11 @@ export class UIManager {
         $('#wt-pop-geo-input').on('keydown', (e) => { if (e.key === 'Enter') this._geoSearch(); });
         $('#wt-pop-event-add').on('click', () => this._addEvent());
         $('#wt-pop-event-input').on('keydown', (e) => { if (e.key === 'Enter') this._addEvent(); });
-        $('#wt-pop-review-gen').on('click', () => {
+        $('#wt-pop-review-gen').on('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             const locId = $('#wt-popover').attr('data-id');
-            if (locId) this._generateReviews(locId);
+            if (locId) this._generateReviews(locId, 'popover');
         });
         $('#wt-pop-dist-add').on('click', () => this._addDist());
         $(document).on('input', '#wt-pop-dist-level', function() {
@@ -455,6 +464,7 @@ export class UIManager {
             this._showEventLocationPicker(text);
         } else {
             this._doSaveEvent(curLoc || this.lm.locations[0], text);
+        } finally {
         }
     }
 
@@ -871,6 +881,7 @@ export class UIManager {
         if (l.address) { $('#wt-pop-cur-addr').show(); $('#wt-pop-addr-text').text(l.address); } else { $('#wt-pop-cur-addr').hide(); }
         this._updDistSection(id);
         this._updEventsList(id);
+        this._renderCachedReviews(id, '#wt-pop-review-list');
         // 지도 섹션 상태 저장 후 숨김
         this._mapWasVisible = $('#wt-map-section').is(':visible');
         if (this._mapWasVisible) {
@@ -994,12 +1005,17 @@ export class UIManager {
                 <div id="wt-bs-review-list"></div>
             </div>`;
 
-        bs.html(html).show().css({ maxHeight: '55%', overflowY: 'auto', background: '#FEFEF2' });
-        this._bsStage = 2;
+        bs.html(html).show().css({ background: '#FEFEF2' });
+        this._applyBsStage(1);
 
         // 이벤트 바인딩
         const self = this;
         bs.find('#wt-bs-x').on('click', (e) => { e.stopPropagation(); self._hideBottomSheet(); });
+        bs.find('.wt-bs-handle').on('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            self._toggleBsStage();
+        });
         bs.find('.wt-bs-pill-btn').on('click', function(e) {
             e.stopPropagation();
             const action = $(this).data('action');
@@ -1016,7 +1032,7 @@ export class UIManager {
             bs.find('[id^="wt-bs-tab-"]').hide();
             bs.find(`#wt-bs-tab-${tab}`).show();
             // 이벤트/리뷰 탭은 full로 확장
-            if (tab !== 'overview' && self._bsStage < 3) { self._bsStage = 3; bs.css({ maxHeight: '85%' }); }
+            if (tab !== 'overview' && self._bsStage < 3) self._applyBsStage(3);
         });
         // 7. 이벤트 아코디언 클릭 → 펼치기
         bs.find('.wt-bs-ev-card').on('click', function() {
@@ -1027,19 +1043,29 @@ export class UIManager {
                 arrow.text(det.is(':visible') ? '▼' : '▲');
             }
         });
-        bs.find('#wt-bs-gen-review').on('click', () => self._generateReviews(locId));
+        bs.find('#wt-bs-gen-review').on('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            self._generateReviews(locId, 'bottomsheet');
+        });
+        this._renderCachedReviews(locId, '#wt-bs-review-list');
     }
 
     _hideBottomSheet() { $('#wt-bottomsheet').hide().empty(); this._bsStage = 0; }
 
     // ★ 바텀시트 3단계: peek(120px) → half(50%) → full(85%)
     _bsStage = 0; // 0=hidden, 1=peek, 2=half, 3=full
-    _toggleBsStage() {
+    _applyBsStage(stage) {
         const bs = $('#wt-bottomsheet');
-        this._bsStage = (this._bsStage >= 3) ? 1 : this._bsStage + 1;
-        if (this._bsStage === 1) bs.css({ maxHeight: '130px', overflowY: 'hidden' });
-        if (this._bsStage === 2) bs.css({ maxHeight: '55%', overflowY: 'auto' });
-        if (this._bsStage === 3) bs.css({ maxHeight: '85%', overflowY: 'auto' });
+        this._bsStage = stage;
+        if (stage === 1) bs.css({ maxHeight: '130px', overflowY: 'hidden' });
+        if (stage === 2) bs.css({ maxHeight: '55%', overflowY: 'auto' });
+        if (stage === 3) bs.css({ maxHeight: '85%', overflowY: 'auto' });
+    }
+    _toggleBsStage() {
+        if (!$('#wt-bottomsheet').is(':visible')) return;
+        const nextStage = (this._bsStage >= 3) ? 1 : this._bsStage + 1;
+        this._applyBsStage(nextStage);
     }
 
     _navLock = false;
@@ -1761,11 +1787,26 @@ export class UIManager {
     }
 
     // ========== ⭐ 랜덤 리뷰 생성 (구글맵 스타일) ==========
-    async _generateReviews(locId) {
+    _getReviewContainer(source) {
+        if (source === 'bottomsheet') return $('#wt-bs-review-list');
+        if (source === 'popover') return $('#wt-pop-review-list');
+        if ($('#wt-bs-review-list').length && $('#wt-bottomsheet').is(':visible')) return $('#wt-bs-review-list');
+        return $('#wt-pop-review-list');
+    }
+
+    _renderCachedReviews(locId, selector) {
+        const cached = this._reviewCache.get(locId);
+        const container = $(selector);
+        if (!cached || !container.length) return;
+        this._renderReviews(container, cached.reviews, cached.summary);
+    }
+
+    async _generateReviews(locId, source = 'auto') {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
 
-        const list = $('#wt-bs-review-list').length && $('#wt-bottomsheet').is(':visible') ? $('#wt-bs-review-list') : $('#wt-pop-review-list');
+        const list = this._getReviewContainer(source);
+        if (!list.length) return;
         list.html('<div style="text-align:center;padding:12px;font-size:11px;color:#9A8A7A">🔄 리뷰 생성 중...</div>');
 
         try {
@@ -1820,7 +1861,10 @@ JSON ONLY, no markdown:
             const aiSummary = parsed.summary || '';
             if (!Array.isArray(reviews) || !reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
 
+            this._reviewCache.set(locId, { reviews, summary: aiSummary });
             this._renderReviews(list, reviews, aiSummary);
+            this._renderCachedReviews(locId, '#wt-pop-review-list');
+            this._renderCachedReviews(locId, '#wt-bs-review-list');
 
         } catch(e) {
             console.error('[wt] Review gen error:', e);

@@ -644,7 +644,9 @@ export class UIManager {
             $('#wt-map-toggle').show();
             $('#wt-btn-refresh').show();
             $('#wt-paw-nav').hide();
+            // ★ 바텀시트 + 내페이지 완전 정리
             this._hideBottomSheet();
+            $('#wt-paw-mypage').remove();
             // leaflet wrap 스타일 복원
             const lWrap = document.querySelector('#wt-leaflet-wrap');
             if (lWrap) { lWrap.style.flex = ''; lWrap.style.display = 'none'; lWrap.style.flexDirection = ''; }

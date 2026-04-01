@@ -62,8 +62,8 @@
 #wt-leaflet-map{width:100%!important;height:100%!important;z-index:1!important}
 #wt-leaflet-map .leaflet-control-zoom{z-index:2!important}
 #wt-leaflet-map .leaflet-control-zoom a{background:var(--wt-surface)!important;color:var(--wt-brown)!important;border-color:var(--wt-border)!important}
-.wt-map-container{width:100%;aspect-ratio:3/4;border-radius:var(--wt-r);overflow:hidden;border:2px solid var(--wt-border);background:#F2EEE4;touch-action:none}
-.wt-map-svg{width:100%;height:100%;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.wt-map-container{width:100%;aspect-ratio:3/4;border-radius:var(--wt-r);overflow:hidden;border:2px solid var(--wt-border);background:#F2EEE4;touch-action:pan-y}
+.wt-map-svg{width:100%;height:100%;cursor:default;touch-action:pan-y;user-select:none;-webkit-user-select:none}
 .wt-map-svg:active{cursor:grabbing}
 .wt-path-line{stroke:#B0A090;stroke-width:2.5;stroke-dasharray:8 5;opacity:.4;stroke-linecap:round}
 .wt-node-circle{cursor:pointer}

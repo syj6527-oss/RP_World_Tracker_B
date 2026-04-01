@@ -1071,10 +1071,11 @@ export class UIManager {
         if (!bs || bs.style.display === 'none') return;
         this._bsStage = stage;
         bs.style.transition = 'max-height 0.3s cubic-bezier(0.4,0,0.2,1)';
-        if (stage === 0) { bs.style.display = 'none'; bs.innerHTML = ''; }
+        const pH = bs.parentElement?.offsetHeight || window.innerHeight;
+        if (stage === 0) { this._hideBottomSheet(); return; }
         if (stage === 1) { bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden'; }
-        if (stage === 2) { bs.style.maxHeight = '50vh'; bs.style.overflowY = 'auto'; }
-        if (stage === 3) { bs.style.maxHeight = '95vh'; bs.style.overflowY = 'auto'; } // ★ 패널 전체 덮기
+        if (stage === 2) { bs.style.maxHeight = Math.round(pH * 0.55) + 'px'; bs.style.overflowY = 'auto'; }
+        if (stage === 3) { bs.style.maxHeight = Math.round(pH - 10) + 'px'; bs.style.overflowY = 'auto'; }
     }
 
     _toggleBsStage() {
@@ -1105,25 +1106,26 @@ export class UIManager {
         // ★ 핸들에서만 touchmove (콘텐츠 스크롤 충돌 방지)
         handle.addEventListener('touchmove', (e) => {
             if (!self._bsDragging) return;
-            e.preventDefault(); // 스크롤 방지
+            e.preventDefault();
             const deltaY = self._bsDragStartY - e.touches[0].clientY;
-            const newH = Math.max(80, Math.min(window.innerHeight * 0.95, self._bsDragStartH + deltaY));
+            const parentH = bsEl.parentElement?.offsetHeight || window.innerHeight;
+            const newH = Math.max(80, Math.min(parentH - 10, self._bsDragStartH + deltaY));
             bsEl.style.maxHeight = newH + 'px';
             bsEl.style.overflowY = newH > 200 ? 'auto' : 'hidden';
-        }, { passive: false }); // passive:false → preventDefault 가능
+        }, { passive: false });
 
         // 터치 끝 → 스냅
         const onEnd = () => {
             if (!self._bsDragging) return;
             self._bsDragging = false;
             const h = bsEl.offsetHeight;
-            const vh = window.innerHeight;
+            const pH = bsEl.parentElement?.offsetHeight || window.innerHeight;
 
             if (h < 80) {
                 self._hideBottomSheet();
-            } else if (h < vh * 0.3) {
+            } else if (h < pH * 0.3) {
                 self._applyBsStage(1);
-            } else if (h < vh * 0.7) {
+            } else if (h < pH * 0.7) {
                 self._applyBsStage(2);
             } else {
                 self._applyBsStage(3);

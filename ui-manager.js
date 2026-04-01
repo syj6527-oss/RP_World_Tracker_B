@@ -1099,28 +1099,28 @@ export class UIManager {
             self._bsDragging = true;
             self._bsDragStartY = e.touches[0].clientY;
             self._bsDragStartH = bsEl.offsetHeight;
-            bsEl.style.transition = 'none'; // 드래그 중 애니메이션 끄기
+            bsEl.style.transition = 'none';
         }, { passive: true });
 
-        // 터치 이동 → 실시간 크기 조절
-        bsEl.addEventListener('touchmove', (e) => {
+        // ★ 핸들에서만 touchmove (콘텐츠 스크롤 충돌 방지)
+        handle.addEventListener('touchmove', (e) => {
             if (!self._bsDragging) return;
+            e.preventDefault(); // 스크롤 방지
             const deltaY = self._bsDragStartY - e.touches[0].clientY;
-            const newH = Math.max(80, Math.min(window.innerHeight * 0.85, self._bsDragStartH + deltaY));
+            const newH = Math.max(80, Math.min(window.innerHeight * 0.95, self._bsDragStartH + deltaY));
             bsEl.style.maxHeight = newH + 'px';
-            bsEl.style.overflowY = newH > 150 ? 'auto' : 'hidden';
-        }, { passive: true });
+            bsEl.style.overflowY = newH > 200 ? 'auto' : 'hidden';
+        }, { passive: false }); // passive:false → preventDefault 가능
 
-        // 터치 끝 → 가장 가까운 단계로 스냅
+        // 터치 끝 → 스냅
         const onEnd = () => {
             if (!self._bsDragging) return;
             self._bsDragging = false;
             const h = bsEl.offsetHeight;
             const vh = window.innerHeight;
 
-            // 스냅: peek=185px, half=50vh, full=95vh, close=<80px
             if (h < 80) {
-                self._hideBottomSheet(); // 아래로 많이 내리면 닫기
+                self._hideBottomSheet();
             } else if (h < vh * 0.3) {
                 self._applyBsStage(1);
             } else if (h < vh * 0.7) {
@@ -1129,10 +1129,10 @@ export class UIManager {
                 self._applyBsStage(3);
             }
         };
-        bsEl.addEventListener('touchend', onEnd, { passive: true });
-        bsEl.addEventListener('touchcancel', onEnd, { passive: true });
+        handle.addEventListener('touchend', onEnd, { passive: true });
+        handle.addEventListener('touchcancel', onEnd, { passive: true });
 
-        // 핸들 클릭 (PC 폴백) → 토글
+        // 핸들 클릭 (PC 폴백)
         handle.addEventListener('click', (e) => {
             e.stopPropagation();
             if (!self._bsDragging) self._toggleBsStage();

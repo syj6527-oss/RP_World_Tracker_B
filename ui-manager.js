@@ -1011,7 +1011,7 @@ export class UIManager {
                 <div id="wt-bs-review-list"></div>
             </div>`;
 
-        bs.html(html).show().css({ background: '#FEFEF2' });
+        bs.html(html).show().css({ background: '#fff' });
         this._applyBsStage(1);
 
         // 이벤트 바인딩 (핸들은 글로벌 _bindBottomSheet가 처리)

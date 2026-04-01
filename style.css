@@ -13,7 +13,7 @@
 .wt-panel-open{right:0!important;pointer-events:auto!important}
 @media(min-width:768px){.wt-panel{width:380px;right:-400px;border-left:2px solid var(--wt-border)}}
 
-.wt-panel-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--wt-surface);border-bottom:1px solid var(--wt-border);flex-shrink:0}
+.wt-panel-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--wt-surface);border-bottom:1px solid var(--wt-border);flex-shrink:0}
 .wt-panel-title{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:700;color:var(--wt-brown)}
 
 .wt-panel-body{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -211,8 +211,8 @@
 @keyframes wtPawBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 
 /* 바텀시트 */
-.wt-bs{position:absolute;bottom:0;left:0;right:0;z-index:30;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,0.15);max-height:60vh;overflow-y:auto;transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);font-family:-apple-system,'Noto Sans KR',sans-serif}
-.wt-bs-handle{display:flex;justify-content:center;padding:8px 0 4px;cursor:grab}
+.wt-bs{position:absolute;bottom:0;left:0;right:0;z-index:30;background:#FEFEF2;border-radius:16px 16px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,0.15);overflow-y:auto;transition:max-height 0.3s cubic-bezier(0.4,0,0.2,1);font-family:-apple-system,'Noto Sans KR',sans-serif}
+.wt-bs-handle{display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px;-webkit-tap-highlight-color:transparent}
 .wt-bs-bar{width:36px;height:4px;background:#DADCE0;border-radius:2px}
 .wt-bs-header{display:flex;align-items:center;gap:12px;padding:4px 16px 12px}
 .wt-bs-emoji{font-size:28px;flex-shrink:0}

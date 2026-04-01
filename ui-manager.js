@@ -577,6 +577,14 @@ export class UIManager {
         const leafletContainer = document.querySelector('#wt-leaflet-container');
         if (leafletContainer) leafletContainer.innerHTML = '';
         $('#wt-scan-overlay').remove();
+        // ★ Paw Map 잔여물 정리
+        this._hideBottomSheet();
+        $('#wt-paw-mypage').remove();
+        $('#wt-pawmap-tag').remove();
+        this._isLeafletFull = false;
+        $('#wt-panel-body').removeClass('wt-leaflet-full');
+        $('#wt-paw-nav').hide();
+    }
     }
 
     async refresh() {
@@ -969,15 +977,15 @@ export class UIManager {
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
                 ${nearbyHtml}
-                <div style="margin-top:8px;padding:8px 10px;background:#FAFAF5;border-radius:8px;border:1px solid #EAE6DC">
+            </div>
+            <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
+                <div style="margin-bottom:8px;padding:8px 10px;background:#FAFAF5;border-radius:8px;border:1px solid #EAE6DC">
                     <div style="font-size:10px;font-weight:600;color:#5A4030;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">🌡️ 분위기 지수 <span style="font-size:9px;color:#9AA0A6;font-weight:400">최근 7일</span></div>
                     <div style="display:flex;align-items:flex-end;gap:3px;height:36px">
                         ${(() => { const moods = events.slice(-7); const bars = []; for(let i=0;i<7;i++){const ev=moods[i]; const h=ev?(['💕','😊'].some(m=>m===ev.mood)?30:['⚡','🔍'].some(m=>m===ev.mood)?70:45):12; const c=ev?(['💕','😊'].some(m=>m===ev.mood)?'#A8D8EA':['⚡','🔍'].some(m=>m===ev.mood)?'#F5A8A8':'#F5C6AA'):'#E8E4D8'; bars.push(`<div style="flex:1;height:${h}%;background:${c};border-radius:2px 2px 0 0"></div>`);} return bars.join(''); })()}
                     </div>
                     <div style="font-size:8px;color:#9AA0A6;text-align:center;margin-top:4px">${events.length ? `이벤트 ${events.length}건 기반` : '데이터 수집 중...'}</div>
                 </div>
-            </div>
-            <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
                 ${eventsHtml}
             </div>
             <div id="wt-bs-tab-review" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
@@ -992,8 +1000,7 @@ export class UIManager {
 
         // 이벤트 바인딩
         const self = this;
-        // 핸들 클릭 → 3단계 토글
-        bs.find('.wt-bs-handle').on('click', () => self._toggleBsStage());
+        // 핸들 → 글로벌 위임으로 처리 (_bindBottomSheet)
         bs.find('#wt-bs-x').on('click', () => self._hideBottomSheet());
         bs.find('.wt-bs-pill-btn').on('click', function() {
             const action = $(this).data('action');
@@ -1036,9 +1043,11 @@ export class UIManager {
     }
 
     _bindBottomSheet() {
-        // 1. 하단 탭 전환
-        $(document).on('click touchend', '.wt-paw-tab', (e) => {
-            e.stopPropagation();
+        // 1. 하단 탭 전환 (click만 — touchend 제거로 모바일 더블 발동 방지)
+        let _navLock = false;
+        $(document).on('click', '.wt-paw-tab', (e) => {
+            if (_navLock) return;
+            _navLock = true; setTimeout(() => _navLock = false, 300);
             const tabEl = $(e.currentTarget);
             const tab = tabEl.data('tab');
             if (!tab) return;

@@ -1054,14 +1054,16 @@ export class UIManager {
 
     _hideBottomSheet() { $('#wt-bottomsheet').hide().empty(); this._bsStage = 0; }
 
-    // ★ 바텀시트 3단계: peek(120px) → half(50%) → full(85%)
-    _bsStage = 0; // 0=hidden, 1=peek, 2=half, 3=full
+    // ★ 바텀시트 3단계: peek(130px) → half(45vh) → full(80vh)
+    _bsStage = 0;
     _applyBsStage(stage) {
         const bs = $('#wt-bottomsheet');
+        if (!bs.is(':visible')) return;
         this._bsStage = stage;
+        console.log('[wt] Stage applied:', stage);
         if (stage === 1) bs.css({ maxHeight: '130px', overflowY: 'hidden' });
-        if (stage === 2) bs.css({ maxHeight: '55%', overflowY: 'auto' });
-        if (stage === 3) bs.css({ maxHeight: '85%', overflowY: 'auto' });
+        if (stage === 2) bs.css({ maxHeight: '45vh', overflowY: 'auto' });
+        if (stage === 3) bs.css({ maxHeight: '80vh', overflowY: 'auto' });
     }
     _toggleBsStage() {
         if (!$('#wt-bottomsheet').is(':visible')) return;
@@ -1082,18 +1084,21 @@ export class UIManager {
             document.querySelectorAll('.wt-paw-tab span:last-child').forEach(s => { s.style.color = '#5F6368'; s.style.fontWeight = '500'; });
             if (el) { const s = el.querySelector('span:last-child'); if (s) { s.style.color = '#1A73E8'; s.style.fontWeight = '700'; } }
 
+            // ★ 모든 탭에서 공통: 바텀시트 + 내페이지 정리
+            const bs = document.getElementById('wt-bottomsheet');
+            if (bs) { bs.style.display = 'none'; bs.innerHTML = ''; }
+            self._bsStage = 0;
+            const mp = document.getElementById('wt-paw-mypage');
+            if (mp) mp.remove();
+
             if (tab === 'explore') {
-                self._hideBottomSheet();
-                const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
                 $('#wt-map-section').show();
                 setTimeout(() => self.leafletRenderer?.invalidateSize(), 200);
+                console.log('[wt] Explore: map shown');
             } else if (tab === 'mypage') {
-                self._hideBottomSheet();
                 self._showMyPageBS();
             } else if (tab === 'timeline') {
-                self._hideBottomSheet();
-                const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
-                $('#wt-bottomsheet').html('<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>').show().css({ maxHeight:'25%', background:'#fff' });
+                if (bs) { bs.innerHTML = '<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>'; bs.style.display = 'block'; bs.style.maxHeight = '25vh'; bs.style.background = '#fff'; }
             }
         };
 

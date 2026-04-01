@@ -88,6 +88,44 @@ async function scanMessage(text, source = 'USER') {
 
         const mode = source === 'AI' ? 'ai' : 'user';
         const rpDate = _extractRpDate(text);
+
+        // ★ 메타데이터에서 Location 직접 추출 (memo/yaml 블록)
+        const locMatch = text.match(/[-*]\s*Location[:\s]+(.+)/i);
+        if (locMatch) {
+            const metaLoc = locMatch[1].trim().replace(/[`*_]/g, '');
+            if (metaLoc.length >= 2 && metaLoc.length <= 30) {
+                dbg(`📌 Meta location: "${metaLoc}"`);
+                // 기존 장소에 있는지 확인
+                const existing = lm.locations.find(l =>
+                    l.name.toLowerCase() === metaLoc.toLowerCase() ||
+                    (l.aliases || []).some(a => a.toLowerCase() === metaLoc.toLowerCase())
+                );
+                if (existing) {
+                    if (lm.currentLocationId !== existing.id) {
+                        await lm.moveTo(existing.id, rpDate);
+                        if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${existing.name}`, 'move');
+                        pi.inject(); if (ui.panelVisible) ui.refresh();
+                    }
+                    await _tryEvent(text, existing.id, source);
+                    return true;
+                } else {
+                    // 새 장소 등록
+                    if (!lm.currentChatId) await lm.loadChat();
+                    if (lm.currentChatId) {
+                        const loc = await lm.addLocation(metaLoc);
+                        if (loc) {
+                            await lm.moveTo(loc.id, rpDate);
+                            if (s.showDetectToast) wtNotify(`${wtMascot()} 🆕 ${loc.name}`, 'new', 3500);
+                            pi.inject(); if (ui.panelVisible) ui.refresh();
+                            ui.showAutoToast(loc);
+                            await _tryEvent(text, loc.id, source);
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+
         dbg(`🔍 ${source} (${text.length}c) mode=${mode}${rpDate ? ' rpDate=' + rpDate : ''}`);
 
         // 이미 등록된 장소 감지 (USER/AI 동일)
@@ -307,8 +345,21 @@ jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSIO
 
 // ========== RP 날짜 추출 (메타데이터에서) ==========
 function _extractRpDate(text) {
-    const m = text.match(/[-*]\s*(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
-    if (m) return `${m[1]}/${parseInt(m[2])}/${parseInt(m[3])}`;
+    // 패턴 1: - Time: 2025/07/12 또는 Date: 2025.07.12
+    const m1 = text.match(/[-*]\s*(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
+    if (m1) return `${m1[1]}/${parseInt(m1[2])}/${parseInt(m1[3])}`;
+    // 패턴 2: July 12, 2025 또는 12 July 2025
+    const months = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+    const m2 = text.match(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
+    if (m2 && months[m2[1].substring(0,3).toLowerCase()]) return `${m2[3]}/${months[m2[1].substring(0,3).toLowerCase()]}/${parseInt(m2[2])}`;
+    const m3 = text.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+    if (m3 && months[m3[2].substring(0,3).toLowerCase()]) return `${m3[3]}/${months[m3[2].substring(0,3).toLowerCase()]}/${parseInt(m3[1])}`;
+    // 패턴 3: 7월 12일 (년도 없으면 빈값)
+    const m4 = text.match(/(\d{1,2})월\s*(\d{1,2})일/);
+    if (m4) {
+        const yr = text.match(/(\d{4})년/);
+        return yr ? `${yr[1]}/${parseInt(m4[1])}/${parseInt(m4[2])}` : `${parseInt(m4[1])}/${parseInt(m4[2])}`;
+    }
     return '';
 }
 

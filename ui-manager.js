@@ -1073,14 +1073,18 @@ export class UIManager {
         if (stage === 0) { bs.style.display = 'none'; bs.innerHTML = ''; }
         if (stage === 1) { bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden'; }
         if (stage === 2) { bs.style.maxHeight = '50vh'; bs.style.overflowY = 'auto'; }
-        if (stage === 3) { bs.style.maxHeight = '85vh'; bs.style.overflowY = 'auto'; }
+        if (stage === 3) { bs.style.maxHeight = '95vh'; bs.style.overflowY = 'auto'; } // ★ 패널 전체 덮기
     }
 
     _toggleBsStage() {
         const bs = document.getElementById('wt-bottomsheet');
         if (!bs || bs.style.display === 'none') return;
-        const next = (this._bsStage >= 3) ? 1 : this._bsStage + 1;
-        this._applyBsStage(next);
+        // ★ peek→half→full→닫기
+        if (this._bsStage >= 3) {
+            this._hideBottomSheet(); // full에서 클릭 → 완전 닫기
+        } else {
+            this._applyBsStage(this._bsStage + 1);
+        }
     }
 
     // ★ 터치 드래그 바인딩 (바텀시트 열릴 때마다 호출)
@@ -1113,15 +1117,15 @@ export class UIManager {
             const h = bsEl.offsetHeight;
             const vh = window.innerHeight;
 
-            // 스냅 포인트: peek=185px, half=50vh, full=85vh
-            if (h < 100) {
-                self._applyBsStage(0); // 닫기
-            } else if (h < vh * 0.32) {
-                self._applyBsStage(1); // peek
-            } else if (h < vh * 0.67) {
-                self._applyBsStage(2); // half
+            // 스냅: peek=185px, half=50vh, full=95vh, close=<80px
+            if (h < 80) {
+                self._hideBottomSheet(); // 아래로 많이 내리면 닫기
+            } else if (h < vh * 0.3) {
+                self._applyBsStage(1);
+            } else if (h < vh * 0.7) {
+                self._applyBsStage(2);
             } else {
-                self._applyBsStage(3); // full
+                self._applyBsStage(3);
             }
         };
         bsEl.addEventListener('touchend', onEnd, { passive: true });
@@ -1211,8 +1215,9 @@ export class UIManager {
             </div>`;
 
         const bs = $('#wt-bottomsheet');
-        bs.html(html).show().css({ maxHeight: '75%', overflowY: 'auto', background: '#fff' });
-        this._bsStage = 2;
+        bs.html(html).show().css({ background: '#fff' });
+        this._applyBsStage(2); // half
+        this._bindBsDrag(bs[0]); // ★ 드래그 바인딩
 
         const self = this;
         bs.find('.wt-mp-loc').on('click', function() {

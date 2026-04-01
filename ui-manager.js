@@ -1014,6 +1014,7 @@ export class UIManager {
         bs.html(html).show().css({ background: '#fff' });
         this._applyBsStage(1); // peek
         this._bindBsDrag(bs[0]); // ★ 터치 드래그 바인딩!
+        bs.find('.wt-bs-handle').css({ position: 'sticky', top: 0, zIndex: 10, background: '#fff' });
 
         // 이벤트 바인딩 (핸들은 글로벌 _bindBottomSheet가 처리)
         const self = this;
@@ -1165,7 +1166,13 @@ export class UIManager {
             } else if (tab === 'mypage') {
                 self._showMyPageBS();
             } else if (tab === 'timeline') {
-                if (bs) { bs.innerHTML = '<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>'; bs.style.display = 'block'; bs.style.maxHeight = '25vh'; bs.style.background = '#fff'; }
+                if (bs) {
+                    bs.innerHTML = '<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px;position:sticky;top:0;z-index:10;background:#fff"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div><div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>';
+                    bs.style.display = 'block';
+                    bs.style.background = '#fff';
+                    self._applyBsStage(2);
+                    self._bindBsDrag(bs);
+                }
             }
         };
 
@@ -1216,8 +1223,11 @@ export class UIManager {
 
         const bs = $('#wt-bottomsheet');
         bs.html(html).show().css({ background: '#fff' });
-        this._applyBsStage(2); // half
-        this._bindBsDrag(bs[0]); // ★ 드래그 바인딩
+        this._applyBsStage(2); // half (50vh)
+        this._bindBsDrag(bs[0]);
+
+        // 핸들바 sticky
+        bs.find('.wt-bs-handle').css({ position: 'sticky', top: 0, zIndex: 10, background: '#fff' });
 
         const self = this;
         bs.find('.wt-mp-loc').on('click', function() {

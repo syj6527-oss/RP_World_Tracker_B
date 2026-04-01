@@ -1326,17 +1326,21 @@ export class UIManager {
             const hasDetail = ev.text && ev.text !== title && ev.text.length > 15;
 
             const item = $(`<div style="background:var(--wt-surface);border-radius:8px;overflow:hidden;font-size:11px">
-                <div class="wt-ev-header" style="display:flex;align-items:center;gap:4px;padding:8px 8px;cursor:${hasDetail ? 'pointer' : 'default'}">
-                    <span style="flex-shrink:0;font-size:13px">${mood}</span>
-                    <span style="flex-shrink:1;min-width:0;color:var(--wt-text);font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${title}</span>
-                    <span class="wt-ev-date-view" style="font-size:10px;color:#B0A898;white-space:nowrap;flex-shrink:0">${dateStr}</span>
-                    <input class="wt-ev-date-edit" type="text" value="${dateStr}" style="display:none;width:80px;font-size:10px;padding:2px 6px;border:1px solid #5E84E2;border-radius:4px;text-align:center;color:#5E84E2" />
-                    <button class="wt-ev-date-btn" data-eidx="${realIdx}" style="font-size:13px;padding:2px 6px;min-width:28px;min-height:28px;background:none;border:none;cursor:pointer;flex-shrink:0;color:#B0A898;display:flex;align-items:center;justify-content:center" title="날짜 수정">✏️</button>
-                    <span style="flex:1;border-bottom:1px dotted #E0DCD4;min-width:12px;height:1px;align-self:center"></span>
-                    <button class="wt-ev-del" style="font-size:13px;padding:2px 6px;min-width:28px;min-height:28px;color:var(--wt-pink);background:none;border:none;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center" data-eidx="${realIdx}">✕</button>
-                    ${hasDetail ? '<span style="width:8px;flex-shrink:0"></span><span class="wt-ev-arrow" style="font-size:11px;color:#B0A898;flex-shrink:0;transition:transform 0.2s">▼</span>' : ''}
+                <div class="wt-ev-header" style="padding:6px 8px;cursor:${hasDetail ? 'pointer' : 'default'}">
+                    <div style="display:flex;align-items:center;gap:4px">
+                        <span style="flex-shrink:0;font-size:12px">${mood}</span>
+                        <span style="flex:1;color:var(--wt-text);font-weight:600;font-size:11.5px;line-height:1.3">${title}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px">
+                        <span class="wt-ev-date-view" style="font-size:10px;color:#B0A898;white-space:nowrap">${dateStr}</span>
+                        <input class="wt-ev-date-edit" type="text" value="${dateStr}" style="display:none;width:80px;font-size:10px;padding:2px 6px;border:1px solid #5E84E2;border-radius:4px;text-align:center;color:#5E84E2" />
+                        <button class="wt-ev-date-btn" data-eidx="${realIdx}" style="font-size:12px;padding:2px 4px;min-width:24px;min-height:24px;background:none;border:none;cursor:pointer;flex-shrink:0;color:#B0A898" title="날짜 수정">✏️</button>
+                        <span style="flex:1"></span>
+                        <button class="wt-ev-del" style="font-size:12px;padding:2px 4px;min-width:24px;min-height:24px;color:var(--wt-pink);background:none;border:none;cursor:pointer;flex-shrink:0" data-eidx="${realIdx}">✕</button>
+                        ${hasDetail ? '<span class="wt-ev-arrow" style="font-size:10px;color:#B0A898;flex-shrink:0;margin-left:4px">▼</span>' : ''}
+                    </div>
                 </div>
-                ${hasDetail ? `<div class="wt-ev-detail" style="display:none;padding:4px 8px 8px 26px;font-size:11px;line-height:1.5;color:#7A7060;border-top:1px dashed #EAE6DC">${ev.text}</div>` : ''}
+                ${hasDetail ? `<div class="wt-ev-detail" style="display:none;padding:4px 8px 8px 24px;font-size:11px;line-height:1.5;color:#7A7060;border-top:1px dashed #EAE6DC">${ev.text}</div>` : ''}
             </div>`);
 
             // 접기/펼치기

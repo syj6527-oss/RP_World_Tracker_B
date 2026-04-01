@@ -1807,6 +1807,8 @@ export class UIManager {
         const container = $(selector);
         if (!cached || !container.length) return;
         if (!this._reviewCache.has(locId)) this._reviewCache.set(locId, cached);
+        // ★ 캐시 리뷰 있으면 독립 생성 버튼 숨기기 (renderReviews 안에 재생성 버튼 있음)
+        container.siblings().find('#wt-bs-gen-review,#wt-pop-review-gen').closest('div').hide();
         this._renderReviews(container, cached.reviews, cached.summary);
     }
 

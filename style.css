@@ -195,12 +195,20 @@
 
 /* 🗺️ Google Maps Style — Leaflet 풀스크린 + 바텀시트 */
 .wt-leaflet-full{display:flex!important;flex-direction:column!important}
-.wt-leaflet-full #wt-map-section{flex:1!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+.wt-leaflet-full #wt-map-section{flex:1!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;position:relative!important}
 .wt-leaflet-full #wt-leaflet-wrap{flex:1!important;display:flex!important;flex-direction:column!important;position:relative!important}
 .wt-leaflet-full #wt-leaflet-container{flex:1!important;height:auto!important;min-height:0!important;border:none!important;border-radius:0!important}
-.wt-leaflet-full .wt-map-mode-bar{flex-shrink:0}
-.wt-leaflet-full #wt-search-bar{flex-shrink:0}
 .wt-leaflet-full .wt-leaflet-map{height:100%!important;min-height:0!important;border-radius:0!important;border:none!important}
+.wt-leaflet-full .leaflet-control-layers{display:none!important}
+/* 모드바+검색 → 지도 위 플로팅 (반투명) */
+.wt-leaflet-full .wt-map-mode-bar{position:absolute!important;top:4px;left:6px;right:6px;z-index:20!important;background:rgba(250,250,245,.8)!important;backdrop-filter:blur(10px)!important;-webkit-backdrop-filter:blur(10px)!important;box-shadow:0 2px 8px rgba(0,0,0,.1)!important;border-radius:8px!important;border:1px solid rgba(232,228,216,.6)!important}
+.wt-leaflet-full #wt-search-bar{position:absolute!important;top:46px;left:6px;right:6px;z-index:20!important}
+.wt-leaflet-full #wt-search-tabs{background:rgba(250,250,245,.75)!important;backdrop-filter:blur(8px)!important;-webkit-backdrop-filter:blur(8px)!important;border-radius:6px!important;padding:2px!important}
+.wt-leaflet-full #wt-search-input{background:rgba(255,255,255,.85)!important;backdrop-filter:blur(8px)!important;-webkit-backdrop-filter:blur(8px)!important;box-shadow:0 2px 8px rgba(0,0,0,.08)!important;border-radius:20px!important;border:1px solid rgba(232,228,216,.5)!important}
+
+/* Google Maps 물방울 핀 */
+.wt-gmap-pin{background:none!important;border:none!important}
+@keyframes wtPawBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 
 /* 바텀시트 */
 .wt-bs{position:absolute;bottom:0;left:0;right:0;z-index:30;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,0.15);max-height:60vh;overflow-y:auto;transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);font-family:-apple-system,'Noto Sans KR',sans-serif}

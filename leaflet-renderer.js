@@ -105,33 +105,46 @@ export class LeafletRenderer {
         const { locations, movements, currentLocationId } = this.lm;
         const latlngs = [];
 
-        // ========== 커스텀 컬러 마커 (목업 기반) ==========
+        // ========== 구글맵 스타일 물방울 핀 ==========
         for (const loc of locations) {
             if (!loc.lat || !loc.lng) continue;
 
             const isCur = loc.id === currentLocationId;
-            const v = loc.visitCount || 0;
+            const isSel = loc.id === this._selectedPinId;
             const style = this._locStyle(loc.name);
-            const size = isCur ? 32 : 26;
-            const shadow = isCur ? 'box-shadow:0 0 12px rgba(139,110,199,0.6);' : 'box-shadow:0 2px 6px rgba(0,0,0,0.25);';
 
-            const iconHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${style.color};border:${isCur?'3px solid #fff':'2px solid #fff'};display:flex;align-items:center;justify-content:center;${shadow}position:relative"><span style="pointer-events:none;color:#fff;font-size:${isCur?12:10}px;font-weight:700">${(loc.visitCount||0) > 0 ? loc.visitCount : ''}</span>${isCur?'<span style="position:absolute;top:-14px;font-size:12px;pointer-events:none">🐾</span>':''}</div>`;
-            const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
+            // 핀 색상: 선택=빨강, 현재위치=초록, 기본=장소색상
+            const pinColor = isSel ? '#EA4335' : isCur ? '#27AE60' : style.color;
+            const pinSize = isSel ? 44 : isCur ? 40 : 34;
+            const iconSize = isSel ? 18 : isCur ? 16 : 14;
+
+            // 물방울 SVG 핀 + 내부 아이콘
+            const iconHtml = `<div style="position:relative;display:flex;flex-direction:column;align-items:center">
+                ${isCur && !isSel ? '<div style="position:absolute;top:-16px;font-size:12px;z-index:2;animation:wtPawBounce 1.2s infinite">🐾</div>' : ''}
+                <svg width="${pinSize}" height="${Math.round(pinSize * 1.3)}" viewBox="0 0 40 52" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3))${isSel ? ';filter:drop-shadow(0 3px 8px rgba(234,67,53,0.4))' : ''}">
+                    <path d="M20 50 C20 50 3 30 3 18 C3 8.6 10.6 1 20 1 C29.4 1 37 8.6 37 18 C37 30 20 50 20 50Z" fill="${pinColor}"/>
+                    <circle cx="20" cy="18" r="11" fill="white"/>
+                </svg>
+                <div style="position:absolute;top:${isSel ? 8 : isCur ? 7 : 5}px;font-size:${iconSize}px;pointer-events:none;text-align:center;line-height:1">${style.emoji}</div>
+            </div>`;
+
+            const icon = L.divIcon({
+                html: iconHtml, className: 'wt-gmap-pin',
+                iconSize: [pinSize, Math.round(pinSize * 1.3)],
+                iconAnchor: [pinSize / 2, Math.round(pinSize * 1.3)],
+            });
             const marker = L.marker([loc.lat, loc.lng], { icon });
 
             // 라벨
             marker.bindTooltip(loc.name + (isCur ? ' 🐾' : ''), {
-                permanent: true, direction: 'bottom', offset: [0, size/2 + 2],
+                permanent: true, direction: 'bottom', offset: [0, 4],
                 className: 'wt-leaflet-label',
             });
 
-            // ========== 리치 팝업 (목업 기반) ==========
-            const popupContent = this._buildPopup(loc, isCur);
-            marker.bindPopup(popupContent, { maxWidth: 260, className: 'wt-leaflet-popup' });
-
-            // 클릭 → 팝업 표시 (팝오버 대신 맵 위 직접)
+            // 클릭 → 선택 핀 변경 + 바텀시트
             marker.on('click', () => {
-                marker.openPopup();
+                this._selectedPinId = loc.id;
+                this.render(); // 핀 재렌더 (선택=빨강)
                 if (this.onLocationClick) this.onLocationClick(loc.id);
             });
 

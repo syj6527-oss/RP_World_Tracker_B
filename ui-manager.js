@@ -292,13 +292,13 @@ export class UIManager {
             <!-- 🐾 Paw Map 하단 탭 (Leaflet 모드에서만 보임) -->
             <div id="wt-paw-nav" style="display:none;border-top:1px solid #E0E0E0;background:#fff;flex-shrink:0;z-index:40">
                 <div style="display:flex">
-                    <div class="wt-paw-tab wt-paw-tab-on" data-tab="explore" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 2px 9px;cursor:pointer">
+                    <div class="wt-paw-tab wt-paw-tab-on" data-tab="explore" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
                         <span style="font-size:17px">🐾</span><span style="font-size:9px;font-weight:700;color:#1A73E8">탐색</span>
                     </div>
-                    <div class="wt-paw-tab" data-tab="mypage" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 2px 9px;cursor:pointer">
+                    <div class="wt-paw-tab" data-tab="mypage" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
                         <span style="font-size:17px">🔖</span><span style="font-size:9px;font-weight:500;color:#5F6368">내 페이지</span>
                     </div>
-                    <div class="wt-paw-tab" data-tab="timeline" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 2px 9px;cursor:pointer">
+                    <div class="wt-paw-tab" data-tab="timeline" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
                         <span style="font-size:17px">🕐</span><span style="font-size:9px;font-weight:500;color:#5F6368">타임라인</span>
                     </div>
                 </div>
@@ -579,7 +579,6 @@ export class UIManager {
 
     // 채팅 전환 시 지도 완전 리셋
     resetMap() {
-        // 🐛 Bug1 Fix: 컨테이너 DOM도 클리어 → SVG 잔존 방지
         const nodeContainer = document.querySelector('#wt-map-container');
         if (nodeContainer) nodeContainer.innerHTML = '';
         this.mapRenderer = null;
@@ -587,13 +586,19 @@ export class UIManager {
         const leafletContainer = document.querySelector('#wt-leaflet-container');
         if (leafletContainer) leafletContainer.innerHTML = '';
         $('#wt-scan-overlay').remove();
-        // ★ Paw Map 잔여물 정리
+        // ★ Paw Map 완전 정리
         this._hideBottomSheet();
         $('#wt-paw-mypage').remove();
         $('#wt-pawmap-tag').remove();
         this._isLeafletFull = false;
+        this._isGeneratingReview = false;
         $('#wt-panel-body').removeClass('wt-leaflet-full');
         $('#wt-paw-nav').hide();
+        // ★ 숨겨진 요소 전부 복원
+        $('#wt-loc-toggle,#wt-move-toggle,#wt-add-toggle,.wt-scene-loc,#wt-map-toggle,#wt-btn-refresh').show();
+        // leaflet wrap 스타일 복원
+        const lWrap = document.querySelector('#wt-leaflet-wrap');
+        if (lWrap) { lWrap.style.flex = ''; lWrap.style.display = 'none'; lWrap.style.flexDirection = ''; }
     }
 
     async refresh() {
@@ -1009,14 +1014,9 @@ export class UIManager {
         bs.html(html).show().css({ background: '#FEFEF2' });
         this._applyBsStage(1);
 
-        // 이벤트 바인딩
+        // 이벤트 바인딩 (핸들은 글로벌 _bindBottomSheet가 처리)
         const self = this;
-        bs.find('#wt-bs-x').on('click', (e) => { e.stopPropagation(); self._hideBottomSheet(); });
-        bs.find('.wt-bs-handle').on('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            self._toggleBsStage();
-        });
+        bs.find('#wt-bs-x').on('click', (e) => { e.stopPropagation(); e.stopImmediatePropagation(); self._hideBottomSheet(); });
         bs.find('.wt-bs-pill-btn').on('click', function(e) {
             e.stopPropagation();
             const action = $(this).data('action');
@@ -1076,7 +1076,9 @@ export class UIManager {
         // ★ 중복 방지: off() 후 on() (Gemini 제안)
         // 1. 하단 탭 전환
         $doc.off('click.wtNav', '.wt-paw-tab').on('click.wtNav', '.wt-paw-tab', (e) => {
-            e.stopPropagation(); // 지도 클릭 전파 차단
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
             if (this._navLock) return;
             this._navLock = true; setTimeout(() => this._navLock = false, 300);
 
@@ -1084,10 +1086,8 @@ export class UIManager {
             const tab = tabEl.data('tab');
             if (!tab) return;
 
-            $('#wt-paw-nav .wt-paw-tab').each(function() {
-                $(this).find('span:last').css({ color: '#5F6368', fontWeight: '500' });
-            });
-            tabEl.find('span:last').css({ color: '#1A73E8', fontWeight: '700' });
+            $('#wt-paw-nav .wt-paw-tab').find('span:last-child').css({ color: '#5F6368', fontWeight: '500' });
+            tabEl.find('span:last-child').css({ color: '#1A73E8', fontWeight: '700' });
 
             if (tab === 'explore') {
                 this._hideBottomSheet();
@@ -1100,13 +1100,15 @@ export class UIManager {
             } else if (tab === 'timeline') {
                 this._hideBottomSheet();
                 $('#wt-paw-mypage').remove();
-                $('#wt-bottomsheet').html('<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:13px">🕐 타임라인 — 다음 업데이트!</div>').show().css({ maxHeight:'25%', background:'#fff' });
+                $('#wt-bottomsheet').html('<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>').show().css({ maxHeight:'25%', background:'#fff' });
             }
         });
 
         // 2. 바텀시트 핸들 → 3단계 토글
         $doc.off('click.wtHandle', '.wt-bs-handle').on('click.wtHandle', '.wt-bs-handle', (e) => {
-            e.stopPropagation(); // ★ 이게 없으면 지도 클릭으로 전파돼서 바로 닫힘
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation(); // ★ Gemini 제안: 완전 차단
             this._toggleBsStage();
         });
 
@@ -1812,11 +1814,13 @@ export class UIManager {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
         if (this._reviewPending.has(locId)) return;
+        if (this._isGeneratingReview) return; // 이미 생성 중
 
         const list = this._getReviewContainer(source);
         if (!list.length) return;
         this._reviewPending.add(locId);
-        list.html('<div style="text-align:center;padding:12px;font-size:11px;color:#9A8A7A">🔄 리뷰 생성 중...</div>');
+        this._isGeneratingReview = true; // ★ 플래그 ON (scanMessage 차단)
+        list.html('<div style="text-align:center;padding:12px;font-size:12px;color:#9A8A7A">🔄 리뷰 생성 중...</div>');
 
         try {
             const ctx = getContext();
@@ -1885,47 +1889,84 @@ JSON ONLY, no markdown:
             list.html('<div style="font-size:11px;color:#F5A8A8;padding:8px">오류: ' + e.message + '</div>');
         } finally {
             this._reviewPending.delete(locId);
+            setTimeout(() => { this._isGeneratingReview = false; }, 1000); // ★ 1초 후 해제 (안전 마진)
         }
     }
 
     _renderReviews(container, reviews, aiSummary) {
         container.empty();
 
-        // AI 요약
+        // 1. AI 요약 (블루박스)
         if (aiSummary) {
-            container.append(`<div style="padding:8px 10px;background:rgba(94,132,226,.06);border-radius:8px;border:1px solid rgba(94,132,226,.1);margin-bottom:8px">
-                <div style="font-size:9px;color:#5E84E2;font-weight:600;margin-bottom:3px">🤖 AI 리뷰 요약</div>
-                <div style="font-size:10.5px;color:#5E84E2;line-height:1.5;font-style:italic">"${aiSummary}"</div>
+            container.append(`<div style="padding:10px 12px;background:rgba(94,132,226,.06);border-radius:8px;border:1px solid rgba(94,132,226,.1);margin-bottom:10px">
+                <div style="font-size:10px;color:#5E84E2;font-weight:600;margin-bottom:3px">🤖 AI 리뷰 요약</div>
+                <div style="font-size:12px;color:#5E84E2;line-height:1.6;font-style:italic">"${aiSummary}"</div>
             </div>`);
         }
 
+        // 2. 별점 바 그래프 (구글맵 스타일)
         const avgStars = (reviews.reduce((s, r) => s + (r.stars || 3), 0) / reviews.length).toFixed(1);
         const starsFull = '★'.repeat(Math.round(avgStars)) + '☆'.repeat(5 - Math.round(avgStars));
+        const starCounts = [0,0,0,0,0];
+        reviews.forEach(r => { const s = Math.min(5, Math.max(1, r.stars||3)); starCounts[s-1]++; });
+        const maxCount = Math.max(...starCounts, 1);
 
-        // 별점 + 리뷰 수
-        container.append(`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;margin-bottom:6px">
-            <span style="font-size:22px;font-weight:800;color:#202124">${avgStars}</span>
-            <div>
-                <div style="color:#F6A93A;font-size:11px;letter-spacing:1px">${starsFull}</div>
-                <div style="font-size:9px;color:#70757A">리뷰 ${reviews.length}건</div>
+        let barsHtml = '';
+        for (let i = 5; i >= 1; i--) {
+            const pct = Math.round((starCounts[i-1] / maxCount) * 100);
+            barsHtml += `<div style="display:flex;align-items:center;gap:4px"><span style="font-size:10px;color:#70757A;width:8px">${i}</span><div style="flex:1;height:8px;background:#EAE6DC;border-radius:4px;overflow:hidden"><div style="width:${pct}%;height:100%;background:#F6A93A;border-radius:4px"></div></div></div>`;
+        }
+
+        container.append(`<div style="display:flex;align-items:center;gap:12px;padding:8px 0;margin-bottom:6px">
+            <div style="text-align:center">
+                <div style="font-size:32px;font-weight:800;color:#202124;line-height:1">${avgStars}</div>
+                <div style="color:#F6A93A;font-size:12px;letter-spacing:1px;margin-top:2px">${starsFull}</div>
+                <div style="font-size:10px;color:#70757A;margin-top:1px">(리뷰 ${reviews.length}건)</div>
             </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:3px">${barsHtml}</div>
         </div>`);
 
-        // 각 리뷰 카드
+        // 3. 감정 키워드 칩
+        const keywords = {};
+        reviews.forEach(r => {
+            const t = (r.text || '').toLowerCase();
+            const kw = [['💕','로맨틱'],['⚡','긴장'],['☕','커피'],['🌧️','비'],['😢','슬픔'],['😊','평온'],['🔥','분노'],['🍺','술']];
+            kw.forEach(([emoji, word]) => { if (t.includes(word) || t.includes(emoji)) keywords[`${emoji} ${word}`] = (keywords[`${emoji} ${word}`]||0)+1; });
+        });
+        if (Object.keys(keywords).length) {
+            container.append(`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #F0EDE5">${
+                Object.entries(keywords).map(([k,v]) => `<span style="padding:4px 10px;background:#F1F3F4;border-radius:14px;font-size:11px;color:#3C4043;font-weight:500">${k} ${v}</span>`).join('')
+            }</div>`);
+        }
+
+        // 4. 캐릭터 리뷰 헤더 + 재생성 버튼
+        container.append(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:14px;font-weight:700;color:#202124">캐릭터 리뷰</span>
+            <button class="wt-rv-regen" style="font-size:11px;color:#1A73E8;background:none;border:none;cursor:pointer;font-family:inherit;font-weight:500;padding:4px 8px">🔄 새 리뷰 생성</button>
+        </div>`);
+
+        // 재생성 버튼 이벤트
+        container.find('.wt-rv-regen').on('click', (e) => {
+            e.stopPropagation();
+            const locId = $('#wt-bottomsheet').attr('data-id') || $('#wt-popover').attr('data-id');
+            if (locId) this._generateReviews(locId);
+        });
+
+        // 5. 개별 리뷰 카드
         reviews.forEach(rv => {
             const stars = '★'.repeat(rv.stars || 3) + '☆'.repeat(5 - (rv.stars || 3));
             const daysText = rv.daysAgo === 1 ? '어제' : rv.daysAgo <= 7 ? `${rv.daysAgo}일 전` : `${Math.ceil(rv.daysAgo / 7)}주 전`;
 
-            container.append(`<div style="padding:8px 0;border-bottom:1px solid #F1F3F4">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                    <div style="width:28px;height:28px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:14px">${rv.avatar || '👤'}</div>
+            container.append(`<div style="padding:10px 0;border-bottom:1px solid #F1F3F4">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+                    <div style="width:32px;height:32px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:16px">${rv.avatar || '👤'}</div>
                     <div>
-                        <div style="font-size:11px;font-weight:700;color:#202124">${rv.name || 'Unknown'}</div>
-                        <div style="font-size:9px;color:#70757A">${rv.role || ''}</div>
+                        <div style="font-size:13px;font-weight:700;color:#202124">${rv.name || 'Unknown'}</div>
+                        <div style="font-size:10px;color:#70757A">${rv.role || ''}</div>
                     </div>
                 </div>
-                <div style="font-size:9px;color:#F6A93A;margin-bottom:3px">${stars} · ${daysText}</div>
-                <div style="font-size:11px;line-height:1.6;color:#3C4043">${rv.text || ''}</div>
+                <div style="font-size:10px;color:#F6A93A;margin-bottom:4px">${stars} · ${daysText}</div>
+                <div style="font-size:13px;line-height:1.7;color:#3C4043">${rv.text || ''}</div>
             </div>`);
         });
     }

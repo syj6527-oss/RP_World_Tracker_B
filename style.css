@@ -211,7 +211,7 @@
 @keyframes wtPawBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 
 /* 바텀시트 */
-.wt-bs{position:absolute;bottom:0;left:0;right:0;z-index:2000;background:#FEFEF2;border-radius:16px 16px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,0.15);overflow-y:auto;transition:max-height 0.3s cubic-bezier(0.4,0,0.2,1);font-family:-apple-system,'Noto Sans KR',sans-serif}
+.wt-bs{position:absolute;bottom:0;left:0;right:0;z-index:2000;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,0.15);overflow-y:auto;transition:max-height 0.3s cubic-bezier(0.4,0,0.2,1);font-family:-apple-system,'Noto Sans KR',sans-serif;pointer-events:auto!important}
 .wt-bs-handle{display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px;-webkit-tap-highlight-color:transparent;pointer-events:auto!important}
 .wt-bs-bar{width:36px;height:4px;background:#DADCE0;border-radius:2px}
 .wt-bs-header{display:flex;align-items:center;gap:12px;padding:4px 16px 12px}

@@ -97,6 +97,11 @@ function dbg(msg) {
 // ========== 메시지 스캔 (USER/AI 감도 분리) ==========
 async function scanMessage(text, source = 'USER') {
     try {
+        // ★ 리뷰 생성 중이면 감지 차단 (피드백 루프 방지)
+        if (ui?._isGeneratingReview) {
+            dbg('🔄 리뷰 생성 중 — 감지 건너뜀');
+            return false;
+        }
         if (isAutoDetectPaused()) {
             dbg('⏸️ auto-detect paused');
             return false;

@@ -10,6 +10,22 @@ import { UIManager } from './ui-manager.js';
 
 export const EXTENSION_NAME = 'rp-world-tracker';
 export const PROMPT_KEY = 'rp-world-tracker-prompt';
+let _autoDetectPauseCount = 0;
+
+export async function runWithoutAutoDetect(task, cooldownMs = 1500) {
+    _autoDetectPauseCount++;
+    try {
+        return await task();
+    } finally {
+        setTimeout(() => {
+            _autoDetectPauseCount = Math.max(0, _autoDetectPauseCount - 1);
+        }, cooldownMs);
+    }
+}
+
+function isAutoDetectPaused() {
+    return _autoDetectPauseCount > 0;
+}
 
 // ========== 확장 경로 자동 감지 (폴더명 불일치 방지) ==========
 export const EXTENSION_PATH = new URL('.', import.meta.url).pathname;
@@ -81,6 +97,10 @@ function dbg(msg) {
 // ========== 메시지 스캔 (USER/AI 감도 분리) ==========
 async function scanMessage(text, source = 'USER') {
     try {
+        if (isAutoDetectPaused()) {
+            dbg('⏸️ auto-detect paused');
+            return false;
+        }
         const s = extension_settings[EXTENSION_NAME];
         if (!s?.enabled || !s?.autoDetect || !text?.trim()) return false;
         if (!lm.currentChatId) await lm.loadChat();
@@ -187,6 +207,10 @@ async function init() {
     let _handleCount = 0;
     async function handle(idx) {
         try {
+            if (isAutoDetectPaused()) {
+                console.log(`[${EXTENSION_NAME}] ⏸️ handle skipped: auto-detect paused`);
+                return;
+            }
             _handleCount++;
             console.log(`[${EXTENSION_NAME}] 🔔 handle(${typeof idx === 'number' ? idx : 'event'}) #${_handleCount}`);
             if (!isChatActive()) { console.log(`[${EXTENSION_NAME}] ⏭️ chatActive=false`); return; }

@@ -2,7 +2,7 @@
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
-import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat } from './index.js';
+import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat, runWithoutAutoDetect } from './index.js';
 import { MapRenderer } from './map-renderer.js';
 import { LeafletRenderer } from './leaflet-renderer.js';
 
@@ -24,6 +24,7 @@ export class UIManager {
         this.leafletRenderer=null;
         this.panelVisible=false;
         this._reviewCache = new Map();
+        this._reviewPending = new Set();
     }
 
     // ========== 설정 패널 (SillyTavern 확장 설정) ==========
@@ -464,7 +465,6 @@ export class UIManager {
             this._showEventLocationPicker(text);
         } else {
             this._doSaveEvent(curLoc || this.lm.locations[0], text);
-        } finally {
         }
     }
 
@@ -800,6 +800,7 @@ export class UIManager {
     async _yakdoRecenter(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
+        if (this._reviewPending.has(locId)) return;
         if (this.mapRenderer?.recenterOn) {
             this.mapRenderer.recenterOn(locId);
         }
@@ -1773,7 +1774,8 @@ export class UIManager {
                 const ctx = getContext();
                 const gen = ctx?.generateQuietPrompt;
                 if (gen) {
-                    const result = await gen(`Create a short, witty title (max 15 chars) for this event that emphasizes the place's meaning. Write like "OO한 곳". Respond with ONLY the title text, nothing else.\n\nEvent: ${text.substring(0, 300)}`);
+                    const prompt = `Create a short, witty title (max 15 chars) for this event that emphasizes the place's meaning. Write like "OO한 곳". Respond with ONLY the title text, nothing else.\n\nEvent: ${text.substring(0, 300)}`;
+                    const result = await runWithoutAutoDetect(() => gen(prompt));
                     if (result?.trim()) title = result.trim().substring(0, 20);
                 }
             } catch(e) {}
@@ -1795,18 +1797,25 @@ export class UIManager {
     }
 
     _renderCachedReviews(locId, selector) {
-        const cached = this._reviewCache.get(locId);
+        const loc = this.lm.locations.find(l => l.id === locId);
+        const stored = Array.isArray(loc?.generatedReviews) && loc.generatedReviews.length
+            ? { reviews: loc.generatedReviews, summary: loc.reviewSummary || '' }
+            : null;
+        const cached = this._reviewCache.get(locId) || stored;
         const container = $(selector);
         if (!cached || !container.length) return;
+        if (!this._reviewCache.has(locId)) this._reviewCache.set(locId, cached);
         this._renderReviews(container, cached.reviews, cached.summary);
     }
 
     async _generateReviews(locId, source = 'auto') {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
+        if (this._reviewPending.has(locId)) return;
 
         const list = this._getReviewContainer(source);
         if (!list.length) return;
+        this._reviewPending.add(locId);
         list.html('<div style="text-align:center;padding:12px;font-size:11px;color:#9A8A7A">🔄 리뷰 생성 중...</div>');
 
         try {
@@ -1849,7 +1858,7 @@ Also generate a 1-sentence poetic SUMMARY that captures the emotional contrast o
 JSON ONLY, no markdown:
 {"summary":"poetic 1-sentence place summary","reviews":[{"name":"name","role":"role","avatar":"emoji","stars":1-5,"text":"1-2 sentences","daysAgo":1-30}]}`;
 
-            const result = await gen(prompt);
+            const result = await runWithoutAutoDetect(() => gen(prompt), 2500);
             if (!result) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">생성 실패 — 다시 시도해주세요</div>'); return; }
 
             // JSON 파싱
@@ -1862,6 +1871,11 @@ JSON ONLY, no markdown:
             if (!Array.isArray(reviews) || !reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
 
             this._reviewCache.set(locId, { reviews, summary: aiSummary });
+            await this.lm.updateLocation(locId, {
+                generatedReviews: reviews,
+                reviewSummary: aiSummary,
+                reviewUpdatedAt: Date.now(),
+            });
             this._renderReviews(list, reviews, aiSummary);
             this._renderCachedReviews(locId, '#wt-pop-review-list');
             this._renderCachedReviews(locId, '#wt-bs-review-list');
@@ -1869,6 +1883,8 @@ JSON ONLY, no markdown:
         } catch(e) {
             console.error('[wt] Review gen error:', e);
             list.html('<div style="font-size:11px;color:#F5A8A8;padding:8px">오류: ' + e.message + '</div>');
+        } finally {
+            this._reviewPending.delete(locId);
         }
     }
 
@@ -2205,7 +2221,7 @@ If mundane: {"mood":null}
 
 Text: ${trimmed}`;
 
-                    const result = await generateQuietPrompt(prompt);
+                    const result = await runWithoutAutoDetect(() => generateQuietPrompt(prompt), 2500);
                     if (result) {
                         const m = result.match(/\{[\s\S]*?\}/);
                         if (m) {

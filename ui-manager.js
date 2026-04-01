@@ -997,22 +997,19 @@ export class UIManager {
         bs.html(html).show().css({ maxHeight: '55%', overflowY: 'auto', background: '#FEFEF2' });
         this._bsStage = 2;
 
-        // 이벤트 바인딩 — 직접 (jQuery 위임 X)
+        // 이벤트 바인딩
         const self = this;
-        // ★ 핸들 클릭 → 3단계 토글
-        bs[0].querySelector('.wt-bs-handle')?.addEventListener('click', (e) => {
+        bs.find('#wt-bs-x').on('click', (e) => { e.stopPropagation(); self._hideBottomSheet(); });
+        bs.find('.wt-bs-pill-btn').on('click', function(e) {
             e.stopPropagation();
-            self._toggleBsStage();
-        });
-        bs.find('#wt-bs-x').on('click', () => self._hideBottomSheet());
-        bs.find('.wt-bs-pill-btn').on('click', function() {
             const action = $(this).data('action');
             const id = bs.attr('data-id');
             if (action === 'move' && id) { self.lm.moveTo(id).then(() => { self.pi?.inject(); self.refresh(); self._hideBottomSheet(); toastSuccess('🐾 이동!'); }); }
             if (action === 'edit' && id) { self._hideBottomSheet(); self.showPop(id); }
             if (action === 'dist' && id) { self._hideBottomSheet(); self.showPop(id); }
         });
-        bs.find('.wt-bs-tab').on('click', function() {
+        bs.find('.wt-bs-tab').on('click', function(e) {
+            e.stopPropagation();
             const tab = $(this).data('tab');
             bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
             $(this).css({ color: '#2B8A6E', borderBottomColor: '#2B8A6E' });
@@ -1047,37 +1044,49 @@ export class UIManager {
 
     _navLock = false;
     _bindBottomSheet() {
-        // ★ ST에서 $(document).on 위임 불안정 → 직접 바인딩
-        const self = this;
-        document.querySelectorAll('.wt-paw-tab').forEach(el => {
-            el.addEventListener('click', function(e) {
-                e.stopPropagation();
-                if (self._navLock) return;
-                self._navLock = true; setTimeout(() => self._navLock = false, 300);
-                const tab = this.dataset.tab;
-                if (!tab) return;
-                document.querySelectorAll('.wt-paw-tab').forEach(t => {
-                    const s = t.querySelector('span:last-child');
-                    if (s) { s.style.color = '#5F6368'; s.style.fontWeight = '500'; }
-                });
-                const s2 = this.querySelector('span:last-child');
-                if (s2) { s2.style.color = '#1A73E8'; s2.style.fontWeight = '700'; }
+        const $doc = $(document);
 
-                if (tab === 'explore') {
-                    self._hideBottomSheet();
-                    const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
-                    $('#wt-map-section').show();
-                    setTimeout(() => self.leafletRenderer?.invalidateSize(), 200);
-                } else if (tab === 'mypage') {
-                    self._hideBottomSheet();
-                    self._showMyPageBS();
-                } else if (tab === 'timeline') {
-                    self._hideBottomSheet();
-                    const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
-                    const bs = document.getElementById('wt-bottomsheet');
-                    if (bs) { bs.innerHTML = '<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:13px">🕐 타임라인 — 다음 업데이트 예정!</div>'; bs.style.display='block'; bs.style.maxHeight='25%'; bs.style.background='#fff'; }
-                }
+        // ★ 중복 방지: off() 후 on() (Gemini 제안)
+        // 1. 하단 탭 전환
+        $doc.off('click.wtNav', '.wt-paw-tab').on('click.wtNav', '.wt-paw-tab', (e) => {
+            e.stopPropagation(); // 지도 클릭 전파 차단
+            if (this._navLock) return;
+            this._navLock = true; setTimeout(() => this._navLock = false, 300);
+
+            const tabEl = $(e.currentTarget);
+            const tab = tabEl.data('tab');
+            if (!tab) return;
+
+            $('#wt-paw-nav .wt-paw-tab').each(function() {
+                $(this).find('span:last').css({ color: '#5F6368', fontWeight: '500' });
             });
+            tabEl.find('span:last').css({ color: '#1A73E8', fontWeight: '700' });
+
+            if (tab === 'explore') {
+                this._hideBottomSheet();
+                $('#wt-paw-mypage').remove();
+                $('#wt-map-section').show();
+                setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
+            } else if (tab === 'mypage') {
+                this._hideBottomSheet();
+                this._showMyPageBS();
+            } else if (tab === 'timeline') {
+                this._hideBottomSheet();
+                $('#wt-paw-mypage').remove();
+                $('#wt-bottomsheet').html('<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:13px">🕐 타임라인 — 다음 업데이트!</div>').show().css({ maxHeight:'25%', background:'#fff' });
+            }
+        });
+
+        // 2. 바텀시트 핸들 → 3단계 토글
+        $doc.off('click.wtHandle', '.wt-bs-handle').on('click.wtHandle', '.wt-bs-handle', (e) => {
+            e.stopPropagation(); // ★ 이게 없으면 지도 클릭으로 전파돼서 바로 닫힘
+            this._toggleBsStage();
+        });
+
+        // 3. 지도 클릭 → 바텀시트 닫기 (조건 강화)
+        $doc.off('click.wtMap', '#wt-leaflet-container').on('click.wtMap', '#wt-leaflet-container', (e) => {
+            if ($(e.target).closest('.wt-bs, .wt-bs-handle, .wt-gmap-pin, .leaflet-marker-icon, .leaflet-popup').length) return;
+            this._hideBottomSheet();
         });
     }
 

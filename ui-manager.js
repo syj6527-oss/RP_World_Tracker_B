@@ -30,9 +30,9 @@ export class UIManager {
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-detect"/> 🔍 자동 감지</label></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-toast"/> 📍 이동 알림</label></div>
-                <div class="wt-s-row"><label><input type="checkbox" id="wt-s-moveevent"/> 🚶 이동 이벤트 기록</label></div>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-inject"/> 🤖 AI 프롬프트 주입</label></div>
+                <div class="wt-s-row"><label><input type="checkbox" id="wt-s-moveevent"/> 🚶 이동 이벤트 기록</label></div>
                 <div class="wt-s-row"><label><span id="wt-secret" style="cursor:default">💭</span> 기억</label>
                     <select id="wt-s-mem" class="text_pole wt-select"><option value="natural">🌿 자연</option><option value="perfect">💎 완벽</option></select>
                 </div>

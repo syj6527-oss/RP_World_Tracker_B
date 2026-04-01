@@ -935,9 +935,11 @@ export class UIManager {
             const other = this.lm.locations.find(l => l.id === otherId);
             if (other) nearList.push({ name: other.name, text: d.distanceText || '—', level: d.level || 5, color: other.color || '#9AA0A6' });
         }
-        if (nearList.length) {
+        // ★ 도보 15분 이내만 (level 1~6)
+        const walkNear = nearList.filter(n => n.level <= 6);
+        if (walkNear.length) {
             nearbyHtml = `<div style="margin-top:8px"><div style="font-size:11px;font-weight:600;color:#5A4030;margin-bottom:4px">📌 주변 장소</div>` +
-                nearList.sort((a,b) => a.level - b.level).slice(0, 4).map(n =>
+                walkNear.sort((a,b) => a.level - b.level).slice(0, 4).map(n =>
                     `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:#3C4043"><div style="width:8px;height:8px;border-radius:50%;background:${n.color};flex-shrink:0"></div>${n.name}<span style="font-size:9px;color:#9AA0A6;margin-left:auto">${n.text}</span></div>`
                 ).join('') + '</div>';
         }
@@ -972,7 +974,7 @@ export class UIManager {
                 <span style="font-size:24px;flex-shrink:0;margin-top:2px">${style.emoji}</span>
                 <div style="flex:1;min-width:0">
                     <div style="font-size:17px;font-weight:800;color:#202124;line-height:1.25">${loc.name}</div>
-                    <div style="font-size:11px;color:#70757A;margin-top:2px">${visitLabel}${cur ? ' · 현재 위치 🐾' : ''}${nearList.length ? ' · Near ' + nearList[0].name : ''}</div>
+                    <div style="font-size:11px;color:#70757A;margin-top:2px">${visitLabel}${cur ? ' · 현재 위치 🐾' : ''}${walkNear.length ? ' · Near ' + walkNear[0].name : ''}</div>
                 </div>
                 <button id="wt-bs-x" style="width:28px;height:28px;border:none;background:rgba(0,0,0,.04);border-radius:50%;font-size:12px;color:#70757A;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
             </div>

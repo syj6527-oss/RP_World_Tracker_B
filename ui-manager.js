@@ -585,7 +585,6 @@ export class UIManager {
         $('#wt-panel-body').removeClass('wt-leaflet-full');
         $('#wt-paw-nav').hide();
     }
-    }
 
     async refresh() {
         await this.lm.loadChat();

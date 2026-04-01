@@ -87,7 +87,8 @@ async function scanMessage(text, source = 'USER') {
         if (!lm.currentChatId) return false;
 
         const mode = source === 'AI' ? 'ai' : 'user';
-        dbg(`🔍 ${source} (${text.length}c) mode=${mode}`);
+        const rpDate = _extractRpDate(text);
+        dbg(`🔍 ${source} (${text.length}c) mode=${mode}${rpDate ? ' rpDate=' + rpDate : ''}`);
 
         // 이미 등록된 장소 감지 (USER/AI 동일)
         const result = det.detect(text);
@@ -95,7 +96,7 @@ async function scanMessage(text, source = 'USER') {
             const { location, type, confidence } = result;
             dbg(`✅ "${location.name}" (${type} c=${confidence})`);
             if (lm.currentLocationId !== location.id) {
-                await lm.moveTo(location.id);
+                await lm.moveTo(location.id, rpDate);
                 if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${location.name}`, 'move');
                 pi.inject(); if (ui.panelVisible) ui.refresh();
             }
@@ -112,7 +113,7 @@ async function scanMessage(text, source = 'USER') {
             if (lm.currentChatId) {
                 const loc = await lm.addLocation(np);
                 if (loc) {
-                    await lm.moveTo(loc.id);
+                    await lm.moveTo(loc.id, rpDate);
                     if (s.showDetectToast) wtNotify(`${wtMascot()} 🆕 ${loc.name}`, 'new', 3500);
                     pi.inject(); if (ui.panelVisible) ui.refresh();
                     ui.showAutoToast(loc);
@@ -304,6 +305,13 @@ async function scanChatHistory(ctx) {
 
 jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSION_NAME}] Init:`, e); } });
 
+// ========== RP 날짜 추출 (메타데이터에서) ==========
+function _extractRpDate(text) {
+    const m = text.match(/[-*]\s*(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
+    if (m) return `${m[1]}/${parseInt(m[2])}/${parseInt(m[3])}`;
+    return '';
+}
+
 // ========== 이벤트 추출 + 저장 헬퍼 ==========
 const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up|훔[쳤치]|stole|steal|snuck|sneak|침입|broke in|farewell|작별|맹세|swear|vow|재회|reunion|잃어버|잃[은었을]|lost|missing/i;
 let _lastEventTime = 0;
@@ -416,11 +424,7 @@ ${trimmed}${userCtx}`;
     }
 
     // ★ RP 날짜 추출 (메타데이터에서)
-    let rpDate = '';
-    const dateMatch = text.match(/[-*]\s*(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
-    if (dateMatch) {
-        rpDate = `${dateMatch[1]}/${parseInt(dateMatch[2])}/${parseInt(dateMatch[3])}`;
-    }
+    const rpDate = _extractRpDate(text);
 
     if (!loc.events) loc.events = [];
     loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: Date.now(), rpDate, source });

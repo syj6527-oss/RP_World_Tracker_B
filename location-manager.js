@@ -1,4 +1,4 @@
-// 🐶 World Tracker — location-manager.js (Single Scene)
+// 🐶 월드맵 — location-manager.js (Single Scene)
 
 import { getContext } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
@@ -83,12 +83,14 @@ export class LocationManager {
         return null;
     }
 
-    async moveTo(locationId) {
+    async moveTo(locationId, rpDate) {
         const loc = this.locations.find(l => l.id === locationId); if (!loc) return;
         const prevId = this.currentLocationId;
         loc.visitCount = (loc.visitCount || 0) + 1;
         loc.lastVisited = Date.now();
+        if (rpDate) loc.rpLastVisited = rpDate;
         if (!loc.firstVisited) loc.firstVisited = Date.now();
+        if (!loc.rpFirstVisited && rpDate) loc.rpFirstVisited = rpDate;
         await this.db.putLocation(loc);
         if (prevId && prevId !== locationId) {
             const d = this.getDistanceBetween(prevId, locationId);
@@ -104,7 +106,7 @@ export class LocationManager {
         this.movements = this.movements.filter(m => m.id !== movId);
     }
 
-    async setDistance(a, b, text, walk = null, level = 5) {
+    async setDistance(a, b, text, walk = null, level = 3) {
         if (!this.currentChatId) return null;
         const id = [a, b].sort().join('_');
         const d = { id, chatId: this.currentChatId, fromId: a, toId: b, distanceText: text, walkTime: walk, level: level, updatedAt: Date.now() };
@@ -122,9 +124,11 @@ export class LocationManager {
     }
 
     _autoPos() {
-        const n = this.locations.length; if (n === 0) return { x: 300, y: 250 };
+        // 월드 좌표 중심 (고정 월드 3000×2400 기준)
+        const WCX = 1500, WCY = 1200;
+        const n = this.locations.length; if (n === 0) return { x: WCX, y: WCY };
         const a = n * 0.8, r = 80 + n * 25;
-        return { x: Math.round(300 + r * Math.cos(a)), y: Math.round(250 + r * Math.sin(a)) };
+        return { x: Math.round(WCX + r * Math.cos(a)), y: Math.round(WCY + r * Math.sin(a)) };
     }
 
     _rndColor() {

@@ -292,14 +292,14 @@ export class UIManager {
             <!-- 🐾 Paw Map 하단 탭 (Leaflet 모드에서만 보임) -->
             <div id="wt-paw-nav" style="display:none;border-top:1px solid #E0E0E0;background:#fff;flex-shrink:0;z-index:40">
                 <div style="display:flex">
-                    <div class="wt-paw-tab wt-paw-tab-on" data-tab="explore" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
-                        <span style="font-size:17px">🐾</span><span style="font-size:9px;font-weight:700;color:#1A73E8">탐색</span>
+                    <div class="wt-paw-tab wt-paw-tab-on" data-tab="explore" onclick="window.__wtNavTab&&window.__wtNavTab('explore',this)" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
+                        <span style="font-size:20px">🐾</span><span style="font-size:12px;font-weight:700;color:#1A73E8">탐색</span>
                     </div>
-                    <div class="wt-paw-tab" data-tab="mypage" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
-                        <span style="font-size:17px">🔖</span><span style="font-size:9px;font-weight:500;color:#5F6368">내 페이지</span>
+                    <div class="wt-paw-tab" data-tab="mypage" onclick="window.__wtNavTab&&window.__wtNavTab('mypage',this)" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
+                        <span style="font-size:20px">🔖</span><span style="font-size:12px;font-weight:500;color:#5F6368">내 페이지</span>
                     </div>
-                    <div class="wt-paw-tab" data-tab="timeline" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
-                        <span style="font-size:17px">🕐</span><span style="font-size:9px;font-weight:500;color:#5F6368">타임라인</span>
+                    <div class="wt-paw-tab" data-tab="timeline" onclick="window.__wtNavTab&&window.__wtNavTab('timeline',this)" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 4px 12px;min-height:68px;cursor:pointer;background:#fff">
+                        <span style="font-size:20px">🕐</span><span style="font-size:12px;font-weight:500;color:#5F6368">타임라인</span>
                     </div>
                 </div>
             </div>
@@ -967,7 +967,7 @@ export class UIManager {
         }
 
         const html = `
-            <div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div class="wt-bs-handle" onclick="window.__wtBsHandle&&window.__wtBsHandle()" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
             <div style="display:flex;align-items:flex-start;gap:10px;padding:2px 14px 8px">
                 <span style="font-size:24px;flex-shrink:0;margin-top:2px">${style.emoji}</span>
                 <div style="flex:1;min-width:0">
@@ -1071,51 +1071,41 @@ export class UIManager {
 
     _navLock = false;
     _bindBottomSheet() {
-        const $doc = $(document);
+        const self = this;
 
-        // ★ 중복 방지: off() 후 on() (Gemini 제안)
-        // 1. 하단 탭 전환
-        $doc.off('click.wtNav', '.wt-paw-tab').on('click.wtNav', '.wt-paw-tab', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-            if (this._navLock) return;
-            this._navLock = true; setTimeout(() => this._navLock = false, 300);
+        // ★ 최후의 수단: window 전역 함수 (ST DOM 간섭 완전 우회)
+        window.__wtNavTab = (tab, el) => {
+            if (self._navLock) return;
+            self._navLock = true; setTimeout(() => self._navLock = false, 300);
+            console.log('[wt] Nav tab:', tab);
 
-            const tabEl = $(e.currentTarget);
-            const tab = tabEl.data('tab');
-            if (!tab) return;
-
-            $('#wt-paw-nav .wt-paw-tab').find('span:last-child').css({ color: '#5F6368', fontWeight: '500' });
-            tabEl.find('span:last-child').css({ color: '#1A73E8', fontWeight: '700' });
+            document.querySelectorAll('.wt-paw-tab span:last-child').forEach(s => { s.style.color = '#5F6368'; s.style.fontWeight = '500'; });
+            if (el) { const s = el.querySelector('span:last-child'); if (s) { s.style.color = '#1A73E8'; s.style.fontWeight = '700'; } }
 
             if (tab === 'explore') {
-                this._hideBottomSheet();
-                $('#wt-paw-mypage').remove();
+                self._hideBottomSheet();
+                const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
                 $('#wt-map-section').show();
-                setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
+                setTimeout(() => self.leafletRenderer?.invalidateSize(), 200);
             } else if (tab === 'mypage') {
-                this._hideBottomSheet();
-                this._showMyPageBS();
+                self._hideBottomSheet();
+                self._showMyPageBS();
             } else if (tab === 'timeline') {
-                this._hideBottomSheet();
-                $('#wt-paw-mypage').remove();
+                self._hideBottomSheet();
+                const mp = document.getElementById('wt-paw-mypage'); if (mp) mp.remove();
                 $('#wt-bottomsheet').html('<div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>').show().css({ maxHeight:'25%', background:'#fff' });
             }
-        });
+        };
 
-        // 2. 바텀시트 핸들 → 3단계 토글
-        $doc.off('click.wtHandle', '.wt-bs-handle').on('click.wtHandle', '.wt-bs-handle', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation(); // ★ Gemini 제안: 완전 차단
-            this._toggleBsStage();
-        });
+        window.__wtBsHandle = () => {
+            console.log('[wt] Handle toggle, stage:', self._bsStage);
+            self._toggleBsStage();
+        };
 
-        // 3. 지도 클릭 → 바텀시트 닫기 (조건 강화)
-        $doc.off('click.wtMap', '#wt-leaflet-container').on('click.wtMap', '#wt-leaflet-container', (e) => {
+        // 지도 클릭 → 바텀시트 닫기
+        $(document).off('click.wtMap', '#wt-leaflet-container').on('click.wtMap', '#wt-leaflet-container', (e) => {
             if ($(e.target).closest('.wt-bs, .wt-bs-handle, .wt-gmap-pin, .leaflet-marker-icon, .leaflet-popup').length) return;
-            this._hideBottomSheet();
+            self._hideBottomSheet();
         });
     }
 

@@ -1,6 +1,6 @@
 // 🐶 World Tracker — ui-manager.js (Inline Toast + Popover)
-// ★ BUILD: 2026-04-02 hotfix13 (session5 — bug fixes + T1~T6)
-console.log('[wt] ui-manager hotfix13 loaded');
+// ★ BUILD: 2026-04-02 hotfix14 (session5 — UI feedback round)
+console.log('[wt] ui-manager hotfix14 loaded');
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -248,13 +248,6 @@ export class UIManager {
                                 <input type="text" id="wt-pop-event-input" class="wt-input" placeholder="이벤트 추가..." style="flex:1;font-size:12px;padding:5px 8px"/>
                                 <button id="wt-pop-event-add" class="wt-btn-accent wt-btn-s">+</button>
                             </div>
-                        </div>
-                        <div id="wt-pop-review-section" style="margin-top:6px">
-                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                                <span style="font-size:12px;color:#9A8A7A">⭐ 랜덤 리뷰</span>
-                                <button id="wt-pop-review-gen" style="font-size:10px;color:#1A73E8;background:none;border:none;cursor:pointer;font-family:inherit;font-weight:500">🔄 새 리뷰 생성</button>
-                            </div>
-                            <div id="wt-pop-review-list" style="display:flex;flex-direction:column;gap:6px"></div>
                         </div>
                         <input type="text" id="wt-pop-status" class="wt-input" placeholder="상태 (붐빔, 한산...)"/>
                         <div style="font-size:12px;color:#9A8A7A;margin-top:2px">🏷️ 별칭 (쉼표 구분)</div>
@@ -1020,10 +1013,10 @@ export class UIManager {
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                         <span style="font-size:18px;font-weight:800;color:#202124" id="wt-bs-rv-score">—</span>
                         <div><div id="wt-bs-rv-stars" style="font-size:11px;color:#F6A93A">☆☆☆☆☆</div><div id="wt-bs-rv-count" style="font-size:9px;color:#70757A">(0건)</div></div>
-                        <span id="wt-bs-rv-gen-btn" style="font-size:10px;color:#1A73E8;margin-left:auto;cursor:pointer;font-weight:500">리뷰 생성</span>
+                        <span id="wt-bs-rv-gen-btn" onclick="window.__wtGenReviewFromOverview&&window.__wtGenReviewFromOverview()" style="font-size:10px;color:#1A73E8;margin-left:auto;cursor:pointer;font-weight:500">리뷰 생성</span>
                     </div>
                     <div id="wt-bs-rv-cards"></div>
-                    <button id="wt-bs-rv-more" style="margin-top:6px;padding:9px;background:#F8F9FA;border:1px solid #E8EAED;border-radius:24px;font-size:11px;font-weight:500;color:#3C4043;text-align:center;cursor:pointer;width:100%;font-family:inherit;display:none">모든 리뷰 보기 ›</button>
+                    <button id="wt-bs-rv-more" style="margin-top:6px;padding:9px;background:#F8F9FA;border:1px solid #E8EAED;border-radius:24px;font-size:11px;font-weight:500;color:#3C4043;text-align:center;cursor:pointer;width:100%;font-family:inherit">모든 리뷰 보기 ›</button>
                 </div>
                 <!-- T4: 최근 방문 기록 + 기억 링크 -->
                 <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid #F0EDE5;margin-top:8px;cursor:pointer;font-size:12px;color:#3C4043;font-weight:500" class="wt-bs-mem-link" data-action="visits">
@@ -1037,7 +1030,7 @@ export class UIManager {
                     <span style="color:#9AA0A6;font-size:14px">›</span>
                 </div>` : ''}
             </div>
-            <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
+            <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;overflow-y:auto">
                 <div style="margin-bottom:8px;padding:8px 10px;background:#FAFAF5;border-radius:8px;border:1px solid #EAE6DC">
                     <div style="font-size:10px;font-weight:600;color:#5A4030;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">🌡️ 분위기 지수 <span style="font-size:9px;color:#9AA0A6;font-weight:400">최근 7일</span></div>
                     <div style="display:flex;align-items:flex-end;gap:3px;height:36px">
@@ -1047,7 +1040,7 @@ export class UIManager {
                 </div>
                 ${eventsHtml}
             </div>
-            <div id="wt-bs-tab-review" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
+            <div id="wt-bs-tab-review" style="display:none;padding:10px 14px;overflow-y:auto">
                 <div style="text-align:center;padding:8px">
                     <button id="wt-bs-gen-review" style="padding:8px 16px;background:#E8F0FE;border:1.5px solid #1A73E8;border-radius:18px;font-size:11px;font-weight:600;color:#1A73E8;cursor:pointer;font-family:inherit">🔄 랜덤 리뷰 생성</button>
                 </div>
@@ -1097,10 +1090,10 @@ export class UIManager {
         this._renderCachedReviews(locId, '#wt-bs-review-list');
         // T3: 개요 탭 리뷰 미리보기 렌더 + "모든 리뷰 보기" 클릭
         this._renderReviewPreview(locId);
-        bs.find('#wt-bs-rv-gen-btn').on('click', (e) => {
-            e.stopPropagation();
+        // #7: 개요 리뷰생성 버튼 → 전역 함수
+        window.__wtGenReviewFromOverview = () => {
             self._generateReviews(locId, 'bottomsheet');
-        });
+        };
         bs.find('#wt-bs-rv-more').on('click', (e) => {
             e.stopPropagation();
             // 리뷰 탭으로 전환
@@ -1141,6 +1134,9 @@ export class UIManager {
         const bs = document.getElementById('wt-bottomsheet');
         if (!bs || bs.style.display === 'none') return;
         this._bsStage = stage;
+
+        // #5: 모든 단계 전환 시 포커스 해제 (키보드 튀어나옴 방지)
+        try { const ae = document.activeElement; if (ae && ae !== document.body) ae.blur(); } catch(_){}
 
         // ★ 인라인 스타일 완전 초기화
         bs.style.cssText = 'display:block;background:#fff;position:absolute;bottom:0;left:0;right:0;z-index:2000;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.12);';
@@ -1188,7 +1184,12 @@ export class UIManager {
         let startY = 0, startH = 0, dragged = false, totalDelta = 0;
         const DRAG_THRESHOLD = 8; // B3: 깔짝거림 방지 (8px 이상 움직여야 드래그 인정)
 
+        // #8: 핸들 터치 후 클릭 이벤트 차단 (내페이지 장소 클릭 방지)
+        let blockClicks = false;
+        handle.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
+
         handle.addEventListener('touchstart', (e) => {
+            e.stopPropagation(); // #8: 이벤트 전파 차단
             startY = e.touches[0].clientY;
             startH = bsEl.offsetHeight;
             dragged = false;

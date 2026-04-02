@@ -1,6 +1,6 @@
 // 🐶 World Tracker — ui-manager.js (Inline Toast + Popover)
-// ★ BUILD: 2026-04-02 hotfix14 (session5 — UI feedback round)
-console.log('[wt] ui-manager hotfix14 loaded');
+// ★ BUILD: 2026-04-02 hotfix16 (session5 FINAL — mood cards + accordion timeline)
+console.log('[wt] ui-manager hotfix16 loaded');
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -920,6 +920,183 @@ export class UIManager {
         }
     }
 
+    // ========== 분위기 카드 (이모지 기반 자동 생성) ==========
+    _moodCardPool = {
+        mart: { main: '🏪', pool: ['🛒','🍜','🍺','🍪','🍫','🧃','💰','🥤','🍱','🧻','🐱','🐾'], colors: ['#E8F5E9','#FFF8E1'] },
+        cafe: { main: '☕', pool: ['🐱','🧁','🍰','🫧','✨','🍪','🎵','📖','🪴','💕','🌆'], colors: ['#FCE4EC','#FFF3E0'] },
+        home: { main: '🏠', pool: ['🐶','🛋️','📺','🍿','😴','💤','🧸','🕯️','🌙','💕'], colors: ['#E8EAF6','#E3F2FD'] },
+        school: { main: '🎓', pool: ['📚','✏️','🎒','📝','🔬','💻','⏰','🏫','📐','🎯'], colors: ['#F3E5F5','#E8EAF6'] },
+        park: { main: '🌳', pool: ['🐕','🦆','🌸','🍃','☀️','🧺','🎈','🦋','⛲','🌻'], colors: ['#E8F5E9','#F1F8E9'] },
+        gym: { main: '💪', pool: ['🏋️','🥊','💦','🎯','🔥','🥤','🧊','⚡','🏃','🎽'], colors: ['#E3F2FD','#E1F5FE'] },
+        bar: { main: '🍺', pool: ['🥃','🍷','🎵','🎤','🌙','🥜','🍻','💫','🎶','🎲'], colors: ['#FFF3E0','#FBE9E7'] },
+        restaurant: { main: '🍽️', pool: ['🥘','🍕','🍝','🥗','🍖','🧑‍🍳','🥂','🌶️','🫕','🍜'], colors: ['#FFF8E1','#FBE9E7'] },
+        hospital: { main: '🏥', pool: ['💊','🩺','🩹','💉','🌡️','❤️‍🩹','🚑','🧴','🩻','🫀'], colors: ['#E8F5E9','#E1F5FE'] },
+        library: { main: '📚', pool: ['📖','🔍','📝','🤓','☕','🪴','💡','🔖','📑','🧐'], colors: ['#EDE7F6','#E8EAF6'] },
+        station: { main: '🚉', pool: ['🚃','🎫','⏰','👥','📱','🧳','🚶','🗺️','☕','🎧'], colors: ['#ECEFF1','#E3F2FD'] },
+        alley: { main: '🌧️', pool: ['🏚️','🔦','🐈‍⬛','📱','👀','💨','🌫️','🚶','🔒','⚡'], colors: ['#78909C','#546E7A'] },
+        default: { main: '📍', pool: ['🗺️','👣','🐾','✨','🌟','📌','🎯','🏷️','🔖','💫'], colors: ['#F5F5F5','#EEEEEE'] },
+    };
+
+    _getMoodCard(loc) {
+        const name = (loc.name || '').toLowerCase();
+        const memo = (loc.memo || '').toLowerCase();
+        const events = loc.events || [];
+        const style = this.leafletRenderer?._locStyle?.(loc.name) || { emoji: '📍' };
+
+        // 장소 타입 매칭
+        let type = 'default';
+        if (/마트|mart|편의|convenience|가게|shop|store|grocery|supermarket/i.test(name)) type = 'mart';
+        else if (/카페|cafe|coffee|커피/i.test(name)) type = 'cafe';
+        else if (/집|home|house|숙소|기숙/i.test(name)) type = 'home';
+        else if (/학교|school|학원/i.test(name)) type = 'school';
+        else if (/공원|park|정원|garden/i.test(name)) type = 'park';
+        else if (/체육|gym|운동|fitness/i.test(name)) type = 'gym';
+        else if (/술집|bar|pub|tavern|주점/i.test(name)) type = 'bar';
+        else if (/식당|restaurant|음식|레스토랑/i.test(name)) type = 'restaurant';
+        else if (/병원|hospital|의원/i.test(name)) type = 'hospital';
+        else if (/도서|library|서점/i.test(name)) type = 'library';
+        else if (/역|station|지하철/i.test(name)) type = 'station';
+        else if (/골목|alley|뒷길/i.test(name)) type = 'alley';
+
+        const pool = this._moodCardPool[type] || this._moodCardPool.default;
+        const mainEmoji = style.emoji !== '📍' ? style.emoji : pool.main;
+
+        // 시드 기반 랜덤 (장소별 고정)
+        const seed = (loc.id || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+        const rng = (i) => ((seed * 9301 + 49297 + i * 31) % 233280) / 233280;
+
+        // 이모지 셔플 후 3~5개 선택
+        const shuffled = [...pool.pool].sort((a, b) => rng(a.codePointAt(0)) - rng(b.codePointAt(0)));
+        const subs = shuffled.slice(0, 4);
+
+        // 이벤트 무드에서 추가 이모지
+        const lastEvent = events[events.length - 1];
+        let eventEmoji = null;
+        if (lastEvent?.mood === '💕') eventEmoji = '💕';
+        else if (lastEvent?.mood === '⚡') eventEmoji = '⚡';
+        else if (lastEvent?.mood === '📅') eventEmoji = '📅';
+
+        // 시간대
+        const hour = new Date().getHours();
+        let timeLabel, timeIcon;
+        if (hour >= 5 && hour < 12) { timeLabel = '아침'; timeIcon = '☀️'; }
+        else if (hour >= 12 && hour < 17) { timeLabel = '오후'; timeIcon = '🌤️'; }
+        else if (hour >= 17 && hour < 20) { timeLabel = '저녁'; timeIcon = '🌆'; }
+        else { timeLabel = '밤'; timeIcon = '🌙'; }
+
+        // 밤 장소는 어두운 배경
+        const isDark = hour >= 20 || hour < 5 || type === 'alley';
+        const colors = isDark
+            ? ['#1a1a2e', '#16213e', '#0f3460']
+            : pool.colors;
+        const tagBg = isDark ? 'rgba(255,255,255,.15)' : 'rgba(255,255,255,.85)';
+        const tagColor = isDark ? '#e0e0e0' : '#5D4037';
+
+        return { mainEmoji, subs, eventEmoji, colors, isDark, timeLabel, timeIcon, tagBg, tagColor, small1: subs[0], small1deco: subs[1], small2: subs[2] || eventEmoji || '✨', small2deco: subs[3] || '🐾' };
+    }
+
+    // ========== 분위기 카드 이모지 시스템 ==========
+    _getMoodCard(loc) {
+        const name = (loc.name || '').toLowerCase();
+        const memo = (loc.memo || '').toLowerCase();
+        const events = loc.events || [];
+        const lastEvent = events[events.length - 1];
+        const hour = new Date().getHours();
+
+        // 시간대 + 날씨
+        let timeLabel, colors;
+        if (hour >= 5 && hour < 12) { timeLabel = '아침 · 맑음'; colors = ['#E3F2FD','#E1F5FE','#B3E5FC']; }
+        else if (hour >= 12 && hour < 17) { timeLabel = '오후 · 맑음'; colors = ['#E8F5E9','#FFF8E1','#FFECB3']; }
+        else if (hour >= 17 && hour < 20) { timeLabel = '저녁 · 노을'; colors = ['#FCE4EC','#FFF3E0','#FFE0B2']; }
+        else { timeLabel = '밤 · 맑음'; colors = ['#1a1a2e','#16213e','#0f3460']; }
+        const isDark = hour >= 20 || hour < 5;
+        const tagStyle = isDark ? 'background:rgba(255,255,255,.15);color:#e0e0e0' : 'background:rgba(255,255,255,.85);color:#5D4037';
+
+        // 장소 타입별 이모지 풀
+        const pools = {
+            mart: { main: '🏪', subs: ['🛒','🍜','🍺','💰','🧃','🍫','🧻'], s1: ['🍪','🍫','🥤'], s2: ['🐱','🐾','🧊'] },
+            cafe: { main: '☕', subs: ['🐱','🧁','🍰','🫧','✨','🍪'], s1: ['🌆','✨','🫧'], s2: ['💕','🍰','🧁'] },
+            home: { main: '🏠', subs: ['🐶','🛋️','📺','🍿','😴','💤','🧸'], s1: ['🍿','📺','🧸'], s2: ['😴','💤','🐶'] },
+            school: { main: '🎓', subs: ['📚','✏️','🎒','📝','🏫'], s1: ['📚','✏️','📝'], s2: ['🎒','🏫','📖'] },
+            gym: { main: '💪', subs: ['🏋️','🥊','💦','🎯','🔥'], s1: ['🥤','🧊','💦'], s2: ['🔥','⚡','🎯'] },
+            park: { main: '🌳', subs: ['🌸','🐦','🦋','🍃','🌷','🐿️'], s1: ['🌸','🦋','🌷'], s2: ['🐦','🐿️','🍃'] },
+            bar: { main: '🍺', subs: ['🥂','🎵','🎶','🌙','🍸','🎤'], s1: ['🥂','🍸','🎵'], s2: ['🎶','🎤','🌙'] },
+            restaurant: { main: '🍽️', subs: ['🍝','🥘','🍖','🥗','🧑‍🍳'], s1: ['🍝','🥘','🍖'], s2: ['🥗','🍷','🧑‍🍳'] },
+            hospital: { main: '🏥', subs: ['💊','🩺','🩹','💉','🧴'], s1: ['💊','🩺','🩹'], s2: ['💉','🧴','🤒'] },
+            library: { main: '📚', subs: ['📖','📝','🔖','💡','🤓'], s1: ['📖','🔖','📝'], s2: ['💡','🤓','☕'] },
+            station: { main: '🚉', subs: ['🚆','🎫','🕐','👥','🛤️'], s1: ['🚆','🎫','🕐'], s2: ['👥','🛤️','📱'] },
+            street: { main: '🏚️', subs: ['🔦','🐈‍⬛','📱','👀','🌧️'], s1: ['⚡','🔦','👀'], s2: ['🐈‍⬛','📱','🌧️'] },
+        };
+
+        // 장소 이름으로 타입 매칭
+        let type = 'default';
+        if (/마트|mart|편의|convenience|가게|shop|store|grocery/i.test(name)) type = 'mart';
+        else if (/카페|cafe|coffee|커피/i.test(name)) type = 'cafe';
+        else if (/집|home|house|숙소|기숙/i.test(name)) type = 'home';
+        else if (/학교|school|학원|academy/i.test(name)) type = 'school';
+        else if (/체육|gym|운동|fitness|arena|훈련/i.test(name)) type = 'gym';
+        else if (/공원|park|정원|garden/i.test(name)) type = 'park';
+        else if (/술집|bar|pub|tavern|주점/i.test(name)) type = 'bar';
+        else if (/식당|restaurant|음식|레스토랑/i.test(name)) type = 'restaurant';
+        else if (/병원|hospital|의원|clinic/i.test(name)) type = 'hospital';
+        else if (/도서|library|서점|서재/i.test(name)) type = 'library';
+        else if (/역|station|지하철|버스/i.test(name)) type = 'station';
+        else if (/골목|거리|길|street|alley/i.test(name)) type = 'street';
+
+        const pool = pools[type] || { main: '📍', subs: ['🗺️','🐾','✨','📌','🏷️'], s1: ['🗺️','✨','📌'], s2: ['🐾','🏷️','🔖'] };
+
+        // 랜덤하게 서브 이모지 선택 (seed: loc.id 해시)
+        const hash = (loc.id || '').split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+        const pick = (arr, n) => { const r = [...arr]; const res = []; for (let i = 0; i < n && r.length; i++) { const idx = Math.abs((hash + i * 7) % r.length); res.push(r.splice(idx, 1)[0]); } return res; };
+
+        const mainSubs = pick(pool.subs, 4);
+        const s1Emoji = pick(pool.s1, 2);
+        const s2Emoji = pick(pool.s2, 2);
+
+        // 이벤트 기반 오버라이드
+        if (lastEvent?.mood === '💕') { mainSubs.push('💕'); s2Emoji[0] = '💕'; }
+        if (lastEvent?.mood === '⚡') { mainSubs.push('⚡'); s1Emoji[0] = '⚡'; }
+
+        return { main: pool.main, subs: mainSubs, s1: s1Emoji, s2: s2Emoji, colors, timeLabel, tagStyle, isDark };
+    }
+
+    _buildMoodCardHtml(loc, style) {
+        const mc = this._getMoodCard(loc);
+        const grad = mc.isDark
+            ? `linear-gradient(160deg,${mc.colors[0]},${mc.colors[1]},${mc.colors[2]})`
+            : `linear-gradient(135deg,${mc.colors[0]},${mc.colors[1]})`;
+        const opMain = mc.isDark ? '0.9' : '0.9';
+        const opSub = mc.isDark ? '0.4' : '0.45';
+        const opDeco = mc.isDark ? '0.3' : '0.35';
+        // 서브 이모지 위치 (최대 4개, 절대 위치)
+        const positions = [
+            'top:12px;left:14px', 'bottom:10px;right:16px',
+            'top:40px;right:12px', 'bottom:34px;left:18px'
+        ];
+        const subsHtml = mc.subs.slice(0, 4).map((e, i) =>
+            `<span style="position:absolute;${positions[i]};font-size:${16 - i}px;opacity:${opSub - i * 0.05};pointer-events:none">${e}</span>`
+        ).join('');
+
+        const s1Bg = mc.isDark ? mc.colors[1] : '#FFF3E0';
+        const s2Bg = mc.isDark ? mc.colors[2] : '#E8F5E9';
+
+        return `<div style="display:grid;grid-template-columns:2fr 1fr;grid-template-rows:80px 80px;gap:3px;border-radius:10px;overflow:hidden;margin-bottom:8px">
+            <div style="grid-row:1/3;background:${grad};display:flex;align-items:center;justify-content:center;position:relative">
+                <span style="font-size:44px;opacity:${opMain}">${mc.main}</span>
+                ${subsHtml}
+                <span style="position:absolute;top:8px;left:10px;font-size:10px;padding:3px 8px;border-radius:14px;${mc.tagStyle};pointer-events:none">${mc.timeLabel}</span>
+            </div>
+            <div style="background:${s1Bg};display:flex;align-items:center;justify-content:center;position:relative">
+                <span style="font-size:24px;opacity:.7">${mc.s1[0] || '✨'}</span>
+                ${mc.s1[1] ? `<span style="position:absolute;bottom:5px;right:7px;font-size:12px;opacity:${opDeco}">${mc.s1[1]}</span>` : ''}
+            </div>
+            <div style="background:${s2Bg};display:flex;align-items:center;justify-content:center;position:relative">
+                <span style="font-size:22px;opacity:.65">${mc.s2[0] || '🐾'}</span>
+                ${mc.s2[1] ? `<span style="position:absolute;top:5px;left:7px;font-size:11px;opacity:${opDeco}">${mc.s2[1]}</span>` : ''}
+            </div>
+        </div>`;
+    }
+
     // ========== 구글맵 스타일 바텀시트 ==========
     _showBottomSheet(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
@@ -998,12 +1175,8 @@ export class UIManager {
                 <div class="wt-bs-tab" data-tab="review" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">리뷰</div>
             </div>
             <div id="wt-bs-tab-overview" style="padding:10px 14px;overflow-y:auto">
-                <!-- T2: 이미지 갤러리 (목업 v6) -->
-                <div style="display:grid;grid-template-columns:2fr 1fr;grid-template-rows:80px 80px;gap:3px;border-radius:10px;overflow:hidden;margin-bottom:8px">
-                    <div style="grid-row:1/3;background:#E8F0E8;display:flex;align-items:center;justify-content:center;font-size:28px;color:#9AA0A6">${style.emoji}</div>
-                    <div style="background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:16px;color:#B0A898;cursor:pointer">+</div>
-                    <div style="background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:16px;color:#B0A898;cursor:pointer">+</div>
-                </div>
+                <!-- 분위기 카드 갤러리 -->
+                ${this._buildMoodCardHtml(loc, style)}
                 ${loc.address ? `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📍</span><div>${loc.address}</div></div>` : ''}
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
@@ -1138,6 +1311,11 @@ export class UIManager {
         // #5: 모든 단계 전환 시 포커스 해제 (키보드 튀어나옴 방지)
         try { const ae = document.activeElement; if (ae && ae !== document.body) ae.blur(); } catch(_){}
 
+        // #8: 단계 전환 후 400ms 클릭 차단 (내페이지 장소 클릭 방지)
+        this._bsTransitioning = true;
+        clearTimeout(this._bsTransTimer);
+        this._bsTransTimer = setTimeout(() => { this._bsTransitioning = false; }, 400);
+
         // ★ 인라인 스타일 완전 초기화
         bs.style.cssText = 'display:block;background:#fff;position:absolute;bottom:0;left:0;right:0;z-index:2000;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.12);';
 
@@ -1177,19 +1355,20 @@ export class UIManager {
     }
 
     // ★ 터치 드래그 전용 (클릭 이벤트 없음)
+    _bsTransitioning = false;
+    _bsTransTimer = null;
     _bindBsDrag(bsEl) {
         const self = this;
         const handle = bsEl.querySelector('.wt-bs-handle');
         if (!handle) return;
         let startY = 0, startH = 0, dragged = false, totalDelta = 0;
-        const DRAG_THRESHOLD = 8; // B3: 깔짝거림 방지 (8px 이상 움직여야 드래그 인정)
+        const DRAG_THRESHOLD = 8;
 
-        // #8: 핸들 터치 후 클릭 이벤트 차단 (내페이지 장소 클릭 방지)
-        let blockClicks = false;
+        // #8: 핸들 클릭 이벤트 차단
         handle.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
 
         handle.addEventListener('touchstart', (e) => {
-            e.stopPropagation(); // #8: 이벤트 전파 차단
+            e.stopPropagation();
             startY = e.touches[0].clientY;
             startH = bsEl.offsetHeight;
             dragged = false;
@@ -1365,7 +1544,9 @@ export class UIManager {
         bs.find('.wt-bs-handle').css({ position: 'sticky', top: 0, zIndex: 10, background: '#fff' });
 
         const self = this;
-        bs.find('.wt-mp-loc').on('click', function() {
+        bs.find('.wt-mp-loc').on('click', function(e) {
+            // #8: 단계 전환 중 클릭 차단
+            if (self._bsTransitioning) { e.stopPropagation(); return; }
             const id = $(this).data('id');
             self._hideBottomSheet();
             $('.wt-paw-tab[data-tab="explore"]').click();
@@ -1373,7 +1554,7 @@ export class UIManager {
         });
     }
 
-    // ========== 🕐 타임라인 (목업 v6 기반) ==========
+    // ========== 🕐 타임라인 (아코디언 — 오늘 펼침, 과거 접힘) ==========
     _showTimelineBS() {
         const bs = $('#wt-bottomsheet');
         const movements = [...(this.lm.movements || [])].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -1381,39 +1562,78 @@ export class UIManager {
         const dists = this.lm.distances || [];
         const curLocId = this.lm.currentLocationId;
 
-        // 날짜별 그룹핑
-        const groups = {};
+        // 날짜별 그룹핑 (키: 정렬용 timestamp, 값: { label, items })
+        const groups = new Map();
+        const _dayKey = (ts) => {
+            const d = new Date(ts);
+            return `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}`;
+        };
+        const _dayLabel = (ts) => {
+            const d = new Date(ts);
+            const wk = ['일','월','화','수','목','금','토'][d.getDay()];
+            return `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} (${wk})`;
+        };
+
         for (const mov of movements) {
-            const d = new Date(mov.timestamp);
-            const key = d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short' });
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(mov);
+            const key = _dayKey(mov.timestamp);
+            if (!groups.has(key)) groups.set(key, { label: _dayLabel(mov.timestamp), items: [], ts: mov.timestamp });
+            groups.get(key).items.push(mov);
         }
 
         // 현재 위치도 타임라인에 추가
         const curLoc = locs.find(l => l.id === curLocId);
+        const todayKey = _dayKey(Date.now());
         if (curLoc) {
-            const now = new Date();
-            const todayKey = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short' });
-            if (!groups[todayKey]) groups[todayKey] = [];
-            // 현재 위치를 맨 앞에 삽입 (아직 없으면)
-            if (!groups[todayKey].some(m => m.toId === curLocId && m._isCurrent)) {
-                groups[todayKey].unshift({ toId: curLocId, timestamp: Date.now(), _isCurrent: true });
+            if (!groups.has(todayKey)) groups.set(todayKey, { label: _dayLabel(Date.now()), items: [], ts: Date.now() });
+            const g = groups.get(todayKey);
+            if (!g.items.some(m => m._isCurrent)) {
+                g.items.unshift({ toId: curLocId, timestamp: Date.now(), _isCurrent: true });
             }
         }
 
+        // 날짜 내림차순 정렬
+        const sorted = [...groups.entries()].sort((a, b) => b[1].ts - a[1].ts);
+
+        // 통계
+        let totalPlaces = 0, totalEvents = 0;
+
+        // 날짜별 HTML 빌드
         let timelineHtml = '';
-        const dateKeys = Object.keys(groups).sort((a, b) => {
-            // 날짜 내림차순
-            const da = groups[a][0]?.timestamp || 0;
-            const db = groups[b][0]?.timestamp || 0;
-            return db - da;
-        });
+        let dayIdx = 0;
+        for (const [dayKey, group] of sorted) {
+            const isToday = dayKey === todayKey;
+            const items = group.items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-        for (const dateKey of dateKeys) {
-            timelineHtml += `<div style="font-size:13px;font-weight:800;color:#202124;padding:10px 16px 4px;position:sticky;top:38px;background:#fff;z-index:5">📅 ${dateKey}</div>`;
-            const items = groups[dateKey].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            // 이 날의 통계
+            const dayLocIds = new Set();
+            let dayEventCount = 0;
+            for (const mov of items) {
+                if (mov.toId) dayLocIds.add(mov.toId);
+                const toLoc = locs.find(l => l.id === mov.toId);
+                if (toLoc?.events) {
+                    dayEventCount += toLoc.events.filter(e => e.timestamp && Math.abs(e.timestamp - mov.timestamp) < 3600000).length;
+                }
+            }
+            totalPlaces += dayLocIds.size;
+            totalEvents += dayEventCount;
 
+            const summaryText = `${dayLocIds.size}곳${dayEventCount ? ' · 이벤트 ' + dayEventCount : ''}`;
+            const dayId = 'wt-tl-' + dayIdx;
+
+            // 날짜 헤더
+            timelineHtml += `<div style="border-top:${dayIdx > 0 ? '1px solid #F0EDE5' : 'none'}">
+                <div onclick="window.__wtTlToggle&&window.__wtTlToggle('${dayId}')" style="display:flex;align-items:center;gap:8px;padding:10px 16px;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                    <span style="font-size:14px">📅</span>
+                    <span style="font-size:13px;font-weight:800;color:#202124">${group.label}</span>
+                    ${isToday ? '<span style="font-size:9px;padding:2px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32;font-weight:500">오늘</span>' : ''}
+                    <span style="font-size:11px;color:#9AA0A6;margin-left:auto;display:flex;align-items:center;gap:6px">
+                        <span>${summaryText}</span>
+                        <span id="${dayId}-arr" style="font-size:12px;color:#B0A898">${isToday ? '▾' : '▸'}</span>
+                    </span>
+                </div>
+                <div id="${dayId}-body" style="${isToday ? '' : 'height:0;overflow:hidden'}">`;
+
+            // 아이템들
             for (let i = 0; i < items.length; i++) {
                 const mov = items[i];
                 const toLoc = locs.find(l => l.id === mov.toId);
@@ -1423,21 +1643,14 @@ export class UIManager {
                 const st = this.leafletRenderer?._locStyle?.(toLoc.name) || { emoji: '📍' };
                 const time = new Date(mov.timestamp);
                 const timeStr = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-                const isCurrent = mov._isCurrent || (i === 0 && mov.toId === curLocId);
+                const isCurrent = mov._isCurrent;
 
-                // 이벤트 태그 찾기
-                const locEvents = (toLoc.events || []).filter(e => {
-                    if (!e.timestamp) return false;
-                    return Math.abs(e.timestamp - mov.timestamp) < 3600000; // 1시간 이내
-                });
-
-                // 점 색상: 현재=빨강, 이벤트=노랑, 일반=초록
+                const locEvents = (toLoc.events || []).filter(e => e.timestamp && Math.abs(e.timestamp - mov.timestamp) < 3600000);
                 const dotColor = isCurrent ? '#EA4335' : locEvents.length ? '#F6A93A' : '#2B8A6E';
-                const dotShadow = `0 0 0 2px ${dotColor}`;
 
                 timelineHtml += `<div style="display:flex;gap:12px;padding:6px 16px;position:relative">
                     <div style="width:2px;background:#E0E0E0;position:absolute;left:27px;top:0;bottom:0"></div>
-                    <div style="width:10px;height:10px;border-radius:50%;background:${dotColor};flex-shrink:0;margin-top:4px;z-index:1;border:2px solid #fff;box-shadow:${dotShadow}"></div>
+                    <div style="width:10px;height:10px;border-radius:50%;background:${dotColor};flex-shrink:0;margin-top:4px;z-index:1;border:2px solid #fff;box-shadow:0 0 0 2px ${dotColor}"></div>
                     <div style="flex:1">
                         <div style="font-size:10px;color:#9AA0A6;font-weight:500">${timeStr}${isCurrent ? ' — 현재' : ''}</div>
                         <div style="font-size:13px;font-weight:600;color:#202124;margin-top:1px">${st.emoji} ${toLoc.name}</div>
@@ -1446,33 +1659,51 @@ export class UIManager {
                     </div>
                 </div>`;
 
-                // 이동 표시 (다음 항목과의 거리)
+                // 이동 거리 표시
                 if (i < items.length - 1 && fromLoc) {
                     const dist = dists.find(d =>
                         (d.fromId === mov.fromId && d.toId === mov.toId) ||
                         (d.toId === mov.fromId && d.fromId === mov.toId)
                     );
-                    const distText = dist?.distanceText || '';
-                    if (distText) {
-                        timelineHtml += `<div style="display:flex;align-items:center;gap:6px;padding:2px 16px 2px 22px;font-size:10px;color:#9AA0A6"><span style="font-size:12px">↑</span> ${distText}</div>`;
+                    if (dist?.distanceText) {
+                        timelineHtml += `<div style="display:flex;align-items:center;gap:6px;padding:2px 16px 2px 22px;font-size:10px;color:#9AA0A6"><span style="font-size:12px">↑</span> ${dist.distanceText}</div>`;
                     }
                 }
             }
+
+            timelineHtml += '</div></div>'; // close body + day wrapper
+            dayIdx++;
         }
 
-        if (!timelineHtml) {
+        if (!sorted.length) {
             timelineHtml = '<div style="padding:30px;text-align:center;color:#9AA0A6;font-size:13px">🕐 아직 이동 기록이 없어요<br><span style="font-size:11px;margin-top:4px;display:inline-block">RP를 진행하면 자동으로 기록돼요!</span></div>';
         } else {
-            timelineHtml += '<div style="padding:16px;text-align:center;color:#9AA0A6;font-size:11px">— 기록 끝 —</div>';
+            timelineHtml += `<div style="padding:16px;text-align:center;color:#9AA0A6;font-size:11px">— ${sorted.length}일간 ${totalPlaces}곳 방문 · 이벤트 ${totalEvents}건 —</div>`;
         }
 
-        const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px;position:sticky;top:0;z-index:10;background:#fff;border-radius:16px 16px 0 0"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+        const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:18px 0 12px;cursor:pointer;min-height:48px;position:sticky;top:0;z-index:10;background:#fff;border-radius:16px 16px 0 0;-webkit-tap-highlight-color:transparent"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
             <div style="padding:2px 0 0"><div style="font-size:16px;font-weight:800;color:#202124;padding:0 16px 6px">타임라인</div></div>
             ${timelineHtml}`;
 
         bs.html(html).show().css({ background: '#fff' });
-        this._applyBsStage(2); // half로 시작 (타임라인은 내용이 많으니)
+        this._applyBsStage(2);
         this._bindBsDrag(bs[0]);
+
+        // 아코디언 토글 전역 함수
+        window.__wtTlToggle = (dayId) => {
+            const body = document.getElementById(dayId + '-body');
+            const arrow = document.getElementById(dayId + '-arr');
+            if (!body || !arrow) return;
+            if (body.style.height === '0px') {
+                body.style.height = 'auto';
+                body.style.overflow = 'visible';
+                arrow.textContent = '▾';
+            } else {
+                body.style.height = '0px';
+                body.style.overflow = 'hidden';
+                arrow.textContent = '▸';
+            }
+        };
     }
 
     async _popSave() {

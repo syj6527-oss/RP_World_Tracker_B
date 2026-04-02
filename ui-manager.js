@@ -1,6 +1,6 @@
 // 🐶 World Tracker — ui-manager.js (Inline Toast + Popover)
-// ★ BUILD: 2026-04-02 hotfix12
-console.log('[wt] ui-manager hotfix12 loaded');
+// ★ BUILD: 2026-04-02 hotfix13 (session5 — bug fixes + T1~T6)
+console.log('[wt] ui-manager hotfix13 loaded');
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -163,7 +163,7 @@ export class UIManager {
                 <div id="wt-map-section" style="display:none">
                     <div class="wt-map-mode-bar">
                         <button id="wt-mode-node" class="wt-mode-btn wt-mode-active">🗺️ 약도</button>
-                        <button id="wt-mode-leaflet" class="wt-mode-btn">🐾 Paw Map</button>
+                        <button id="wt-mode-leaflet" class="wt-mode-btn">🐾 Paw Maps</button>
                         <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 지도</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar" style="position:relative">
@@ -172,7 +172,7 @@ export class UIManager {
                             <button id="wt-search-tab-loc" class="wt-mode-btn wt-mode-active" style="flex:1;padding:4px;font-size:11px">🔍 장소</button>
                             <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px">📍 주소</button>
                         </div>
-                        <input type="search" id="wt-search-input" class="wt-input" placeholder="🔍 등록된 장소 검색..." autocomplete="off" inputmode="search"/>
+                        <input type="search" id="wt-search-input" class="wt-input" placeholder="🔍 주소 검색..." autocomplete="off" inputmode="search"/>
                         <button id="wt-btn-refresh" style="border:none;background:none;font-size:16px;cursor:pointer;opacity:.5;padding:2px 4px" title="약도 재배치">🔄</button>
                         <div id="wt-search-results" class="wt-search-results" style="display:none"></div>
                     </div>
@@ -393,7 +393,7 @@ export class UIManager {
         $('#wt-search-tab-loc').on('click', () => {
             this._searchMode = 'loc';
             $('#wt-search-tab-loc').addClass('wt-mode-active'); $('#wt-search-tab-addr').removeClass('wt-mode-active');
-            $('#wt-search-input').attr('placeholder', '🔍 등록된 장소 검색...').val('');
+            $('#wt-search-input').attr('placeholder', '🔍 장소 검색...').val('');
             $('#wt-search-results').hide();
         });
         $('#wt-search-tab-addr').on('click', () => {
@@ -530,6 +530,12 @@ export class UIManager {
                 $('#wt-mode-fantasy').hide();
             }
             this.refresh();
+            // B5: 약도 모드일 때 지도 섹션 자동 표시 + 렌더 트리거
+            const curMode = s?.mapMode || 'node';
+            if (curMode === 'node' || curMode === 'fantasy') {
+                $('#wt-map-section').show();
+                $('#wt-map-toggle').text('🗺️ 지도 ▴');
+            }
             setTimeout(() => {
                 if (this.mapRenderer) this.mapRenderer.render();
                 if (this.leafletRenderer?.map) this.leafletRenderer.invalidateSize();
@@ -714,7 +720,7 @@ export class UIManager {
             if (lContainer) { lContainer.style.flex = '1'; lContainer.style.height = 'auto'; lContainer.style.minHeight = '0'; }
             // 3. Paw Map 태그 (좌하단)
             if (!$('#wt-pawmap-tag').length) {
-                $('#wt-leaflet-wrap').append('<div id="wt-pawmap-tag" style="position:absolute;bottom:8px;left:8px;z-index:20;font-size:11px;font-weight:600;color:rgba(0,0,0,.35);font-family:Outfit,sans-serif;pointer-events:none">🐾 Paw Map</div>');
+                $('#wt-leaflet-wrap').append('<div id="wt-pawmap-tag" style="position:absolute;bottom:8px;left:8px;z-index:20;font-size:11px;font-weight:600;color:rgba(0,0,0,.35);font-family:Outfit,sans-serif;pointer-events:none">🐾 Paw Maps</div>');
             }
             if (!this.leafletRenderer) {
                 const ok = await loadLeaflet();
@@ -998,13 +1004,37 @@ export class UIManager {
                 <div class="wt-bs-tab" data-tab="events" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">이벤트</div>
                 <div class="wt-bs-tab" data-tab="review" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">리뷰</div>
             </div>
-            <div id="wt-bs-tab-overview" style="padding:10px 14px;max-height:200px;overflow-y:auto">
+            <div id="wt-bs-tab-overview" style="padding:10px 14px;overflow-y:auto">
+                <!-- T2: 이미지 갤러리 (목업 v6) -->
+                <div style="display:grid;grid-template-columns:2fr 1fr;grid-template-rows:80px 80px;gap:3px;border-radius:10px;overflow:hidden;margin-bottom:8px">
+                    <div style="grid-row:1/3;background:#E8F0E8;display:flex;align-items:center;justify-content:center;font-size:28px;color:#9AA0A6">${style.emoji}</div>
+                    <div style="background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:16px;color:#B0A898;cursor:pointer">+</div>
+                    <div style="background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:16px;color:#B0A898;cursor:pointer">+</div>
+                </div>
                 ${loc.address ? `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📍</span><div>${loc.address}</div></div>` : ''}
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
                 ${nearbyHtml}
-                ${walkNear.length < 3 ? `<div style="display:flex;gap:8px;margin-top:8px;overflow-x:auto;padding-bottom:4px">
-                    ${Array(3 - walkNear.length).fill('<div style="width:100px;height:100px;border-radius:14px;border:1.5px dashed rgba(0,0,0,.1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#9AA0A6;cursor:pointer;flex-shrink:0;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 2px 8px rgba(0,0,0,.04)"><span style="font-size:24px;opacity:.4">+</span><span style="font-size:9px;font-weight:500">이미지 등록</span></div>').join('')}
+                <!-- T3: 리뷰 미리보기 (개요 안) -->
+                <div id="wt-bs-rv-preview" style="margin-top:10px;padding-top:8px;border-top:1px solid #F0EDE5">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                        <span style="font-size:18px;font-weight:800;color:#202124" id="wt-bs-rv-score">—</span>
+                        <div><div id="wt-bs-rv-stars" style="font-size:11px;color:#F6A93A">☆☆☆☆☆</div><div id="wt-bs-rv-count" style="font-size:9px;color:#70757A">(0건)</div></div>
+                        <span id="wt-bs-rv-gen-btn" style="font-size:10px;color:#1A73E8;margin-left:auto;cursor:pointer;font-weight:500">리뷰 생성</span>
+                    </div>
+                    <div id="wt-bs-rv-cards"></div>
+                    <button id="wt-bs-rv-more" style="margin-top:6px;padding:9px;background:#F8F9FA;border:1px solid #E8EAED;border-radius:24px;font-size:11px;font-weight:500;color:#3C4043;text-align:center;cursor:pointer;width:100%;font-family:inherit;display:none">모든 리뷰 보기 ›</button>
+                </div>
+                <!-- T4: 최근 방문 기록 + 기억 링크 -->
+                <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid #F0EDE5;margin-top:8px;cursor:pointer;font-size:12px;color:#3C4043;font-weight:500" class="wt-bs-mem-link" data-action="visits">
+                    <span>🕐</span>
+                    <div style="flex:1">최근 방문 기록<div style="font-size:10px;color:#9AA0A6;font-weight:400;margin-top:1px">${loc.lastVisited ? this._fmt(loc.lastVisited) : '—'}</div></div>
+                    <span style="color:#9AA0A6;font-size:14px">›</span>
+                </div>
+                ${events.length ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid #F0EDE5;cursor:pointer;font-size:12px;color:#3C4043;font-weight:500" class="wt-bs-mem-link" data-action="memories">
+                    <span>💬</span>
+                    <div style="flex:1">이 장소에서의 기억<div style="font-size:10px;color:#9AA0A6;font-weight:400;margin-top:1px">${events[events.length-1]?.title || events[events.length-1]?.text?.substring(0,20) || '—'}</div></div>
+                    <span style="color:#9AA0A6;font-size:14px">›</span>
                 </div>` : ''}
             </div>
             <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
@@ -1065,9 +1095,36 @@ export class UIManager {
             self._generateReviews(locId, 'bottomsheet');
         });
         this._renderCachedReviews(locId, '#wt-bs-review-list');
+        // T3: 개요 탭 리뷰 미리보기 렌더 + "모든 리뷰 보기" 클릭
+        this._renderReviewPreview(locId);
+        bs.find('#wt-bs-rv-gen-btn').on('click', (e) => {
+            e.stopPropagation();
+            self._generateReviews(locId, 'bottomsheet');
+        });
+        bs.find('#wt-bs-rv-more').on('click', (e) => {
+            e.stopPropagation();
+            // 리뷰 탭으로 전환
+            bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
+            bs.find('.wt-bs-tab[data-tab="review"]').css({ color: '#2B8A6E', borderBottomColor: '#2B8A6E' });
+            bs.find('[id^="wt-bs-tab-"]').hide();
+            bs.find('#wt-bs-tab-review').show();
+            if (self._bsStage < 3) self._applyBsStage(3);
+        });
+        // T4: 기억 링크 클릭 → 이벤트 탭으로 전환
+        bs.find('.wt-bs-mem-link').on('click', function(e) {
+            e.stopPropagation();
+            bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
+            bs.find('.wt-bs-tab[data-tab="events"]').css({ color: '#2B8A6E', borderBottomColor: '#2B8A6E' });
+            bs.find('[id^="wt-bs-tab-"]').hide();
+            bs.find('#wt-bs-tab-events').show();
+            if (self._bsStage < 3) self._applyBsStage(3);
+        });
     }
 
     _hideBottomSheet() {
+        // B1: 검색창 자동포커스 방지
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) activeEl.blur();
         const bs = document.getElementById('wt-bottomsheet');
         if (bs) { bs.style.cssText = 'display:none'; bs.innerHTML = ''; }
         setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
@@ -1106,11 +1163,11 @@ export class UIManager {
             bs.style.overflowY = 'auto';
         }
         if (stage === 3) {
-            // ★ FULL: top:0으로 늘려서 전체 덮기 (지도 위에 z-index로 덮음)
+            // ★ FULL: top:0으로 늘려서 전체 덮기
             bs.style.top = '0';
             bs.style.maxHeight = 'none';
             bs.style.overflowY = 'auto';
-            bs.style.borderRadius = '0';
+            bs.style.borderRadius = '16px 16px 0 0'; // T1: Full에서도 radius 유지
             bs.style.zIndex = '9999';
         }
     }
@@ -1128,52 +1185,86 @@ export class UIManager {
         const self = this;
         const handle = bsEl.querySelector('.wt-bs-handle');
         if (!handle) return;
-        let startY = 0, startH = 0, dragged = false;
+        let startY = 0, startH = 0, dragged = false, totalDelta = 0;
+        const DRAG_THRESHOLD = 8; // B3: 깔짝거림 방지 (8px 이상 움직여야 드래그 인정)
 
         handle.addEventListener('touchstart', (e) => {
             startY = e.touches[0].clientY;
             startH = bsEl.offsetHeight;
             dragged = false;
+            totalDelta = 0;
             bsEl.style.transition = 'none';
             // ★ Full 상태면 top:0 → maxHeight 모드로 전환
             if (self._bsStage === 3) {
+                const wrapEl = bsEl.closest('#wt-leaflet-wrap') || bsEl.parentElement;
+                const wrapH = wrapEl?.offsetHeight || window.innerHeight;
                 bsEl.style.top = 'auto';
-                bsEl.style.maxHeight = startH + 'px';
+                bsEl.style.maxHeight = wrapH + 'px';
+                startH = wrapH;
                 bsEl.style.zIndex = '2000';
             }
         }, { passive: true });
 
         handle.addEventListener('touchmove', (e) => {
             e.preventDefault();
+            const curY = e.touches[0].clientY;
+            const delta = startY - curY;
+            totalDelta = delta;
+            // B3: threshold 미만이면 시각적 변경 없음
+            if (Math.abs(delta) < DRAG_THRESHOLD) return;
             dragged = true;
-            const delta = startY - e.touches[0].clientY;
             const newH = Math.max(40, startH + delta);
             bsEl.style.maxHeight = newH + 'px';
-            bsEl.style.top = 'auto'; // top:0 해제 (Full에서 내릴 때)
+            bsEl.style.top = 'auto';
             bsEl.style.overflowY = newH > 100 ? 'auto' : 'hidden';
         }, { passive: false });
 
         handle.addEventListener('touchend', () => {
             if (!dragged) {
                 // 터치만 하고 안 움직임 → 다음 단계
-                bsEl.style.transition = 'max-height 0.3s ease';
-                const next = self._bsStage >= 3 ? 1 : self._bsStage + 1;
+                bsEl.style.transition = 'max-height 0.3s ease, top 0.3s ease';
+                // B2: 핸들 탭 시 peek→half→full→half 반복 (HANDOFF 스펙)
+                let next;
+                if (self._bsStage === 1) next = 2;
+                else if (self._bsStage === 2) next = 3;
+                else if (self._bsStage === 3) next = 2;
+                else next = 1;
                 self._applyBsStage(next);
                 return;
             }
             // 드래그 끝 → 스냅
             const h = bsEl.offsetHeight;
-            const vh = window.innerHeight;
-            bsEl.style.transition = 'max-height 0.3s ease';
+            const wrapEl = bsEl.closest('#wt-leaflet-wrap') || bsEl.parentElement;
+            const wrapH = wrapEl?.offsetHeight || window.innerHeight;
+            bsEl.style.transition = 'max-height 0.3s ease, top 0.3s ease';
 
-            // 스냅 포인트: 80px / 50vh / 100%
-            const s1 = 80, s2 = vh * 0.5, s3 = vh;
+            // B2: 스와이프 방향 고려한 스냅
+            const velocity = totalDelta; // 양수=위로, 음수=아래로
+            const s1 = 80, s2 = wrapH * 0.5, s3 = wrapH;
+
+            if (h < 40) { self._applyBsStage(0); return; } // 닫기
+
+            // 강한 스와이프 → 방향에 따라 바로 이동
+            if (Math.abs(velocity) > 80) {
+                if (velocity > 0) {
+                    // 위로 강하게 → 한 단계 위
+                    if (self._bsStage === 1) self._applyBsStage(2);
+                    else self._applyBsStage(3);
+                } else {
+                    // 아래로 강하게 → 한 단계 아래
+                    if (self._bsStage === 3) self._applyBsStage(2);
+                    else if (self._bsStage === 2) self._applyBsStage(1);
+                    else self._applyBsStage(0);
+                }
+                return;
+            }
+
+            // 약한 드래그 → 가장 가까운 스냅포인트
             const d1 = Math.abs(h - s1);
             const d2 = Math.abs(h - s2);
             const d3 = Math.abs(h - s3);
 
-            if (h < 40) { self._applyBsStage(0); } // 닫기
-            else if (d1 <= d2 && d1 <= d3) { self._applyBsStage(1); }
+            if (d1 <= d2 && d1 <= d3) { self._applyBsStage(1); }
             else if (d2 <= d3) { self._applyBsStage(2); }
             else { self._applyBsStage(3); }
         });
@@ -1206,13 +1297,7 @@ export class UIManager {
             } else if (tab === 'mypage') {
                 self._showMyPageBS();
             } else if (tab === 'timeline') {
-                if (bs) {
-                    bs.innerHTML = '<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px;position:sticky;top:0;z-index:10;background:#fff"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div><div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>';
-                    bs.style.display = 'block';
-                    bs.style.background = '#fff';
-                    self._applyBsStage(1);
-                    self._bindBsDrag(bs);
-                }
+                self._showTimelineBS();
             }
         };
 
@@ -1226,10 +1311,14 @@ export class UIManager {
             self._setMapMode('node');
         };
 
-        // 지도 클릭 → 바텀시트 닫기
+        // 지도 클릭 → 바텀시트 peek 복귀 (T1: 닫기 대신 peek)
         $(document).off('click.wtMap', '#wt-leaflet-container').on('click.wtMap', '#wt-leaflet-container', (e) => {
             if ($(e.target).closest('.wt-bs, .wt-bs-handle, .wt-gmap-pin, .leaflet-marker-icon, .leaflet-popup').length) return;
-            self._hideBottomSheet();
+            if (self._bsStage > 1) {
+                self._applyBsStage(1); // peek으로 복귀
+            } else if (self._bsStage === 1) {
+                self._hideBottomSheet(); // peek 상태에서 한번 더 누르면 닫기
+            }
         });
     }
 
@@ -1281,6 +1370,108 @@ export class UIManager {
             $('.wt-paw-tab[data-tab="explore"]').click();
             setTimeout(() => self._showBottomSheet(id), 300);
         });
+    }
+
+    // ========== 🕐 타임라인 (목업 v6 기반) ==========
+    _showTimelineBS() {
+        const bs = $('#wt-bottomsheet');
+        const movements = [...(this.lm.movements || [])].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const locs = this.lm.locations;
+        const dists = this.lm.distances || [];
+        const curLocId = this.lm.currentLocationId;
+
+        // 날짜별 그룹핑
+        const groups = {};
+        for (const mov of movements) {
+            const d = new Date(mov.timestamp);
+            const key = d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short' });
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(mov);
+        }
+
+        // 현재 위치도 타임라인에 추가
+        const curLoc = locs.find(l => l.id === curLocId);
+        if (curLoc) {
+            const now = new Date();
+            const todayKey = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short' });
+            if (!groups[todayKey]) groups[todayKey] = [];
+            // 현재 위치를 맨 앞에 삽입 (아직 없으면)
+            if (!groups[todayKey].some(m => m.toId === curLocId && m._isCurrent)) {
+                groups[todayKey].unshift({ toId: curLocId, timestamp: Date.now(), _isCurrent: true });
+            }
+        }
+
+        let timelineHtml = '';
+        const dateKeys = Object.keys(groups).sort((a, b) => {
+            // 날짜 내림차순
+            const da = groups[a][0]?.timestamp || 0;
+            const db = groups[b][0]?.timestamp || 0;
+            return db - da;
+        });
+
+        for (const dateKey of dateKeys) {
+            timelineHtml += `<div style="font-size:13px;font-weight:800;color:#202124;padding:10px 16px 4px;position:sticky;top:38px;background:#fff;z-index:5">📅 ${dateKey}</div>`;
+            const items = groups[dateKey].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+            for (let i = 0; i < items.length; i++) {
+                const mov = items[i];
+                const toLoc = locs.find(l => l.id === mov.toId);
+                if (!toLoc) continue;
+
+                const fromLoc = mov.fromId ? locs.find(l => l.id === mov.fromId) : null;
+                const st = this.leafletRenderer?._locStyle?.(toLoc.name) || { emoji: '📍' };
+                const time = new Date(mov.timestamp);
+                const timeStr = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                const isCurrent = mov._isCurrent || (i === 0 && mov.toId === curLocId);
+
+                // 이벤트 태그 찾기
+                const locEvents = (toLoc.events || []).filter(e => {
+                    if (!e.timestamp) return false;
+                    return Math.abs(e.timestamp - mov.timestamp) < 3600000; // 1시간 이내
+                });
+
+                // 점 색상: 현재=빨강, 이벤트=노랑, 일반=초록
+                const dotColor = isCurrent ? '#EA4335' : locEvents.length ? '#F6A93A' : '#2B8A6E';
+                const dotShadow = `0 0 0 2px ${dotColor}`;
+
+                timelineHtml += `<div style="display:flex;gap:12px;padding:6px 16px;position:relative">
+                    <div style="width:2px;background:#E0E0E0;position:absolute;left:27px;top:0;bottom:0"></div>
+                    <div style="width:10px;height:10px;border-radius:50%;background:${dotColor};flex-shrink:0;margin-top:4px;z-index:1;border:2px solid #fff;box-shadow:${dotShadow}"></div>
+                    <div style="flex:1">
+                        <div style="font-size:10px;color:#9AA0A6;font-weight:500">${timeStr}${isCurrent ? ' — 현재' : ''}</div>
+                        <div style="font-size:13px;font-weight:600;color:#202124;margin-top:1px">${st.emoji} ${toLoc.name}</div>
+                        ${toLoc.memo ? `<div style="font-size:11px;color:#70757A;margin-top:2px">${toLoc.memo}</div>` : ''}
+                        ${locEvents.map(ev => `<div style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:#FFF8E1;border-radius:12px;font-size:10px;color:#F57F17;font-weight:500;margin-top:4px">${ev.mood || '📝'} ${ev.title || (ev.text?.substring(0,20) || '')}</div>`).join('')}
+                    </div>
+                </div>`;
+
+                // 이동 표시 (다음 항목과의 거리)
+                if (i < items.length - 1 && fromLoc) {
+                    const dist = dists.find(d =>
+                        (d.fromId === mov.fromId && d.toId === mov.toId) ||
+                        (d.toId === mov.fromId && d.fromId === mov.toId)
+                    );
+                    const distText = dist?.distanceText || '';
+                    if (distText) {
+                        timelineHtml += `<div style="display:flex;align-items:center;gap:6px;padding:2px 16px 2px 22px;font-size:10px;color:#9AA0A6"><span style="font-size:12px">↑</span> ${distText}</div>`;
+                    }
+                }
+            }
+        }
+
+        if (!timelineHtml) {
+            timelineHtml = '<div style="padding:30px;text-align:center;color:#9AA0A6;font-size:13px">🕐 아직 이동 기록이 없어요<br><span style="font-size:11px;margin-top:4px;display:inline-block">RP를 진행하면 자동으로 기록돼요!</span></div>';
+        } else {
+            timelineHtml += '<div style="padding:16px;text-align:center;color:#9AA0A6;font-size:11px">— 기록 끝 —</div>';
+        }
+
+        const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px;position:sticky;top:0;z-index:10;background:#fff;border-radius:16px 16px 0 0"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div style="padding:2px 0 0"><div style="font-size:16px;font-weight:800;color:#202124;padding:0 16px 6px">타임라인</div></div>
+            ${timelineHtml}`;
+
+        bs.html(html).show().css({ background: '#fff' });
+        this._applyBsStage(2); // half로 시작 (타임라인은 내용이 많으니)
+        this._bindBsDrag(bs[0]);
     }
 
     async _popSave() {
@@ -1930,6 +2121,51 @@ export class UIManager {
         this._renderReviews(container, cached.reviews, cached.summary);
     }
 
+    // T3: 개요 탭 리뷰 미리보기 (별점 + 카드 2개 + "모든 리뷰 보기")
+    _renderReviewPreview(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        const stored = Array.isArray(loc?.generatedReviews) && loc.generatedReviews.length
+            ? { reviews: loc.generatedReviews, summary: loc.reviewSummary || '' }
+            : null;
+        const cached = this._reviewCache.get(locId) || stored;
+        if (!cached || !cached.reviews?.length) {
+            // 리뷰 없으면 "리뷰 생성" 버튼만 표시
+            $('#wt-bs-rv-score').text('—');
+            $('#wt-bs-rv-stars').text('☆☆☆☆☆');
+            $('#wt-bs-rv-count').text('(0건)');
+            $('#wt-bs-rv-cards').html('<div style="font-size:11px;color:#9AA0A6;padding:8px;text-align:center;font-style:italic">리뷰를 생성해보세요</div>');
+            $('#wt-bs-rv-more').hide();
+            return;
+        }
+        const reviews = cached.reviews;
+        // 평균 별점 계산
+        const avgRating = (reviews.reduce((s, r) => s + (r.rating || 3), 0) / reviews.length).toFixed(1);
+        const fullStars = Math.floor(avgRating);
+        const stars = '★'.repeat(fullStars) + '☆'.repeat(5 - fullStars);
+        $('#wt-bs-rv-score').text(avgRating);
+        $('#wt-bs-rv-stars').text(stars);
+        $('#wt-bs-rv-count').text(`(${reviews.length}건)`);
+        // 카드 최대 2개 미리보기
+        const previewCards = reviews.slice(0, 2).map(r => {
+            const avatarBg = r.rating >= 4 ? '#F1F3F4' : '#1a1a2e';
+            const avatarColor = r.rating >= 4 ? '' : 'color:#fff';
+            const rvStars = '★'.repeat(r.rating || 3) + '☆'.repeat(5 - (r.rating || 3));
+            const text = (r.text || '').length > 60 ? r.text.substring(0, 60) + '...' : r.text || '';
+            return `<div style="padding:6px 0;border-bottom:1px solid #F1F3F4">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+                    <div style="width:24px;height:24px;border-radius:50%;background:${avatarBg};display:flex;align-items:center;justify-content:center;font-size:11px;${avatarColor}">${r.avatar || '👤'}</div>
+                    <span style="font-size:11px;font-weight:700;color:#202124">${r.author || '익명'}</span>
+                    <span style="font-size:9px;color:#70757A">· ${rvStars}</span>
+                </div>
+                <div style="font-size:11px;line-height:1.5;color:#3C4043">${text}</div>
+            </div>`;
+        }).join('');
+        $('#wt-bs-rv-cards').html(previewCards);
+        if (reviews.length > 2) {
+            $('#wt-bs-rv-more').show();
+        }
+    }
+
     async _generateReviews(locId, source = 'auto') {
         const loc = this.lm.locations.find(l => l.id === locId);
         if (!loc) return;
@@ -1956,9 +2192,24 @@ export class UIManager {
             // 이벤트 요약 (최근 5개)
             const evSummary = (loc.events || []).slice(-5).map(e => `${e.mood||'📝'} ${e.title||e.text||''}`).join(', ') || '아직 이벤트 없음';
 
-            // 1~5개 가중 랜덤: 1(30%) 2(30%) 3(25%) 4(10%) 5(5%)
+            // T5: 방문횟수 보정 리뷰 수 (1~2회:1~3개 / 3~5회:1~5개 / 6+:1~8개)
+            const visits = loc.visitCount || 0;
+            let maxReviews, weights;
+            if (visits <= 2) {
+                maxReviews = 3;
+                weights = [0.40, 0.75, 1.0]; // 1(40%) 2(35%) 3(25%)
+            } else if (visits <= 5) {
+                maxReviews = 5;
+                weights = [0.20, 0.45, 0.70, 0.88, 1.0]; // 1~5
+            } else {
+                maxReviews = 8;
+                weights = [0.08, 0.20, 0.38, 0.55, 0.72, 0.85, 0.93, 1.0]; // 1~8
+            }
             const rnd = Math.random();
-            const reviewCount = rnd < 0.30 ? 1 : rnd < 0.60 ? 2 : rnd < 0.85 ? 3 : rnd < 0.95 ? 4 : 5;
+            let reviewCount = 1;
+            for (let i = 0; i < weights.length; i++) {
+                if (rnd < weights[i]) { reviewCount = i + 1; break; }
+            }
             const prompt = `Generate ${reviewCount} Google Maps-style reviews for an RP location. Each reviewer is a CHARACTER from the story with a distinct voice.
 
 Place: "${loc.name}" | Memo: "${loc.memo || ''}" | Notes: "${loc.aiNotes || ''}" | Visits: ${loc.visitCount || 0}
@@ -2005,6 +2256,8 @@ JSON ONLY, no markdown:
             this._renderReviews(list, reviews, aiSummary);
             this._renderCachedReviews(locId, '#wt-pop-review-list');
             this._renderCachedReviews(locId, '#wt-bs-review-list');
+            // T3: 개요 탭 미리보기도 갱신
+            this._renderReviewPreview(locId);
 
         } catch(e) {
             console.error('[wt] Review gen error:', e);

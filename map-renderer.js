@@ -62,9 +62,20 @@ export class MapRenderer {
     closePopup() { this._popupLocId = null; this._removePopup(); }
 
     // ================================================================
-    //  RENDER
+    //  RENDER (B8: debounce 적용)
     // ================================================================
+    _renderTimer = null;
+    _rendering = false;
     render() {
+        if (this._rendering) return;
+        if (this._renderTimer) clearTimeout(this._renderTimer);
+        this._renderTimer = setTimeout(() => this._doRender(), 16);
+    }
+    _doRender() {
+        this._rendering = true;
+        try { this._renderInner(); } finally { this._rendering = false; }
+    }
+    _renderInner() {
         if (!this.svg) return;
         if (this.container) {
             const h = this.container.offsetHeight || this.container.clientHeight || 320;
@@ -80,13 +91,20 @@ export class MapRenderer {
 
         const { locations, movements, currentLocationId } = this.lm;
 
-        // Hub 핀 분류 (level ≤ 6 = 같은 동네)
+        // Hub 핀 분류 (level ≤ 6 = 같은 동네, B4: 필터 강화)
         const curLoc = locations.find(l => l.id === currentLocationId) || locations[0];
         const dists = this.lm.distances || [];
         const hubPins = curLoc ? locations.filter(l => {
             if (l.id === curLoc.id) return true;
-            const d = dists.find(dd => (dd.fromId === curLoc.id && dd.toId === l.id) || (dd.toId === curLoc.id && dd.fromId === l.id));
-            return !d || (d.level || 5) <= 6;
+            const d = dists.find(dd =>
+                (dd.fromId === curLoc.id && dd.toId === l.id) ||
+                (dd.toId === curLoc.id && dd.fromId === l.id) ||
+                (dd.fromId === l.id && dd.toId === curLoc.id) ||
+                (dd.toId === l.id && dd.fromId === curLoc.id)
+            );
+            if (!d) return true; // 거리 미설정 → 표시 (신규 장소)
+            const lvl = typeof d.level === 'number' ? d.level : 5;
+            return lvl <= 6;
         }) : locations;
 
         // ★ localStorage 저장 좌표 최우선 적용 (레이아웃보다 먼저!)

@@ -29,6 +29,23 @@ export class LocationManager {
 
     async addLocation(name, memo = '', aliases = []) {
         if (!this.currentChatId) return null;
+        // B6: 이동경로 분리 — "카페→집" 또는 "카페 -> 집" 등
+        const arrowPat = /\s*(?:→|->|➡|⟶|=>)\s*/;
+        if (arrowPat.test(name)) {
+            const parts = name.split(arrowPat).map(p => p.trim()).filter(p => p.length >= 1);
+            let lastLoc = null;
+            for (const part of parts) {
+                const existing = this.findByName(part);
+                if (existing) { lastLoc = existing; continue; }
+                lastLoc = await this._createSingleLocation(part, memo, aliases);
+            }
+            return lastLoc; // 마지막 장소(도착지) 반환
+        }
+        return this._createSingleLocation(name, memo, aliases);
+    }
+
+    async _createSingleLocation(name, memo = '', aliases = []) {
+        if (!this.currentChatId) return null;
         const loc = {
             id: this.generateId(), chatId: this.currentChatId,
             name: name.trim(), aliases: aliases.map(a => a.trim()).filter(Boolean),

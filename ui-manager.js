@@ -1064,10 +1064,8 @@ export class UIManager {
         const bs = document.getElementById('wt-bottomsheet');
         if (bs) {
             bs.classList.remove('wt-bs-full');
-            bs.style.display = 'none'; bs.innerHTML = '';
-            bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
-            bs.style.maxHeight = ''; bs.style.borderRadius = '16px 16px 0 0';
-            bs.style.zIndex = '2000';
+            bs.style.cssText = 'display:none'; // 인라인 스타일 전부 초기화
+            bs.innerHTML = '';
         }
         this._bsStage = 0;
     }
@@ -1082,27 +1080,19 @@ export class UIManager {
         const bs = document.getElementById('wt-bottomsheet');
         if (!bs || bs.style.display === 'none') return;
         this._bsStage = stage;
-        bs.classList.remove('wt-bs-full'); // 항상 리셋
-        if (stage === 0) { this._hideBottomSheet(); return; }
 
-        if (stage === 1) {
-            bs.style.transition = 'max-height 0.3s ease';
-            bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
-            bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden';
-            bs.style.borderRadius = '16px 16px 0 0'; bs.style.zIndex = '2000';
-        }
-        if (stage === 2) {
-            bs.style.transition = 'max-height 0.3s ease';
-            const lw = document.getElementById('wt-leaflet-wrap');
-            const pH = lw?.offsetHeight || 500;
-            bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
-            bs.style.maxHeight = Math.round(pH * 0.6) + 'px'; bs.style.overflowY = 'auto';
-            bs.style.borderRadius = '16px 16px 0 0'; bs.style.zIndex = '2000';
-        }
-        if (stage === 3) {
-            // ★ FULL: position:fixed → 화면 전체 덮기 (CSS 클래스)
-            bs.classList.add('wt-bs-full');
-        }
+        // ★ Gemini: 드래그 중 박힌 인라인 스타일 싹 제거 → CSS 클래스 우선순위 보장
+        bs.style.maxHeight = '';
+        bs.style.top = '';
+        bs.style.height = '';
+        bs.style.position = '';
+        bs.classList.remove('wt-bs-full');
+
+        if (stage === 0) { this._hideBottomSheet(); return; }
+        bs.style.transition = 'max-height 0.3s ease';
+        if (stage === 1) { bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden'; }
+        if (stage === 2) { bs.style.maxHeight = '60vh'; bs.style.overflowY = 'auto'; }
+        if (stage === 3) { bs.classList.add('wt-bs-full'); } // CSS가 전부 처리
     }
 
     _toggleBsStage() {
@@ -1114,61 +1104,46 @@ export class UIManager {
         }
     }
 
-    // ★ 터치 드래그 바인딩
+    // ★ 터치 드래그 바인딩 (Gemini 패턴: 거리 기반 클릭/드래그 구분)
     _bindBsDrag(bsEl) {
         const self = this;
         const handle = bsEl.querySelector('.wt-bs-handle');
         if (!handle) return;
-        let dragMoved = false; // 드래그 했는지 추적 (클릭 방지용)
+        let startY = 0, startH = 0;
 
         handle.addEventListener('touchstart', (e) => {
-            self._bsDragging = true;
-            dragMoved = false;
-            self._bsDragStartY = e.touches[0].clientY;
-            // Full 상태면 window 높이, 아니면 부모 높이
-            self._bsDragStartH = bsEl.classList.contains('wt-bs-full') ? window.innerHeight : bsEl.offsetHeight;
-            bsEl.classList.remove('wt-bs-full'); // 드래그 시작하면 fixed 해제
+            startY = e.touches[0].clientY;
+            // Full 상태면 window 높이 기준
+            startH = bsEl.classList.contains('wt-bs-full') ? window.innerHeight : bsEl.offsetHeight;
+            // 드래그 시작: fixed 해제 + 애니메이션 끄기
+            bsEl.classList.remove('wt-bs-full');
             bsEl.style.transition = 'none';
-            bsEl.style.position = 'absolute'; bsEl.style.top = 'auto'; bsEl.style.height = 'auto';
-            bsEl.style.maxHeight = self._bsDragStartH + 'px';
+            bsEl.style.maxHeight = startH + 'px';
+            bsEl.style.overflowY = 'auto';
         }, { passive: true });
 
         handle.addEventListener('touchmove', (e) => {
-            if (!self._bsDragging) return;
             e.preventDefault();
-            dragMoved = true;
-            const deltaY = self._bsDragStartY - e.touches[0].clientY;
-            // ★ 최대 높이 = 화면 전체
-            const maxH = window.innerHeight;
-            const newH = Math.max(60, Math.min(maxH, self._bsDragStartH + deltaY));
+            const deltaY = startY - e.touches[0].clientY;
+            const newH = Math.max(60, Math.min(window.innerHeight, startH + deltaY));
             bsEl.style.maxHeight = newH + 'px';
-            bsEl.style.overflowY = newH > 200 ? 'auto' : 'hidden';
         }, { passive: false });
 
-        const onEnd = () => {
-            if (!self._bsDragging) return;
-            self._bsDragging = false;
-            const h = bsEl.offsetHeight;
-            const vh = window.innerHeight;
+        handle.addEventListener('touchend', (e) => {
+            const endY = e.changedTouches[0].clientY;
+            const totalDelta = startY - endY;
 
-            // ★ 스냅 포인트
-            if (h < 60) {
-                self._hideBottomSheet();
-            } else if (h < vh * 0.25) {
-                self._applyBsStage(1); // peek
-            } else if (h < vh * 0.65) {
-                self._applyBsStage(2); // half
+            // ★ Gemini: 10px 이하 = 클릭, 그 이상 = 드래그
+            if (Math.abs(totalDelta) < 10) {
+                self._toggleBsStage();
             } else {
-                self._applyBsStage(3); // full (position:fixed)
+                const h = bsEl.offsetHeight;
+                const vh = window.innerHeight;
+                if (h < 80) self._applyBsStage(0);
+                else if (h < vh * 0.3) self._applyBsStage(1);
+                else if (h < vh * 0.7) self._applyBsStage(2);
+                else self._applyBsStage(3);
             }
-        };
-        handle.addEventListener('touchend', onEnd, { passive: true });
-        handle.addEventListener('touchcancel', onEnd, { passive: true });
-
-        // PC 클릭 (드래그 안 했을 때만)
-        handle.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!dragMoved) self._toggleBsStage();
         });
     }
 

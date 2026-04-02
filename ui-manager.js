@@ -1004,7 +1004,7 @@ export class UIManager {
                 ${specialHtml}
                 ${nearbyHtml}
                 ${walkNear.length < 3 ? `<div style="display:flex;gap:8px;margin-top:8px;overflow-x:auto;padding-bottom:4px">
-                    ${Array(3 - walkNear.length).fill('<div style="min-width:100px;height:80px;border-radius:12px;border:1.5px dashed rgba(0,0,0,.12);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#9AA0A6;font-size:10px;cursor:pointer;flex-shrink:0;background:rgba(248,249,250,.8);backdrop-filter:blur(8px)"><span style="font-size:22px;line-height:1;opacity:.5">+</span><span style="font-size:10px">장소 추가</span></div>').join('')}
+                    ${Array(3 - walkNear.length).fill('<div style="width:100px;height:100px;border-radius:14px;border:1.5px dashed rgba(0,0,0,.1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#9AA0A6;cursor:pointer;flex-shrink:0;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 2px 8px rgba(0,0,0,.04)"><span style="font-size:24px;opacity:.4">+</span><span style="font-size:9px;font-weight:500">이미지 등록</span></div>').join('')}
                 </div>` : ''}
             </div>
             <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
@@ -1069,17 +1069,7 @@ export class UIManager {
 
     _hideBottomSheet() {
         const bs = document.getElementById('wt-bottomsheet');
-        if (bs) {
-            const lw = document.getElementById('wt-leaflet-wrap');
-            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
-            bs.classList.remove('wt-bs-full');
-            bs.style.cssText = 'display:none';
-            bs.innerHTML = '';
-        }
-        // ★ panel-body flex + 지도 복원
-        const pb = document.getElementById('wt-panel-body');
-        if (pb) { pb.style.display = ''; pb.style.flexDirection = ''; }
-        $('#wt-map-section').show();
+        if (bs) { bs.style.cssText = 'display:none'; bs.innerHTML = ''; }
         setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
         this._bsStage = 0;
     }
@@ -1095,48 +1085,33 @@ export class UIManager {
         if (!bs || bs.style.display === 'none') return;
         this._bsStage = stage;
 
-        // 인라인 스타일 초기화
-        bs.style.maxHeight = '';
-        bs.style.top = '';
-        bs.style.height = '';
-        bs.style.position = '';
-        bs.style.borderRadius = '';
-        bs.style.flex = '';
+        // ★ 인라인 스타일 완전 초기화
+        bs.style.cssText = 'display:block;background:#fff;position:absolute;bottom:0;left:0;right:0;z-index:2000;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.12);';
 
         if (stage === 0) { this._hideBottomSheet(); return; }
 
-        // ★ Stage 3에서 이동한 바텀시트 복귀 + 지도 복원
-        if (stage !== 3 && stage !== 0) {
-            const lw = document.getElementById('wt-leaflet-wrap');
-            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
-            const pb = document.getElementById('wt-panel-body');
-            if (pb) { pb.style.display = ''; pb.style.flexDirection = ''; }
-            $('#wt-map-section').show();
-            setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
+        // Stage 1/2: 검색바 보이게 (Full에서 내려올 때)
+        if (stage !== 3) {
+            bs.style.zIndex = '2000';
         }
 
-        bs.style.transition = 'max-height 0.3s ease';
+        bs.style.transition = 'max-height 0.3s ease, top 0.3s ease';
+
         if (stage === 1) {
-            bs.style.maxHeight = '50vh'; bs.style.overflowY = 'auto';
+            bs.style.maxHeight = '80px';
+            bs.style.overflowY = 'hidden';
         }
         if (stage === 2) {
-            bs.style.maxHeight = '75vh'; bs.style.overflowY = 'auto';
+            bs.style.maxHeight = '50vh';
+            bs.style.overflowY = 'auto';
         }
         if (stage === 3) {
-            // ★ FULL: panel-body에 flex 강제 + BS를 이동
-            const pb = document.getElementById('wt-panel-body');
-            const nav = document.getElementById('wt-paw-nav');
-            if (pb) {
-                pb.style.display = 'flex';
-                pb.style.flexDirection = 'column';
-                if (nav) pb.insertBefore(bs, nav);
-                else pb.appendChild(bs);
-            }
-            $('#wt-map-section').hide();
-            bs.style.flex = '1';
+            // ★ FULL: top:0으로 늘려서 전체 덮기 (지도 위에 z-index로 덮음)
+            bs.style.top = '0';
             bs.style.maxHeight = 'none';
             bs.style.overflowY = 'auto';
             bs.style.borderRadius = '0';
+            bs.style.zIndex = '9999';
         }
     }
 
@@ -1148,49 +1123,59 @@ export class UIManager {
         this._applyBsStage(next);
     }
 
-    // ★ 터치 드래그 바인딩 (Gemini 패턴: 거리 기반 클릭/드래그 구분)
+    // ★ 터치 드래그 전용 (클릭 이벤트 없음)
     _bindBsDrag(bsEl) {
         const self = this;
         const handle = bsEl.querySelector('.wt-bs-handle');
         if (!handle) return;
-        let startY = 0, startH = 0;
+        let startY = 0, startH = 0, dragged = false;
 
         handle.addEventListener('touchstart', (e) => {
             startY = e.touches[0].clientY;
-            startH = bsEl.offsetHeight || window.innerHeight;
-            // 드래그 시작: 인라인으로 전환 + 애니메이션 끄기
-            bsEl.classList.remove('wt-bs-full');
-            bsEl.style.flex = '';
+            startH = bsEl.offsetHeight;
+            dragged = false;
             bsEl.style.transition = 'none';
-            bsEl.style.maxHeight = startH + 'px';
-            bsEl.style.overflowY = 'auto';
-            // Full이었으면 map-section 다시 보이게 (드래그 중 배경 보임)
-            if (self._bsStage === 3) $('#wt-map-section').show();
+            // ★ Full 상태면 top:0 → maxHeight 모드로 전환
+            if (self._bsStage === 3) {
+                bsEl.style.top = 'auto';
+                bsEl.style.maxHeight = startH + 'px';
+                bsEl.style.zIndex = '2000';
+            }
         }, { passive: true });
 
         handle.addEventListener('touchmove', (e) => {
             e.preventDefault();
-            const deltaY = startY - e.touches[0].clientY;
-            const newH = Math.max(60, Math.min(window.innerHeight, startH + deltaY));
+            dragged = true;
+            const delta = startY - e.touches[0].clientY;
+            const newH = Math.max(40, startH + delta);
             bsEl.style.maxHeight = newH + 'px';
+            bsEl.style.top = 'auto'; // top:0 해제 (Full에서 내릴 때)
+            bsEl.style.overflowY = newH > 100 ? 'auto' : 'hidden';
         }, { passive: false });
 
-        handle.addEventListener('touchend', (e) => {
-            const endY = e.changedTouches[0].clientY;
-            const totalDelta = startY - endY;
-
-            // ★ 20px 이하 = 클릭 → 다음 단계
-            if (Math.abs(totalDelta) < 20) {
-                self._toggleBsStage();
-            } else {
-                const h = bsEl.offsetHeight;
-                const vh = window.innerHeight;
-                // 스냅: peek=50vh, half=75vh, full=100%
-                if (h < vh * 0.15) self._applyBsStage(0);      // 닫기
-                else if (h < vh * 0.6) self._applyBsStage(1);   // peek
-                else if (h < vh * 0.85) self._applyBsStage(2);  // half
-                else self._applyBsStage(3);                      // full
+        handle.addEventListener('touchend', () => {
+            if (!dragged) {
+                // 터치만 하고 안 움직임 → 다음 단계
+                bsEl.style.transition = 'max-height 0.3s ease';
+                const next = self._bsStage >= 3 ? 1 : self._bsStage + 1;
+                self._applyBsStage(next);
+                return;
             }
+            // 드래그 끝 → 스냅
+            const h = bsEl.offsetHeight;
+            const vh = window.innerHeight;
+            bsEl.style.transition = 'max-height 0.3s ease';
+
+            // 스냅 포인트: 80px / 50vh / 100%
+            const s1 = 80, s2 = vh * 0.5, s3 = vh;
+            const d1 = Math.abs(h - s1);
+            const d2 = Math.abs(h - s2);
+            const d3 = Math.abs(h - s3);
+
+            if (h < 40) { self._applyBsStage(0); } // 닫기
+            else if (d1 <= d2 && d1 <= d3) { self._applyBsStage(1); }
+            else if (d2 <= d3) { self._applyBsStage(2); }
+            else { self._applyBsStage(3); }
         });
     }
 

@@ -164,7 +164,8 @@ export class UIManager {
                         <button id="wt-mode-leaflet" class="wt-mode-btn">🐾 Paw Map</button>
                         <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 지도</button>
                     </div>
-                    <div id="wt-search-bar" class="wt-search-bar">
+                    <div id="wt-search-bar" class="wt-search-bar" style="position:relative">
+                        <button class="wt-back-btn" style="display:none" onclick="window.__wtBackToMap&&window.__wtBackToMap()">←</button>
                         <div id="wt-search-tabs" style="display:none;gap:2px;margin-bottom:3px">
                             <button id="wt-search-tab-loc" class="wt-mode-btn wt-mode-active" style="flex:1;padding:4px;font-size:11px">🔍 장소</button>
                             <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px">📍 주소</button>
@@ -996,7 +997,7 @@ export class UIManager {
                 ${specialHtml}
                 ${nearbyHtml}
                 ${walkNear.length < 3 ? `<div style="display:flex;gap:8px;margin-top:8px;overflow-x:auto;padding-bottom:4px">
-                    ${Array(3 - walkNear.length).fill('<div style="min-width:100px;height:76px;border-radius:10px;border:2px dashed #E0E0E0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#B0A898;font-size:10px;cursor:pointer;flex-shrink:0;background:#FAFAFA"><span style="font-size:18px;color:#B0A898;line-height:1">+</span>장소를<br>추가하세요</div>').join('')}
+                    ${Array(3 - walkNear.length).fill('<div style="min-width:100px;height:80px;border-radius:12px;border:1.5px dashed rgba(0,0,0,.12);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#9AA0A6;font-size:10px;cursor:pointer;flex-shrink:0;background:rgba(248,249,250,.8);backdrop-filter:blur(8px)"><span style="font-size:22px;line-height:1;opacity:.5">+</span><span style="font-size:10px">장소 추가</span></div>').join('')}
                 </div>` : ''}
             </div>
             <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
@@ -1062,10 +1063,8 @@ export class UIManager {
     _hideBottomSheet() {
         const bs = document.getElementById('wt-bottomsheet');
         if (bs) {
-            const lw = document.getElementById('wt-leaflet-wrap');
-            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            bs.classList.remove('wt-bs-full');
             bs.style.display = 'none'; bs.innerHTML = '';
-            // ★ 스타일 완전 복원
             bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
             bs.style.maxHeight = ''; bs.style.borderRadius = '16px 16px 0 0';
             bs.style.zIndex = '2000';
@@ -1083,33 +1082,26 @@ export class UIManager {
         const bs = document.getElementById('wt-bottomsheet');
         if (!bs || bs.style.display === 'none') return;
         this._bsStage = stage;
-        bs.style.transition = 'max-height 0.3s cubic-bezier(0.4,0,0.2,1)';
+        bs.classList.remove('wt-bs-full'); // 항상 리셋
         if (stage === 0) { this._hideBottomSheet(); return; }
 
         if (stage === 1) {
-            const lw = document.getElementById('wt-leaflet-wrap');
-            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            bs.style.transition = 'max-height 0.3s ease';
             bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
             bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden';
             bs.style.borderRadius = '16px 16px 0 0'; bs.style.zIndex = '2000';
         }
         if (stage === 2) {
+            bs.style.transition = 'max-height 0.3s ease';
             const lw = document.getElementById('wt-leaflet-wrap');
-            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
             const pH = lw?.offsetHeight || 500;
             bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
             bs.style.maxHeight = Math.round(pH * 0.6) + 'px'; bs.style.overflowY = 'auto';
             bs.style.borderRadius = '16px 16px 0 0'; bs.style.zIndex = '2000';
         }
         if (stage === 3) {
-            // ★ FULL: 패널 전체 덮기 (헤더+검색+지도 전부)
-            const panel = document.getElementById('wt-panel');
-            if (panel && bs.parentElement !== panel) panel.appendChild(bs);
-            bs.style.position = 'absolute';
-            bs.style.top = '0'; bs.style.bottom = '0'; bs.style.left = '0'; bs.style.right = '0';
-            bs.style.maxHeight = 'none'; bs.style.height = '100%';
-            bs.style.overflowY = 'auto'; bs.style.borderRadius = '0';
-            bs.style.zIndex = '9999';
+            // ★ FULL: position:fixed → 화면 전체 덮기 (CSS 클래스)
+            bs.classList.add('wt-bs-full');
         }
     }
 
@@ -1214,8 +1206,13 @@ export class UIManager {
         };
 
         window.__wtBsHandle = () => {
-            console.log('[wt] Handle toggle, stage:', self._bsStage);
             self._toggleBsStage();
+        };
+
+        // ★ 뒤로가기 → 약도로 전환
+        window.__wtBackToMap = () => {
+            self._hideBottomSheet();
+            self._setMapMode('node');
         };
 
         // 지도 클릭 → 바텀시트 닫기

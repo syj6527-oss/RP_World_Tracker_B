@@ -1062,10 +1062,13 @@ export class UIManager {
     _hideBottomSheet() {
         const bs = document.getElementById('wt-bottomsheet');
         if (bs) {
-            // ★ leaflet-wrap으로 복귀
             const lw = document.getElementById('wt-leaflet-wrap');
             if (lw && bs.parentElement !== lw) lw.appendChild(bs);
             bs.style.display = 'none'; bs.innerHTML = '';
+            // ★ 스타일 완전 복원
+            bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
+            bs.style.maxHeight = ''; bs.style.borderRadius = '16px 16px 0 0';
+            bs.style.zIndex = '2000';
         }
         this._bsStage = 0;
     }
@@ -1081,26 +1084,32 @@ export class UIManager {
         if (!bs || bs.style.display === 'none') return;
         this._bsStage = stage;
         bs.style.transition = 'max-height 0.3s cubic-bezier(0.4,0,0.2,1)';
-        const pH = bs.parentElement?.offsetHeight || window.innerHeight;
         if (stage === 0) { this._hideBottomSheet(); return; }
+
         if (stage === 1) {
-            // peek: leaflet-wrap 안으로 복귀
             const lw = document.getElementById('wt-leaflet-wrap');
             if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
             bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden';
+            bs.style.borderRadius = '16px 16px 0 0'; bs.style.zIndex = '2000';
         }
         if (stage === 2) {
             const lw = document.getElementById('wt-leaflet-wrap');
             if (lw && bs.parentElement !== lw) lw.appendChild(bs);
-            bs.style.maxHeight = Math.round(pH * 0.55) + 'px'; bs.style.overflowY = 'auto';
+            const pH = lw?.offsetHeight || 500;
+            bs.style.position = 'absolute'; bs.style.top = 'auto'; bs.style.height = 'auto';
+            bs.style.maxHeight = Math.round(pH * 0.6) + 'px'; bs.style.overflowY = 'auto';
+            bs.style.borderRadius = '16px 16px 0 0'; bs.style.zIndex = '2000';
         }
         if (stage === 3) {
-            // ★ full: panel-body로 이동 → 검색바까지 덮기
-            const pb = document.getElementById('wt-panel-body');
-            if (pb && bs.parentElement !== pb) pb.appendChild(bs);
-            const navH = document.getElementById('wt-paw-nav')?.offsetHeight || 52;
-            bs.style.maxHeight = (pb.offsetHeight - navH) + 'px';
-            bs.style.overflowY = 'auto';
+            // ★ FULL: 패널 전체 덮기 (헤더+검색+지도 전부)
+            const panel = document.getElementById('wt-panel');
+            if (panel && bs.parentElement !== panel) panel.appendChild(bs);
+            bs.style.position = 'absolute';
+            bs.style.top = '0'; bs.style.bottom = '0'; bs.style.left = '0'; bs.style.right = '0';
+            bs.style.maxHeight = 'none'; bs.style.height = '100%';
+            bs.style.overflowY = 'auto'; bs.style.borderRadius = '0';
+            bs.style.zIndex = '9999';
         }
     }
 

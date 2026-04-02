@@ -1070,14 +1070,15 @@ export class UIManager {
     _hideBottomSheet() {
         const bs = document.getElementById('wt-bottomsheet');
         if (bs) {
-            // ★ leaflet-wrap으로 복귀
             const lw = document.getElementById('wt-leaflet-wrap');
             if (lw && bs.parentElement !== lw) lw.appendChild(bs);
             bs.classList.remove('wt-bs-full');
             bs.style.cssText = 'display:none';
             bs.innerHTML = '';
         }
-        // 지도 복원
+        // ★ panel-body flex + 지도 복원
+        const pb = document.getElementById('wt-panel-body');
+        if (pb) { pb.style.display = ''; pb.style.flexDirection = ''; }
         $('#wt-map-section').show();
         setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
         this._bsStage = 0;
@@ -1108,23 +1109,26 @@ export class UIManager {
         if (stage !== 3 && stage !== 0) {
             const lw = document.getElementById('wt-leaflet-wrap');
             if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            const pb = document.getElementById('wt-panel-body');
+            if (pb) { pb.style.display = ''; pb.style.flexDirection = ''; }
             $('#wt-map-section').show();
             setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
         }
 
         bs.style.transition = 'max-height 0.3s ease';
         if (stage === 1) {
-            bs.style.maxHeight = '350px'; bs.style.overflowY = 'hidden';
-        }
-        if (stage === 2) {
             bs.style.maxHeight = '50vh'; bs.style.overflowY = 'auto';
         }
+        if (stage === 2) {
+            bs.style.maxHeight = '75vh'; bs.style.overflowY = 'auto';
+        }
         if (stage === 3) {
-            // ★ FULL: 바텀시트를 panel-body로 이동 후 map-section 숨김
+            // ★ FULL: panel-body에 flex 강제 + BS를 이동
             const pb = document.getElementById('wt-panel-body');
             const nav = document.getElementById('wt-paw-nav');
             if (pb) {
-                // nav 바로 앞에 삽입 (nav는 유지해야 하니까)
+                pb.style.display = 'flex';
+                pb.style.flexDirection = 'column';
                 if (nav) pb.insertBefore(bs, nav);
                 else pb.appendChild(bs);
             }
@@ -1175,16 +1179,17 @@ export class UIManager {
             const endY = e.changedTouches[0].clientY;
             const totalDelta = startY - endY;
 
-            // ★ Gemini: 10px 이하 = 클릭, 그 이상 = 드래그
-            if (Math.abs(totalDelta) < 10) {
+            // ★ 20px 이하 = 클릭 → 다음 단계
+            if (Math.abs(totalDelta) < 20) {
                 self._toggleBsStage();
             } else {
                 const h = bsEl.offsetHeight;
                 const vh = window.innerHeight;
-                if (h < 80) self._applyBsStage(0);
-                else if (h < vh * 0.3) self._applyBsStage(1);
-                else if (h < vh * 0.7) self._applyBsStage(2);
-                else self._applyBsStage(3);
+                // 스냅: peek=50vh, half=75vh, full=100%
+                if (h < vh * 0.15) self._applyBsStage(0);      // 닫기
+                else if (h < vh * 0.6) self._applyBsStage(1);   // peek
+                else if (h < vh * 0.85) self._applyBsStage(2);  // half
+                else self._applyBsStage(3);                      // full
             }
         });
     }

@@ -1108,63 +1108,67 @@ export class UIManager {
     _toggleBsStage() {
         const bs = document.getElementById('wt-bottomsheet');
         if (!bs || bs.style.display === 'none') return;
-        // ★ peek→half→full→닫기
-        if (this._bsStage >= 3) {
-            this._hideBottomSheet(); // full에서 클릭 → 완전 닫기
-        } else {
+        // ★ 핸들 클릭: 위로만 (peek→half→full). 닫기는 X 버튼만!
+        if (this._bsStage < 3) {
             this._applyBsStage(this._bsStage + 1);
         }
     }
 
-    // ★ 터치 드래그 바인딩 (바텀시트 열릴 때마다 호출)
+    // ★ 터치 드래그 바인딩
     _bindBsDrag(bsEl) {
         const self = this;
         const handle = bsEl.querySelector('.wt-bs-handle');
         if (!handle) return;
+        let dragMoved = false; // 드래그 했는지 추적 (클릭 방지용)
 
-        // 핸들 터치 시작
         handle.addEventListener('touchstart', (e) => {
             self._bsDragging = true;
+            dragMoved = false;
             self._bsDragStartY = e.touches[0].clientY;
-            self._bsDragStartH = bsEl.offsetHeight;
+            // Full 상태면 window 높이, 아니면 부모 높이
+            self._bsDragStartH = bsEl.classList.contains('wt-bs-full') ? window.innerHeight : bsEl.offsetHeight;
+            bsEl.classList.remove('wt-bs-full'); // 드래그 시작하면 fixed 해제
             bsEl.style.transition = 'none';
+            bsEl.style.position = 'absolute'; bsEl.style.top = 'auto'; bsEl.style.height = 'auto';
+            bsEl.style.maxHeight = self._bsDragStartH + 'px';
         }, { passive: true });
 
-        // ★ 핸들에서만 touchmove (콘텐츠 스크롤 충돌 방지)
         handle.addEventListener('touchmove', (e) => {
             if (!self._bsDragging) return;
             e.preventDefault();
+            dragMoved = true;
             const deltaY = self._bsDragStartY - e.touches[0].clientY;
-            const parentH = bsEl.parentElement?.offsetHeight || window.innerHeight;
-            const newH = Math.max(80, Math.min(parentH - 10, self._bsDragStartH + deltaY));
+            // ★ 최대 높이 = 화면 전체
+            const maxH = window.innerHeight;
+            const newH = Math.max(60, Math.min(maxH, self._bsDragStartH + deltaY));
             bsEl.style.maxHeight = newH + 'px';
             bsEl.style.overflowY = newH > 200 ? 'auto' : 'hidden';
         }, { passive: false });
 
-        // 터치 끝 → 스냅
         const onEnd = () => {
             if (!self._bsDragging) return;
             self._bsDragging = false;
             const h = bsEl.offsetHeight;
-            const pH = bsEl.parentElement?.offsetHeight || window.innerHeight;
+            const vh = window.innerHeight;
 
-            if (h < 80) {
+            // ★ 스냅 포인트
+            if (h < 60) {
                 self._hideBottomSheet();
-            } else if (h < pH * 0.3) {
-                self._applyBsStage(1);
-            } else if (h < pH * 0.7) {
-                self._applyBsStage(2);
+            } else if (h < vh * 0.25) {
+                self._applyBsStage(1); // peek
+            } else if (h < vh * 0.65) {
+                self._applyBsStage(2); // half
             } else {
-                self._applyBsStage(3);
+                self._applyBsStage(3); // full (position:fixed)
             }
         };
         handle.addEventListener('touchend', onEnd, { passive: true });
         handle.addEventListener('touchcancel', onEnd, { passive: true });
 
-        // 핸들 클릭 (PC 폴백)
+        // PC 클릭 (드래그 안 했을 때만)
         handle.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!self._bsDragging) self._toggleBsStage();
+            if (!dragMoved) self._toggleBsStage();
         });
     }
 

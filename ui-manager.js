@@ -1074,10 +1074,17 @@ export class UIManager {
         this._bsStage = stage;
         bs.style.transition = 'max-height 0.3s cubic-bezier(0.4,0,0.2,1)';
         const pH = bs.parentElement?.offsetHeight || window.innerHeight;
+        // 검색바 포함 전체 높이 (map-section 기준)
+        const fullH = bs.closest('#wt-map-section')?.offsetHeight || pH;
         if (stage === 0) { this._hideBottomSheet(); return; }
+        bs.style.top = 'auto'; // 리셋
         if (stage === 1) { bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden'; }
         if (stage === 2) { bs.style.maxHeight = Math.round(pH * 0.55) + 'px'; bs.style.overflowY = 'auto'; }
-        if (stage === 3) { bs.style.maxHeight = Math.round(pH - 10) + 'px'; bs.style.overflowY = 'auto'; }
+        if (stage === 3) {
+            // ★ 검색바까지 덮기: leaflet-wrap 밖으로 확장
+            bs.style.maxHeight = fullH + 'px';
+            bs.style.overflowY = 'auto';
+        }
     }
 
     _toggleBsStage() {

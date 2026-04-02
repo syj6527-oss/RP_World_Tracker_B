@@ -1,4 +1,6 @@
 // 🐶 World Tracker — ui-manager.js (Inline Toast + Popover)
+// ★ BUILD: 2026-04-02 hotfix12
+console.log('[wt] ui-manager hotfix12 loaded');
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -638,6 +640,7 @@ export class UIManager {
         // ★ Leaflet 풀스크린이면 장소목록/이동히스토리 숨김 유지
         if (this._isLeafletFull) {
             $('#wt-loc-toggle,#wt-loc-wrap,#wt-move-toggle,#wt-move-wrap,#wt-add-toggle,#wt-add-form,.wt-scene-loc,#wt-popover').hide();
+            $('.wt-panel-header,.wt-map-mode-bar').hide(); // ★ refresh마다 강제 숨김
             $('#wt-paw-nav').show();
         } else {
             this._updLocList(); this._updMoveList();
@@ -661,6 +664,8 @@ export class UIManager {
             $('#wt-loc-toggle,#wt-move-toggle,#wt-add-toggle,.wt-scene-loc').show();
             $('#wt-map-toggle').show();
             $('#wt-btn-refresh').show();
+            $('.wt-panel-header').show(); // ★ 헤더 복원
+            $('.wt-map-mode-bar').show(); // ★ 모드바 복원
             $('#wt-paw-nav').hide();
             // ★ 바텀시트 + 내페이지 완전 정리
             this._hideBottomSheet();
@@ -696,7 +701,9 @@ export class UIManager {
             this._isLeafletFull = true;
             $('#wt-panel-body').addClass('wt-leaflet-full');
             $('#wt-loc-toggle,#wt-loc-wrap,#wt-move-toggle,#wt-move-wrap,#wt-add-toggle,#wt-add-form,.wt-scene-loc,#wt-popover').hide();
-            $('#wt-map-section').show(); // 지도 섹션은 보여야 함
+            $('.wt-map-mode-bar').hide(); // ★ 약도/Paw Map 탭 숨김
+            $('.wt-panel-header').hide(); // ★ 헤더 숨김
+            $('#wt-map-section').show();
             $('#wt-map-toggle').hide(); // 접기 버튼 숨김
             $('#wt-btn-refresh').hide(); // 약도 재생성 숨김
             $('#wt-paw-nav').show(); // 하단 탭 표시
@@ -1063,10 +1070,16 @@ export class UIManager {
     _hideBottomSheet() {
         const bs = document.getElementById('wt-bottomsheet');
         if (bs) {
+            // ★ leaflet-wrap으로 복귀
+            const lw = document.getElementById('wt-leaflet-wrap');
+            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
             bs.classList.remove('wt-bs-full');
-            bs.style.cssText = 'display:none'; // 인라인 스타일 전부 초기화
+            bs.style.cssText = 'display:none';
             bs.innerHTML = '';
         }
+        // 지도 복원
+        $('#wt-map-section').show();
+        setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
         this._bsStage = 0;
     }
 
@@ -1081,18 +1094,46 @@ export class UIManager {
         if (!bs || bs.style.display === 'none') return;
         this._bsStage = stage;
 
-        // ★ Gemini: 드래그 중 박힌 인라인 스타일 싹 제거 → CSS 클래스 우선순위 보장
+        // 인라인 스타일 초기화
         bs.style.maxHeight = '';
         bs.style.top = '';
         bs.style.height = '';
         bs.style.position = '';
-        bs.classList.remove('wt-bs-full');
+        bs.style.borderRadius = '';
+        bs.style.flex = '';
 
         if (stage === 0) { this._hideBottomSheet(); return; }
+
+        // ★ Stage 3에서 이동한 바텀시트 복귀 + 지도 복원
+        if (stage !== 3 && stage !== 0) {
+            const lw = document.getElementById('wt-leaflet-wrap');
+            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            $('#wt-map-section').show();
+            setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
+        }
+
         bs.style.transition = 'max-height 0.3s ease';
-        if (stage === 1) { bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden'; }
-        if (stage === 2) { bs.style.maxHeight = '60vh'; bs.style.overflowY = 'auto'; }
-        if (stage === 3) { bs.classList.add('wt-bs-full'); } // CSS가 전부 처리
+        if (stage === 1) {
+            bs.style.maxHeight = '350px'; bs.style.overflowY = 'hidden';
+        }
+        if (stage === 2) {
+            bs.style.maxHeight = '50vh'; bs.style.overflowY = 'auto';
+        }
+        if (stage === 3) {
+            // ★ FULL: 바텀시트를 panel-body로 이동 후 map-section 숨김
+            const pb = document.getElementById('wt-panel-body');
+            const nav = document.getElementById('wt-paw-nav');
+            if (pb) {
+                // nav 바로 앞에 삽입 (nav는 유지해야 하니까)
+                if (nav) pb.insertBefore(bs, nav);
+                else pb.appendChild(bs);
+            }
+            $('#wt-map-section').hide();
+            bs.style.flex = '1';
+            bs.style.maxHeight = 'none';
+            bs.style.overflowY = 'auto';
+            bs.style.borderRadius = '0';
+        }
     }
 
     _toggleBsStage() {
@@ -1113,13 +1154,15 @@ export class UIManager {
 
         handle.addEventListener('touchstart', (e) => {
             startY = e.touches[0].clientY;
-            // Full 상태면 window 높이 기준
-            startH = bsEl.classList.contains('wt-bs-full') ? window.innerHeight : bsEl.offsetHeight;
-            // 드래그 시작: fixed 해제 + 애니메이션 끄기
+            startH = bsEl.offsetHeight || window.innerHeight;
+            // 드래그 시작: 인라인으로 전환 + 애니메이션 끄기
             bsEl.classList.remove('wt-bs-full');
+            bsEl.style.flex = '';
             bsEl.style.transition = 'none';
             bsEl.style.maxHeight = startH + 'px';
             bsEl.style.overflowY = 'auto';
+            // Full이었으면 map-section 다시 보이게 (드래그 중 배경 보임)
+            if (self._bsStage === 3) $('#wt-map-section').show();
         }, { passive: true });
 
         handle.addEventListener('touchmove', (e) => {

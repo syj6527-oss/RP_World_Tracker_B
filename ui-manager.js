@@ -1139,10 +1139,9 @@ export class UIManager {
     _toggleBsStage() {
         const bs = document.getElementById('wt-bottomsheet');
         if (!bs || bs.style.display === 'none') return;
-        // ★ 핸들 클릭: 위로만 (peek→half→full). 닫기는 X 버튼만!
-        if (this._bsStage < 3) {
-            this._applyBsStage(this._bsStage + 1);
-        }
+        // ★ 순환: peek(1)→half(2)→full(3)→peek(1)
+        const next = this._bsStage >= 3 ? 1 : this._bsStage + 1;
+        this._applyBsStage(next);
     }
 
     // ★ 터치 드래그 바인딩 (Gemini 패턴: 거리 기반 클릭/드래그 구분)
@@ -1221,7 +1220,7 @@ export class UIManager {
                     bs.innerHTML = '<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px;position:sticky;top:0;z-index:10;background:#fff"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div><div style="padding:20px;text-align:center;color:#9AA0A6;font-size:14px">🕐 타임라인 — 다음 업데이트!</div>';
                     bs.style.display = 'block';
                     bs.style.background = '#fff';
-                    self._applyBsStage(2);
+                    self._applyBsStage(1);
                     self._bindBsDrag(bs);
                 }
             }
@@ -1279,7 +1278,7 @@ export class UIManager {
 
         const bs = $('#wt-bottomsheet');
         bs.html(html).show().css({ background: '#fff' });
-        this._applyBsStage(2); // half (50vh)
+        this._applyBsStage(1); // peek (350px) — 전체 바텀시트 동일
         this._bindBsDrag(bs[0]);
 
         // 핸들바 sticky

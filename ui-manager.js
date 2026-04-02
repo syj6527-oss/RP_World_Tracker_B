@@ -995,6 +995,9 @@ export class UIManager {
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
                 ${nearbyHtml}
+                ${walkNear.length < 3 ? `<div style="display:flex;gap:8px;margin-top:8px;overflow-x:auto;padding-bottom:4px">
+                    ${Array(3 - walkNear.length).fill('<div style="min-width:100px;height:76px;border-radius:10px;border:2px dashed #E0E0E0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#B0A898;font-size:10px;cursor:pointer;flex-shrink:0;background:#FAFAFA"><span style="font-size:18px;color:#B0A898;line-height:1">+</span>장소를<br>추가하세요</div>').join('')}
+                </div>` : ''}
             </div>
             <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;max-height:200px;overflow-y:auto">
                 <div style="margin-bottom:8px;padding:8px 10px;background:#FAFAF5;border-radius:8px;border:1px solid #EAE6DC">
@@ -1058,7 +1061,12 @@ export class UIManager {
 
     _hideBottomSheet() {
         const bs = document.getElementById('wt-bottomsheet');
-        if (bs) { bs.style.display = 'none'; bs.innerHTML = ''; }
+        if (bs) {
+            // ★ leaflet-wrap으로 복귀
+            const lw = document.getElementById('wt-leaflet-wrap');
+            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            bs.style.display = 'none'; bs.innerHTML = '';
+        }
         this._bsStage = 0;
     }
 
@@ -1074,15 +1082,24 @@ export class UIManager {
         this._bsStage = stage;
         bs.style.transition = 'max-height 0.3s cubic-bezier(0.4,0,0.2,1)';
         const pH = bs.parentElement?.offsetHeight || window.innerHeight;
-        // 검색바 포함 전체 높이 (map-section 기준)
-        const fullH = bs.closest('#wt-map-section')?.offsetHeight || pH;
         if (stage === 0) { this._hideBottomSheet(); return; }
-        bs.style.top = 'auto'; // 리셋
-        if (stage === 1) { bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden'; }
-        if (stage === 2) { bs.style.maxHeight = Math.round(pH * 0.55) + 'px'; bs.style.overflowY = 'auto'; }
+        if (stage === 1) {
+            // peek: leaflet-wrap 안으로 복귀
+            const lw = document.getElementById('wt-leaflet-wrap');
+            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            bs.style.maxHeight = '185px'; bs.style.overflowY = 'hidden';
+        }
+        if (stage === 2) {
+            const lw = document.getElementById('wt-leaflet-wrap');
+            if (lw && bs.parentElement !== lw) lw.appendChild(bs);
+            bs.style.maxHeight = Math.round(pH * 0.55) + 'px'; bs.style.overflowY = 'auto';
+        }
         if (stage === 3) {
-            // ★ 검색바까지 덮기: leaflet-wrap 밖으로 확장
-            bs.style.maxHeight = fullH + 'px';
+            // ★ full: panel-body로 이동 → 검색바까지 덮기
+            const pb = document.getElementById('wt-panel-body');
+            if (pb && bs.parentElement !== pb) pb.appendChild(bs);
+            const navH = document.getElementById('wt-paw-nav')?.offsetHeight || 52;
+            bs.style.maxHeight = (pb.offsetHeight - navH) + 'px';
             bs.style.overflowY = 'auto';
         }
     }
@@ -1922,7 +1939,9 @@ export class UIManager {
             // 이벤트 요약 (최근 5개)
             const evSummary = (loc.events || []).slice(-5).map(e => `${e.mood||'📝'} ${e.title||e.text||''}`).join(', ') || '아직 이벤트 없음';
 
-            const reviewCount = 1 + Math.floor(Math.random() * 3);
+            // 1~5개 가중 랜덤: 1(30%) 2(30%) 3(25%) 4(10%) 5(5%)
+            const rnd = Math.random();
+            const reviewCount = rnd < 0.30 ? 1 : rnd < 0.60 ? 2 : rnd < 0.85 ? 3 : rnd < 0.95 ? 4 : 5;
             const prompt = `Generate ${reviewCount} Google Maps-style reviews for an RP location. Each reviewer is a CHARACTER from the story with a distinct voice.
 
 Place: "${loc.name}" | Memo: "${loc.memo || ''}" | Notes: "${loc.aiNotes || ''}" | Visits: ${loc.visitCount || 0}
@@ -2038,12 +2057,15 @@ JSON ONLY, no markdown:
             if (locId) this._generateReviews(locId);
         });
 
-        // 5. 개별 리뷰 카드
-        reviews.forEach(rv => {
+        // 5. 개별 리뷰 카드 (3개 이상이면 2개만 미리보기)
+        const showAll = reviews.length < 3;
+        const previewReviews = showAll ? reviews : reviews.slice(0, 2);
+
+        previewReviews.forEach(rv => {
             const stars = '★'.repeat(rv.stars || 3) + '☆'.repeat(5 - (rv.stars || 3));
             const daysText = rv.daysAgo === 1 ? '어제' : rv.daysAgo <= 7 ? `${rv.daysAgo}일 전` : `${Math.ceil(rv.daysAgo / 7)}주 전`;
 
-            container.append(`<div style="padding:10px 0;border-bottom:1px solid #F1F3F4">
+            container.append(`<div class="wt-rv-card-item" style="padding:10px 0;border-bottom:1px solid #F1F3F4">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
                     <div style="width:32px;height:32px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:16px">${rv.avatar || '👤'}</div>
                     <div>
@@ -2055,6 +2077,33 @@ JSON ONLY, no markdown:
                 <div style="font-size:13px;line-height:1.7;color:#3C4043">${rv.text || ''}</div>
             </div>`);
         });
+
+        // ★ 3개 이상이면 "모든 리뷰 보기" 버튼
+        if (!showAll) {
+            const hiddenCards = reviews.slice(2);
+            const moreBtn = $(`<div style="display:flex;justify-content:center;padding:12px;margin-top:4px">
+                <button class="wt-rv-showmore" style="padding:10px 0;width:100%;background:#F8F9FA;border:1px solid #E8EAED;border-radius:24px;font-size:13px;font-weight:500;color:#3C4043;cursor:pointer;text-align:center;font-family:inherit">모든 리뷰 보기 ›</button>
+            </div>`);
+            container.append(moreBtn);
+
+            moreBtn.find('.wt-rv-showmore').on('click', function(e) {
+                e.stopPropagation();
+                // 나머지 리뷰 펼치기
+                hiddenCards.forEach(rv => {
+                    const stars = '★'.repeat(rv.stars || 3) + '☆'.repeat(5 - (rv.stars || 3));
+                    const daysText = rv.daysAgo === 1 ? '어제' : rv.daysAgo <= 7 ? `${rv.daysAgo}일 전` : `${Math.ceil(rv.daysAgo / 7)}주 전`;
+                    moreBtn.before(`<div style="padding:10px 0;border-bottom:1px solid #F1F3F4">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+                            <div style="width:32px;height:32px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:16px">${rv.avatar || '👤'}</div>
+                            <div><div style="font-size:13px;font-weight:700;color:#202124">${rv.name || 'Unknown'}</div><div style="font-size:10px;color:#70757A">${rv.role || ''}</div></div>
+                        </div>
+                        <div style="font-size:10px;color:#F6A93A;margin-bottom:4px">${stars} · ${daysText}</div>
+                        <div style="font-size:13px;line-height:1.7;color:#3C4043">${rv.text || ''}</div>
+                    </div>`);
+                });
+                moreBtn.remove(); // 버튼 제거
+            });
+        }
     }
 
     // ========== 이벤트 전체 보기 (패널 뷰 전환) ==========

@@ -55,9 +55,12 @@ export class UIManager {
                 <span id="wt-s-profile-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px"></span>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row" style="display:flex;align-items:center;gap:6px">
-                    <label style="white-space:nowrap">🌐 요약 언어</label>
+                    <label style="white-space:nowrap">🌐 AI 언어</label>
                     <select id="wt-s-eventlang" class="text_pole wt-select" style="flex:1;font-size:11px"><option value="auto">🔄 자동 (RP 언어)</option><option value="ko">🇰🇷 한국어</option><option value="en">🇺🇸 English</option></select>
                 </div>
+                <div class="wt-divider"></div>
+                <div class="wt-s-row"><label><input type="checkbox" id="wt-s-worldcont"/> 🌍 세계관 이어가기</label></div>
+                <span id="wt-s-worldcont-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:1px;margin-bottom:4px">새 채팅에서도 같은 캐릭터의 세계관 유지</span>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label>📦 전체 데이터 관리</label></div>
                 <div class="wt-s-row" style="display:flex;gap:4px">
@@ -92,6 +95,43 @@ export class UIManager {
             $('#wt-s-profile-status').text(`✅ "${name}" 저장됨`).css('color','#5E84E2');
             toastSuccess(`🧠 감지 모델: ${name}`);
             setTimeout(() => $('#wt-s-profile-status').text(''), 3000);
+        });
+        // 🌍 세계관 이어가기
+        $('#wt-s-worldcont').prop('checked', s?.worldContinuity ?? false).on('change', async () => {
+            const enabled = $('#wt-s-worldcont').is(':checked');
+            if (enabled) {
+                const charKey = this.lm.getCharacterId();
+                if (!charKey) {
+                    toastWarn('캐릭터를 먼저 선택해주세요');
+                    $('#wt-s-worldcont').prop('checked', false);
+                    return;
+                }
+                const existing = await this.lm.db.getLocationsByChatId(charKey);
+                let msg = '현재 채팅의 세계관을 이 캐릭터에 연결할까요?\n새 채팅을 만들어도 세계관이 유지됩니다.';
+                if (existing?.length) {
+                    msg = `이 캐릭터에 이미 세계관 데이터가 있어요 (${existing.length}곳).\n연결하면 기존 데이터를 이어서 사용합니다.`;
+                }
+                if (!confirm(msg)) {
+                    $('#wt-s-worldcont').prop('checked', false);
+                    return;
+                }
+                s.worldContinuity = true;
+                saveSettingsDebounced();
+                await this.lm.migrateToCharacter();
+                await this.lm.loadChat();
+                this.pi?.inject();
+                if (this.panelVisible) this.refresh();
+                $('#wt-s-worldcont-status').text('✅ 캐릭터 세계관 연결됨').css('color', '#2B8A6E');
+                toastSuccess('🌍 세계관 이어가기 ON!');
+            } else {
+                s.worldContinuity = false;
+                saveSettingsDebounced();
+                await this.lm.loadChat();
+                this.pi?.inject();
+                if (this.panelVisible) this.refresh();
+                $('#wt-s-worldcont-status').text('새 채팅에서도 같은 캐릭터의 세계관 유지').css('color', '#9A8A7A');
+                toastSuccess('🌍 세계관 이어가기 OFF');
+            }
         });
         // 전체 데이터 관리 (설정 패널)
         $('#wt-s-export-all').on('click', () => this._exportAllData());
@@ -1186,7 +1226,6 @@ export class UIManager {
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                         <span style="font-size:18px;font-weight:800;color:#202124" id="wt-bs-rv-score">—</span>
                         <div><div id="wt-bs-rv-stars" style="font-size:11px;color:#F6A93A">☆☆☆☆☆</div><div id="wt-bs-rv-count" style="font-size:9px;color:#70757A">(0건)</div></div>
-                        <span id="wt-bs-rv-gen-btn" onclick="window.__wtGenReviewFromOverview&&window.__wtGenReviewFromOverview()" style="font-size:10px;color:#1A73E8;margin-left:auto;cursor:pointer;font-weight:500">리뷰 생성</span>
                     </div>
                     <div id="wt-bs-rv-cards"></div>
                     <button id="wt-bs-rv-more" style="margin-top:6px;padding:9px;background:#F8F9FA;border:1px solid #E8EAED;border-radius:24px;font-size:11px;font-weight:500;color:#3C4043;text-align:center;cursor:pointer;width:100%;font-family:inherit">모든 리뷰 보기 ›</button>
@@ -1263,10 +1302,6 @@ export class UIManager {
         this._renderCachedReviews(locId, '#wt-bs-review-list');
         // T3: 개요 탭 리뷰 미리보기 렌더 + "모든 리뷰 보기" 클릭
         this._renderReviewPreview(locId);
-        // #7: 개요 리뷰생성 버튼 → 전역 함수
-        window.__wtGenReviewFromOverview = () => {
-            self._generateReviews(locId, 'bottomsheet');
-        };
         bs.find('#wt-bs-rv-more').on('click', (e) => {
             e.stopPropagation();
             // 리뷰 탭으로 전환
@@ -2424,18 +2459,21 @@ export class UIManager {
             // 이벤트 요약 (최근 5개)
             const evSummary = (loc.events || []).slice(-5).map(e => `${e.mood||'📝'} ${e.title||e.text||''}`).join(', ') || '아직 이벤트 없음';
 
-            // T5: 방문횟수 보정 리뷰 수 (1~2회:1~3개 / 3~5회:1~5개 / 6+:1~8개)
+            // 방문횟수 보정 리뷰 수 (최대 10개, 수 많을수록 확률 급감)
             const visits = loc.visitCount || 0;
             let maxReviews, weights;
             if (visits <= 2) {
                 maxReviews = 3;
-                weights = [0.40, 0.75, 1.0]; // 1(40%) 2(35%) 3(25%)
+                weights = [0.50, 0.85, 1.0];
             } else if (visits <= 5) {
                 maxReviews = 5;
-                weights = [0.20, 0.45, 0.70, 0.88, 1.0]; // 1~5
-            } else {
+                weights = [0.30, 0.60, 0.80, 0.92, 1.0];
+            } else if (visits <= 9) {
                 maxReviews = 8;
-                weights = [0.08, 0.20, 0.38, 0.55, 0.72, 0.85, 0.93, 1.0]; // 1~8
+                weights = [0.20, 0.45, 0.70, 0.85, 0.93, 0.97, 0.99, 1.0];
+            } else {
+                maxReviews = 10;
+                weights = [0.15, 0.35, 0.60, 0.78, 0.88, 0.93, 0.96, 0.98, 0.99, 1.0];
             }
             const rnd = Math.random();
             let reviewCount = 1;

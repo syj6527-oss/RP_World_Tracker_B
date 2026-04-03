@@ -1,30 +1,60 @@
 // 🐶 월드맵 — location-manager.js (Single Scene)
 
-import { getContext } from '../../../extensions.js';
+import { getContext, extension_settings } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
 
 export class LocationManager {
     constructor(db) {
         this.db = db;
         this.currentChatId = null;
-        this.currentLocationId = null; // 현재 씬 위치
+        this.currentLocationId = null;
         this.locations = [];
         this.movements = [];
         this.distances = [];
     }
 
     getChatId() { const ctx = getContext(); return ctx?.chatId ? String(ctx.chatId) : null; }
+    getCharacterId() { const ctx = getContext(); return ctx?.characterId != null ? `char_${ctx.characterId}` : null; }
     generateId() { return `loc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`; }
 
+    // ★ 세계관 이어가기: 설정에 따라 characterId 또는 chatId 반환
+    getDataKey() {
+        const s = extension_settings[EXTENSION_NAME];
+        if (s?.worldContinuity) {
+            const charKey = this.getCharacterId();
+            if (charKey) return charKey;
+        }
+        return this.getChatId();
+    }
+
     async loadChat() {
-        this.currentChatId = this.getChatId();
+        this.currentChatId = this.getDataKey();
         if (!this.currentChatId) { this.locations=[]; this.movements=[]; this.distances=[]; this.currentLocationId=null; return; }
         this.locations = await this.db.getLocationsByChatId(this.currentChatId) || [];
         this.movements = await this.db.getMovementsByChatId(this.currentChatId) || [];
         this.distances = await this.db.getDistancesByChatId(this.currentChatId) || [];
         const cfg = await this.db.getMapConfig(this.currentChatId);
         if (cfg) this.currentLocationId = cfg.currentLocationId || null;
-        console.log(`[${EXTENSION_NAME}] Loaded: ${this.locations.length} locs, ${this.movements.length} moves`);
+        console.log(`[${EXTENSION_NAME}] Loaded (key=${this.currentChatId}): ${this.locations.length} locs, ${this.movements.length} moves`);
+    }
+
+    // ★ 마이그레이션: chatId 데이터를 characterId 키로 복사
+    async migrateToCharacter() {
+        const chatId = this.getChatId();
+        const charKey = this.getCharacterId();
+        if (!chatId || !charKey || chatId === charKey) return false;
+        const existing = await this.db.getLocationsByChatId(charKey);
+        if (existing && existing.length > 0) return true;
+        const locs = await this.db.getLocationsByChatId(chatId) || [];
+        const movs = await this.db.getMovementsByChatId(chatId) || [];
+        const dists = await this.db.getDistancesByChatId(chatId) || [];
+        const cfg = await this.db.getMapConfig(chatId);
+        for (const l of locs) { l.chatId = charKey; await this.db.putLocation(l); }
+        for (const m of movs) { m.chatId = charKey; try { await this.db._p(this.db._tx('movements','readwrite').put(m), m); } catch(_){} }
+        for (const d of dists) { d.chatId = charKey; await this.db.saveDistance(d); }
+        if (cfg) { cfg.chatId = charKey; await this.db.saveMapConfig(cfg); }
+        console.log(`[${EXTENSION_NAME}] Migrated ${locs.length} locs from ${chatId} → ${charKey}`);
+        return true;
     }
 
     async addLocation(name, memo = '', aliases = []) {

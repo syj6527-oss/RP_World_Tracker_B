@@ -1,4 +1,4 @@
-// 🐶 World Tracker — prompt-injector.js (Single Scene)
+// 🐶 World Tracker — prompt-injector.js (v0.3.0 Enhanced)
 
 import { extension_settings } from '../../../extensions.js';
 import { EXTENSION_NAME, PROMPT_KEY } from './index.js';
@@ -8,12 +8,34 @@ function getFn() {
     return null;
 }
 
+// 장소 타입 자동 감지
+function _detectLocType(name) {
+    const lo = (name || '').toLowerCase();
+    if (/마트|mart|편의|convenience|가게|shop|store|grocery|supermarket/i.test(lo)) return 'shop/mart';
+    if (/카페|cafe|coffee|커피/i.test(lo)) return 'cafe';
+    if (/집|home|house|숙소|기숙|dorm|quarters/i.test(lo)) return 'home/quarters';
+    if (/학교|school|학원|academy/i.test(lo)) return 'school';
+    if (/체육|gym|운동|fitness|arena|훈련|사격|range|training/i.test(lo)) return 'training facility';
+    if (/공원|park|정원|garden|광장/i.test(lo)) return 'park/outdoor';
+    if (/술집|bar|pub|tavern|주점/i.test(lo)) return 'bar/pub';
+    if (/식당|restaurant|음식|레스토랑/i.test(lo)) return 'restaurant';
+    if (/병원|hospital|의원|clinic|medical/i.test(lo)) return 'medical';
+    if (/도서|library|서점|서재/i.test(lo)) return 'library';
+    if (/역|station|지하철|버스|bus/i.test(lo)) return 'transit';
+    if (/성|castle|궁|palace|요새|fortress|base|막사|barracks/i.test(lo)) return 'military/base';
+    if (/숲|forest|산|mountain/i.test(lo)) return 'nature';
+    if (/해변|beach|바다|sea|강|river|호수|lake/i.test(lo)) return 'waterfront';
+    if (/사무|office|본부|hq|headquarter/i.test(lo)) return 'office/HQ';
+    if (/골목|거리|길|street|alley|road/i.test(lo)) return 'street';
+    return null;
+}
+
 export class PromptInjector {
     constructor(lm) { this.lm = lm; }
 
     inject() {
         const t = this.generate(); const fn = getFn();
-        try { if (fn) { fn(PROMPT_KEY, t||'', 1, 0); if (t) console.log(`[${EXTENSION_NAME}] Prompt (${t.length}c)`); } }
+        try { if (fn) { fn(PROMPT_KEY, t||'', 1, 0); if (t) console.log(`[${EXTENSION_NAME}] Prompt (${t.length}c):\n${t}`); } }
         catch(e) { console.warn(`[${EXTENSION_NAME}]`, e.message); }
     }
     clear() { const fn=getFn(); try{if(fn)fn(PROMPT_KEY,'',1,0)}catch(_){} }
@@ -25,16 +47,55 @@ export class PromptInjector {
         if (!cur) return '';
 
         const L = ['[🐶 World Tracker]'];
+
+        // 1. 장소 이름
         L.push(`📍 Scene: ${cur.name}`);
+
+        // 2. 주소
+        if (cur.address) L.push(`📍 Address: ${cur.address}`);
+
+        // 3. 장소 타입
+        const locType = _detectLocType(cur.name);
+        if (locType) L.push(`🏷️ Type: ${locType}`);
+
+        // 4. 방문 통계 + 첫 방문일
+        if (cur.visitCount > 0) {
+            let visitStr = cur.visitCount === 1 ? 'First visit' : `Visit #${cur.visitCount}`;
+            if (cur.rpFirstVisited) visitStr += ` (since ${cur.rpFirstVisited})`;
+            else if (cur.firstVisited) {
+                const d = new Date(cur.firstVisited);
+                visitStr += ` (since ${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()})`;
+            }
+            L.push(`📊 ${visitStr}`);
+        }
+
+        // 5. 상태
         if (cur.status) L.push(`🌤️ Status: ${cur.status}`);
-        if (cur.visitCount > 0) L.push(`📊 ${cur.visitCount === 1 ? 'First visit' : `Visit #${cur.visitCount}`}`);
+
+        // 6. 메모
         if (cur.memo) L.push(`💭 ${this._mem(cur)}`);
-        if (cur.aiNotes) L.push(`📋 Notes: ${cur.aiNotes}`);
+
+        // 7. 특이사항 (AI 전용)
+        if (cur.aiNotes) L.push(`📋 AI Notes: ${cur.aiNotes}`);
+
+        // 8. 이벤트 (최근 5개 + 날짜)
         const evs = this._events(cur);
-        if (evs) L.push(`📝 Memories here:\n${evs}`);
-        const last = this._last(); if (last) L.push(`🚶 Last: ${last}`);
+        if (evs) L.push(`📝 Memories at this place:\n${evs}`);
+
+        // 9. 마지막 이동
+        const last = this._last(); if (last) L.push(`🚶 Last move: ${last}`);
+
+        // 10. 주변 장소 (주소 포함)
         const near = this._near(cur);
         if (near) L.push(`📌 Nearby:\n${near}`);
+
+        // 11. 세계관 지역 요약
+        const totalLocs = this.lm.locations.length;
+        if (totalLocs > 1) {
+            const region = this._guessRegion();
+            if (region) L.push(`🌍 World: ${totalLocs} places around ${region}`);
+        }
+
         L.push('[/World Tracker]');
         return L.join('\n');
     }
@@ -49,21 +110,29 @@ export class PromptInjector {
     }
 
     _events(loc) {
-        const evs = (loc.events || []).filter(e => e.source !== 'move'); // 이동 이벤트 제외
+        const evs = (loc.events || []).filter(e => e.source !== 'move');
         if (!evs.length) return null;
         const s = extension_settings[EXTENSION_NAME];
-        // 최근 3개만 (토큰 절약)
-        const recent = evs.slice(-3);
+        const recent = evs.slice(-5);
         return recent.map(ev => {
             const mood = ev.mood || '📝';
             let text = ev.text || ev.title || '';
-            // 기억 모드: natural → 오래된 이벤트 흐림
+            let dateStr = '';
+            if (ev.rpDate) {
+                dateStr = ` [${ev.rpDate}]`;
+            } else if (ev.timestamp) {
+                const days = Math.floor((Date.now() - ev.timestamp) / 86400000);
+                if (days === 0) dateStr = ' [today]';
+                else if (days === 1) dateStr = ' [yesterday]';
+                else if (days < 7) dateStr = ` [${days}d ago]`;
+                else dateStr = ` [${Math.floor(days/7)}w ago]`;
+            }
             if (s.memoryMode !== 'perfect' && ev.timestamp) {
                 const days = (Date.now() - ev.timestamp) / 86400000;
                 if (days > 30) text = ev.title ? `${ev.title}... (vague memory)` : text.substring(0, 30) + '... (faded)';
                 else if (days > 7) text = ev.title ? `${ev.title} — ${text.substring(0, 40)}...` : text.substring(0, 50) + '...';
             }
-            return `- ${mood} ${text}`;
+            return `- ${mood} ${text}${dateStr}`;
         }).join('\n');
     }
 
@@ -72,7 +141,13 @@ export class PromptInjector {
         const l = [...this.lm.movements].sort((a,b)=>b.timestamp-a.timestamp)[0];
         const f=this.lm.locations.find(x=>x.id===l.fromId), t=this.lm.locations.find(x=>x.id===l.toId);
         if (!f||!t) return null;
-        let r=`${f.name} → ${t.name}`; if(l.distance)r+=` (${l.distance})`; return r;
+        let r=`${f.name} → ${t.name}`;
+        if(l.distance) r+=` (${l.distance})`;
+        else {
+            const dist = this.lm.getDistanceBetween(f.id, t.id);
+            if (dist?.distanceText) r += ` (${dist.distanceText})`;
+        }
+        return r;
     }
 
     _near(cur) {
@@ -80,9 +155,31 @@ export class PromptInjector {
         for(const d of this.lm.distances||[]){
             let o=d.fromId===cur.id?d.toId:d.toId===cur.id?d.fromId:null;
             if(!o)continue; const loc=this.lm.locations.find(l=>l.id===o);
-            if(loc) n.push(`- ${loc.name} (${d.distanceText || this._levelLabel(d.level)})`);
+            if(!loc) continue;
+            let entry = `- ${loc.name} (${d.distanceText || this._levelLabel(d.level)})`;
+            if (loc.address) {
+                const short = loc.address.split(',').slice(0, 2).join(',').trim();
+                entry += ` — ${short}`;
+            }
+            n.push(entry);
         }
         return n.length ? n.slice(0,5).join('\n') : null;
+    }
+
+    _guessRegion() {
+        const addressed = this.lm.locations.filter(l => l.address);
+        if (!addressed.length) return null;
+        const parts = {};
+        for (const loc of addressed) {
+            const chunks = loc.address.split(',').map(s => s.trim()).filter(s => s.length > 2);
+            for (const chunk of chunks.slice(-2)) {
+                parts[chunk] = (parts[chunk] || 0) + 1;
+            }
+        }
+        const sorted = Object.entries(parts).sort((a, b) => b[1] - a[1]);
+        if (sorted.length && sorted[0][1] >= 2) return sorted[0][0];
+        if (sorted.length) return sorted[0][0];
+        return null;
     }
 
     _levelLabel(level) {

@@ -56,6 +56,7 @@ const defaults = {
     aiInjection:true, memoryMode:'natural', memorySummaryDays:7, panelOpacity:100,
     debugMode:false, mapMode:'node', fantasyTheme:false,
     eventLang:'auto', // auto=RP언어, ko=한국어, en=English
+    worldContinuity:false, // 세계관 이어가기 (캐릭터 기반 저장)
 };
 
 let db, lm, det, pi, ui;

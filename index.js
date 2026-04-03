@@ -475,7 +475,7 @@ Examples:
 Text:
 ${trimmed}${userCtx}`;
 
-            const result = await generateQuietPrompt(prompt);
+            const result = await generateQuietPrompt({ prompt });
             if (result) {
                 // JSON 파싱
                 const jsonMatch = result.match(/\{[\s\S]*?\}/);

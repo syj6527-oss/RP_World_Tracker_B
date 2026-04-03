@@ -2353,7 +2353,7 @@ export class UIManager {
                 const gen = ctx?.generateQuietPrompt;
                 if (gen) {
                     const prompt = `Create a short, witty title (max 15 chars) for this event that emphasizes the place's meaning. Write like "OO한 곳". Respond with ONLY the title text, nothing else.\n\nEvent: ${text.substring(0, 300)}`;
-                    const result = await runWithoutAutoDetect(() => gen(prompt));
+                    const result = await runWithoutAutoDetect(() => gen({ prompt }));
                     if (result?.trim()) title = result.trim().substring(0, 20);
                 }
             } catch(e) {}
@@ -2505,7 +2505,7 @@ Also generate a 1-sentence poetic SUMMARY that captures the emotional contrast o
 JSON ONLY, no markdown:
 {"summary":"poetic 1-sentence place summary","reviews":[{"name":"name","role":"role","avatar":"emoji","stars":1-5,"text":"1-2 sentences","daysAgo":1-30}]}`;
 
-            const result = await runWithoutAutoDetect(() => gen(prompt), 2500);
+            const result = await runWithoutAutoDetect(() => gen({ prompt }), 2500);
             if (!result) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">생성 실패 — 다시 시도해주세요</div>'); return; }
 
             // JSON 파싱
@@ -2937,7 +2937,7 @@ If mundane: {"mood":null}
 
 Text: ${trimmed}`;
 
-                    const result = await runWithoutAutoDetect(() => generateQuietPrompt(prompt), 2500);
+                    const result = await runWithoutAutoDetect(() => generateQuietPrompt({ prompt }), 2500);
                     if (result) {
                         const m = result.match(/\{[\s\S]*?\}/);
                         if (m) {

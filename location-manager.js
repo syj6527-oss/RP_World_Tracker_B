@@ -240,15 +240,16 @@ export class LocationManager {
             try {
                 // Nominatim 요청 간격 (1초)
                 await new Promise(r => setTimeout(r, 1100));
+                console.log(`[${EXTENSION_NAME}] 🔧 autoGeo: fetching address for "${loc.name}" (${loc.lat.toFixed(4)},${loc.lng.toFixed(4)})`);
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${loc.lat}&lon=${loc.lng}&accept-language=ko`, { headers: { 'User-Agent': 'RP-World-Tracker/0.3' } });
-                if (!res.ok) continue;
+                if (!res.ok) { console.warn(`[${EXTENSION_NAME}] 🔧 autoGeo: HTTP ${res.status} for "${loc.name}"`); continue; }
                 const d = await res.json();
                 const addr = d.display_name?.split(',').slice(0, 3).join(', ') || '';
                 if (addr) {
                     await this.updateLocation(loc.id, { address: addr });
                     console.log(`[${EXTENSION_NAME}] 🔧 autoGeo: "${loc.name}" → ${addr}`);
                 }
-            } catch(e) { console.warn(`[${EXTENSION_NAME}] autoGeo error for "${loc.name}":`, e.message); }
+            } catch(e) { console.warn(`[${EXTENSION_NAME}] 🔧 autoGeo error for "${loc.name}":`, e.message); }
         }
     }
 

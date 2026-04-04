@@ -1635,8 +1635,10 @@ export class UIManager {
         });
         // 카테고리 목록 클릭 → 해당 태그 장소 리스트
         bs.find('.wt-mp-list-item').on('click', function(e) {
+            console.log(`[${EXTENSION_NAME}] 🔧 tag list clicked: transitioning=${self._bsTransitioning}`);
             if (self._bsTransitioning) { e.stopPropagation(); return; }
             const tag = $(this).data('tag');
+            console.log(`[${EXTENSION_NAME}] 🔧 opening tag list: ${tag}`);
             self._showTagList(tag);
         });
         // + 장소 등록

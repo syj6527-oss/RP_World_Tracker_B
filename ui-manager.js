@@ -2102,6 +2102,56 @@ export class UIManager {
         setTimeout(() => overlay.remove(), 15000);
     }
 
+    // ★ AI 중복 방지: 유저 장소와 AI 장소 병합 제안
+    showMergeToast(userLoc, aiName) {
+        $('#wt-merge-overlay').remove();
+
+        const sendBtn = document.querySelector('#send_but');
+        if (!sendBtn || sendBtn.offsetParent === null) return;
+
+        const overlay = $(`<div id="wt-merge-overlay" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);width:320px;max-width:90vw;background:rgba(245,244,237,0.98);border:2px solid #5E84E2;border-radius:14px;padding:10px 14px;z-index:2147483646;box-shadow:0 6px 24px rgba(0,0,0,0.2);backdrop-filter:blur(8px);font-family:-apple-system,'Noto Sans KR',sans-serif">
+            <div style="font-size:13px;font-weight:700;color:#3C4043;margin-bottom:6px">📍 "${aiName}"</div>
+            <div style="font-size:12px;color:#5A4030;margin-bottom:8px">= "<strong>${userLoc.name}</strong>" 와 같은 장소인가요?</div>
+            <div style="display:flex;gap:6px">
+                <button id="wt-merge-yes" style="flex:1;padding:8px;background:#E8F0FE;border:1.5px solid #5E84E2;border-radius:8px;font-size:12px;font-weight:600;color:#1A73E8;cursor:pointer;font-family:inherit">🔗 같은 곳 (별칭 추가)</button>
+                <button id="wt-merge-no" style="flex:1;padding:8px;background:#fff;border:1.5px solid #E8E4D8;border-radius:8px;font-size:12px;color:#775537;cursor:pointer;font-family:inherit">📍 다른 곳</button>
+            </div>
+        </div>`);
+
+        $('body').append(overlay);
+        const self = this;
+
+        // 같은 곳 → 별칭 추가
+        overlay.find('#wt-merge-yes').on('click', async () => {
+            const aliases = [...(userLoc.aliases || []), aiName];
+            await self.lm.updateLocation(userLoc.id, { aliases });
+            toastSuccess(`📎 "${aiName}" → "${userLoc.name}"의 별칭으로 추가!`);
+            self.pi?.inject();
+            overlay.remove();
+            console.log(`[${EXTENSION_NAME}] 🔧 merge: "${aiName}" → alias of "${userLoc.name}"`);
+        });
+
+        // 다른 곳 → 새로 등록
+        overlay.find('#wt-merge-no').on('click', async () => {
+            const loc = await self.lm.addLocation(aiName);
+            if (loc) {
+                await self.lm.moveTo(loc.id);
+                self.pi?.inject(); self.refresh();
+                self.showAutoToast(loc);
+                setTimeout(async () => { try { await self.lm.autoCalcDistances(); await self.lm.autoReverseGeocode(); self.pi?.inject(); } catch(_){} }, 1500);
+            }
+            overlay.remove();
+            toastSuccess(`📍 "${aiName}" 새로 등록!`);
+        });
+
+        // 10초 후 자동 → 같은 곳으로 처리
+        setTimeout(() => {
+            if ($('#wt-merge-overlay').length) {
+                $('#wt-merge-yes').click();
+            }
+        }, 10000);
+    }
+
     _findSim(name) {
         if(!this.lm.locations.length)return[]; const lo=name.toLowerCase();
         const mg=catGroups.filter(g=>g.some(w=>lo.includes(w))); if(!mg.length)return[];

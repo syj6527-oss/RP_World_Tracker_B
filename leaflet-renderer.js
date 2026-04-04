@@ -94,6 +94,9 @@ export class LeafletRenderer {
         this.map.getContainer().addEventListener('touchstart', (e) => {
             if (this._movingLocId) return;
             if (e.touches.length !== 1) return;
+            // ★ 핀 위에서는 롱프레스 장소 등록 안 함 (핀 이동과 충돌 방지)
+            const target = e.target;
+            if (target.closest('.leaflet-marker-icon, .wt-gmap-pin, .leaflet-popup')) return;
             _lpPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
             _lpTimer = setTimeout(() => {
                 if (!_lpPos) return;

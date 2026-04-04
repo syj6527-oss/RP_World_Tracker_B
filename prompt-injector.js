@@ -1,16 +1,19 @@
 // 🐶 World Tracker — prompt-injector.js (v0.3.0 Enhanced)
 
 import { extension_settings, getContext } from '../../../extensions.js';
+import { setExtensionPrompt } from '../../../../script.js';
 import { EXTENSION_NAME, PROMPT_KEY } from './index.js';
 
 function getFn() {
     try {
-        // 방법 1: getContext()에서 가져오기 (최신 SillyTavern)
+        // 방법 1: script.js에서 직접 import (최신 SillyTavern)
+        if (typeof setExtensionPrompt === 'function') return setExtensionPrompt;
+        // 방법 2: getContext()
         const ctx = getContext();
         if (typeof ctx?.setExtensionPrompt === 'function') return ctx.setExtensionPrompt;
-        // 방법 2: window 전역 (구버전 호환)
+        // 방법 3: window 전역 (구버전)
         if (typeof window.setExtensionPrompt === 'function') return window.setExtensionPrompt;
-    } catch(_){}
+    } catch(e) { console.warn(`[${EXTENSION_NAME}] 🔧 getFn error:`, e.message); }
     return null;
 }
 

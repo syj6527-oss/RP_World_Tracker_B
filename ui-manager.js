@@ -975,9 +975,11 @@ export class UIManager {
         // 현재 주소 표시
         if (l.address) { $('#wt-pop-cur-addr').show(); $('#wt-pop-addr-text').text(l.address); } else { $('#wt-pop-cur-addr').hide(); }
         // ★ 내부 장소 섹션 (서브가 아닌 상위 장소만)
+        console.log(`[${EXTENSION_NAME}] 🔧 showPop sub-section: parentId=${l.parentId}, el=${$('#wt-pop-sub-section').length}`);
         if (!l.parentId) {
-            $('#wt-pop-sub-section').show();
+            $('#wt-pop-sub-section').css('display', 'block'); // .show() 대신 강제
             this._renderPopSubList(id);
+            console.log(`[${EXTENSION_NAME}] 🔧 sub-section SHOWN for "${l.name}"`);
         } else {
             $('#wt-pop-sub-section').hide();
         }
@@ -1022,25 +1024,131 @@ export class UIManager {
             const emoji = subEmojis[s.name.toLowerCase()] || '🚪';
             const evCount = (s.events || []).length;
             const isCur = s.id === this.lm.currentSubLocationId;
-            return `<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:6px;margin-bottom:2px;background:${isCur ? '#F0FFF4' : 'transparent'};font-size:11px">
+            return `<div class="wt-pop-sub-item" data-subid="${s.id}" style="display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:6px;margin-bottom:2px;background:${isCur ? '#F0FFF4' : '#FAFAF5'};font-size:11px;cursor:pointer;-webkit-tap-highlight-color:transparent">
                 <span>${emoji}</span>
                 <span style="flex:1;font-weight:${isCur ? '700' : '400'};color:#3C3028">${s.name}${isCur ? ' 🐾' : ''}</span>
                 <span style="color:#9AA0A6;font-size:10px">${s.visitCount || 0}회${evCount ? ' · ' + evCount + '건' : ''}</span>
-                <span class="wt-pop-sub-del" data-subid="${s.id}" style="cursor:pointer;color:#F5A8A8;font-size:12px" title="삭제">✕</span>
+                <span style="color:#9AA0A6;font-size:11px">></span>
             </div>`;
         }).join('');
         list.html(html);
         const self = this;
-        list.find('.wt-pop-sub-del').on('click', async function(e) {
-            e.stopPropagation();
+        // 서브 장소 클릭 → 서브 수정창
+        list.find('.wt-pop-sub-item').on('click', function() {
             const subId = $(this).attr('data-subid');
-            console.log(`[${EXTENSION_NAME}] 🔧 sub-del: id=${subId}`);
-            if (!confirm('이 내부 장소를 삭제할까요?')) return;
+            self._showSubPop(parentId, subId);
+        });
+    }
+
+    // ★ 서브 장소 수정창 (팝오버 교체)
+    _showSubPop(parentId, subId) {
+        const parent = this.lm.locations.find(l => l.id === parentId);
+        const sub = this.lm.locations.find(l => l.id === subId);
+        if (!parent || !sub) return;
+
+        const subEmojis = { '거실':'🛋', '부엌':'🍳', '주방':'🍳', '방':'🛏', '침실':'🛏', '화장실':'🚿', '욕실':'🚿', '서재':'📚', '마당':'🌳', 'kitchen':'🍳', 'bedroom':'🛏', 'bathroom':'🚿', 'living room':'🛋', 'room':'🛏' };
+        const emoji = subEmojis[sub.name.toLowerCase()] || '🚪';
+        const isCur = sub.id === this.lm.currentSubLocationId;
+        const events = sub.events || [];
+
+        const eventsHtml = events.length ? events.map((ev, i) => {
+            const date = ev.timestamp ? this._fmt(ev.timestamp) : '—';
+            return `<div style="display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-bottom:1px solid #F1F3F4">
+                <span style="font-size:12px">${ev.mood || '📝'}</span>
+                <div style="flex:1">
+                    <div style="font-size:11px;font-weight:600;color:#202124">${ev.title || ev.text?.substring(0, 30) || '—'}</div>
+                    <div style="font-size:10px;color:#9AA0A6">${date}</div>
+                </div>
+                <span class="wt-subpop-ev-del" data-idx="${i}" style="cursor:pointer;color:#F5A8A8;font-size:11px">✕</span>
+            </div>`;
+        }).join('') : '<div style="padding:10px;text-align:center;color:#9AA0A6;font-size:11px">아직 이벤트가 없어요</div>';
+
+        const pop = $('#wt-popover');
+        const content = pop.find('.wt-pop-content');
+        // 기존 내용 백업
+        this._parentPopBackup = content.html();
+        this._parentPopId = parentId;
+
+        content.html(`
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <span id="wt-subpop-back" style="font-size:16px;color:#9A8A7A;cursor:pointer">←</span>
+                <span style="font-size:11px;color:#9AA0A6">${parent.name}</span>
+                <span id="wt-subpop-close" style="margin-left:auto;font-size:14px;color:#9A8A7A;cursor:pointer">✕</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <span style="font-size:22px">${emoji}</span>
+                <div>
+                    <div style="font-size:17px;font-weight:800;color:#3C3028">${sub.name}</div>
+                    <div style="font-size:11px;color:#70757A">방문 ${sub.visitCount || 0}회${isCur ? ' · 현재 🐾' : ''}</div>
+                </div>
+            </div>
+            <div style="font-size:12px;color:#9A8A7A;margin-bottom:3px">💭 메모</div>
+            <textarea id="wt-subpop-memo" class="wt-input" placeholder="예: 소파가 편해서 맨날 잠" style="height:45px;resize:none;font-size:12px">${sub.memo || ''}</textarea>
+            <div style="font-size:12px;color:#9A8A7A;margin:6px 0 3px">🤖 특이사항 (AI에게만 전달)</div>
+            <textarea id="wt-subpop-ainotes" class="wt-input" placeholder="예: 큰 TV가 있음, 창문이 남향" style="height:35px;resize:none;font-size:12px">${sub.aiNotes || ''}</textarea>
+            <div style="font-size:12px;color:#9A8A7A;margin:6px 0 3px">📝 이벤트 기록</div>
+            <div id="wt-subpop-events" style="border:1px solid #E8E4D8;border-radius:8px;overflow:hidden;background:#fff">${eventsHtml}</div>
+            <div style="display:flex;gap:4px;margin-top:4px">
+                <input type="text" id="wt-subpop-ev-input" class="wt-input" placeholder="이벤트 추가..." style="flex:1;font-size:11px;padding:5px 8px"/>
+                <button id="wt-subpop-ev-add" class="wt-btn-accent wt-btn-s">+</button>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:10px">
+                <button id="wt-subpop-save" class="wt-btn-primary" style="flex:1">💾 저장</button>
+                <button id="wt-subpop-del" class="wt-btn-danger" style="width:40px">🗑️</button>
+            </div>
+        `);
+
+        pop.attr('data-id', subId);
+        const self = this;
+
+        // ← 뒤로가기
+        $('#wt-subpop-back').on('click', () => {
+            content.html(self._parentPopBackup);
+            pop.attr('data-id', parentId);
+            self.showPop(parentId);
+        });
+        // ✕ 닫기
+        $('#wt-subpop-close').on('click', () => self.hidePop());
+        // 💾 저장
+        $('#wt-subpop-save').on('click', async () => {
+            await self.lm.updateLocation(subId, {
+                memo: $('#wt-subpop-memo').val().trim(),
+                aiNotes: $('#wt-subpop-ainotes').val().trim(),
+            });
+            toastSuccess('💾 저장!');
+            self.pi?.inject();
+        });
+        // 🗑 삭제
+        $('#wt-subpop-del').on('click', async () => {
+            if (!confirm(`"${sub.name}" 삭제?`)) return;
             await self.lm.deleteLocation(subId);
             if (self.lm.currentSubLocationId === subId) self.lm.currentSubLocationId = null;
-            self._renderPopSubList(parentId);
             toastSuccess('🗑️ 삭제됨');
+            self.showPop(parentId);
         });
+        // + 이벤트 추가
+        $('#wt-subpop-ev-add').on('click', () => {
+            const text = $('#wt-subpop-ev-input').val().trim();
+            if (!text) return;
+            if (!sub.events) sub.events = [];
+            sub.events.push({ text, title: text.substring(0, 20), mood: '📝', timestamp: Date.now(), source: 'manual' });
+            self.lm.updateLocation(subId, { events: sub.events });
+            $('#wt-subpop-ev-input').val('');
+            self._showSubPop(parentId, subId); // 리렌더
+            toastSuccess('📝 이벤트 추가!');
+        });
+        $('#wt-subpop-ev-input').on('keydown', (e) => { if (e.key === 'Enter') $('#wt-subpop-ev-add').click(); });
+        // ✕ 이벤트 삭제
+        $('#wt-subpop-events').find('.wt-subpop-ev-del').on('click', function(e) {
+            e.stopPropagation();
+            const idx = parseInt($(this).attr('data-idx'));
+            if (!confirm('이벤트 삭제?')) return;
+            sub.events.splice(idx, 1);
+            self.lm.updateLocation(subId, { events: sub.events });
+            self._showSubPop(parentId, subId);
+            toastSuccess('🗑️ 이벤트 삭제!');
+        });
+        console.log(`[${EXTENSION_NAME}] 🔧 showSubPop: "${parent.name} > ${sub.name}"`);
     }
 
     // ========== 분위기 카드 (이모지 기반 자동 생성) ==========

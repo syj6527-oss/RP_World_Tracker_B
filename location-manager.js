@@ -324,7 +324,7 @@ export class LocationManager {
 
     // 좌표 있는 장소 쌍 → 거리 자동 계산
     async autoCalcDistances() {
-        const geoLocs = this.locations.filter(l => l.lat != null && l.lng != null);
+        const geoLocs = this.locations.filter(l => l.lat != null && l.lng != null && !l.parentId); // ★ 서브 제외
         if (geoLocs.length < 2) return;
         let added = 0;
 

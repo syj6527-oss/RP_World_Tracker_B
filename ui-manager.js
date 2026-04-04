@@ -292,6 +292,14 @@ export class UIManager {
                         <input type="text" id="wt-pop-status" class="wt-input" placeholder="상태 (붐빔, 한산...)"/>
                         <div style="font-size:12px;color:#9A8A7A;margin-top:2px">🏷️ 별칭 (쉼표 구분)</div>
                         <input type="text" id="wt-pop-aliases" class="wt-input" placeholder="예: 사격장, Shooting range" style="font-size:12px"/>
+                        <div id="wt-pop-sub-section" style="margin-top:6px;display:none">
+                            <div style="font-size:12px;font-weight:700;color:#5A4030;margin-bottom:4px">🏠 내부 장소</div>
+                            <div id="wt-pop-sub-list"></div>
+                            <div style="display:flex;gap:4px;margin-top:4px">
+                                <input type="text" id="wt-pop-sub-input" class="wt-input" placeholder="장소 이름 (EX. 거실)" style="flex:1;font-size:11px;padding:5px 8px"/>
+                                <button id="wt-pop-sub-add" class="wt-btn-accent wt-btn-s" style="font-size:14px;padding:4px 8px">+</button>
+                            </div>
+                        </div>
                         <div class="wt-pop-actions"><button id="wt-pop-save" class="wt-btn-primary">💾 저장</button><button id="wt-pop-del" class="wt-btn-danger">🗑️</button></div>
                         <button id="wt-pop-move" class="wt-btn-ghost wt-btn-sm">📍 위치 수정</button>
                         <button id="wt-pop-moveto" class="wt-btn-accent wt-btn-sm" style="opacity:1;font-size:12px">🐾 여기로 이동</button>
@@ -366,6 +374,17 @@ export class UIManager {
         $('#wt-move-toggle').on('click', () => { $('#wt-move-wrap').slideToggle(200); const a=$('#wt-move-arrow'); a.text(a.text()==='▾'?'▴':'▾'); });
         $('#wt-pop-save').on('click', () => this._popSave());
         $('#wt-pop-del').on('click', () => this._popDel());
+        // ★ 내부 장소 추가
+        $('#wt-pop-sub-add').on('click', async () => {
+            const locId = $('#wt-popover').attr('data-id');
+            const name = $('#wt-pop-sub-input').val().trim();
+            if (!name || !locId) return;
+            await this.lm.findOrCreateSub(locId, name);
+            $('#wt-pop-sub-input').val('');
+            this._renderPopSubList(locId);
+            toastSuccess(`🏠 "${name}" 추가!`);
+        });
+        $('#wt-pop-sub-input').on('keydown', (e) => { if (e.key === 'Enter') $('#wt-pop-sub-add').click(); });
         $('#wt-pop-move').on('click', () => this._popMove());
         $('#wt-pop-moveto').on('click', async () => {
             const locId = $('#wt-popover').attr('data-id');
@@ -955,6 +974,13 @@ export class UIManager {
         if (!l.lat && !l.lng) { $('#wt-pop-geo-notice').show(); } else { $('#wt-pop-geo-notice').hide(); }
         // 현재 주소 표시
         if (l.address) { $('#wt-pop-cur-addr').show(); $('#wt-pop-addr-text').text(l.address); } else { $('#wt-pop-cur-addr').hide(); }
+        // ★ 내부 장소 섹션 (서브가 아닌 상위 장소만)
+        if (!l.parentId) {
+            $('#wt-pop-sub-section').show();
+            this._renderPopSubList(id);
+        } else {
+            $('#wt-pop-sub-section').hide();
+        }
         this._updDistSection(id);
         this._updEventsList(id);
         this._renderCachedReviews(id, '#wt-pop-review-list');
@@ -981,6 +1007,40 @@ export class UIManager {
                 if (this.leafletRenderer?.map) this.leafletRenderer.invalidateSize();
             }, 100);
         }
+    }
+
+    // ★ 팝오버 내부 장소 리스트 렌더
+    _renderPopSubList(parentId) {
+        const subs = this.lm.getSubLocations(parentId);
+        const list = $('#wt-pop-sub-list');
+        if (!subs.length) {
+            list.html('<div style="font-size:11px;color:#9AA0A6;padding:4px 0">RP 중 자동 등록되거나 위에서 추가하세요</div>');
+            return;
+        }
+        const subEmojis = { '거실':'🛋', '부엌':'🍳', '주방':'🍳', '방':'🛏', '침실':'🛏', '화장실':'🚿', '욕실':'🚿', '서재':'📚', '마당':'🌳', 'kitchen':'🍳', 'bedroom':'🛏', 'bathroom':'🚿', 'living room':'🛋', 'room':'🛏' };
+        const html = subs.map(s => {
+            const emoji = subEmojis[s.name.toLowerCase()] || '🚪';
+            const evCount = (s.events || []).length;
+            const isCur = s.id === this.lm.currentSubLocationId;
+            return `<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:6px;margin-bottom:2px;background:${isCur ? '#F0FFF4' : 'transparent'};font-size:11px">
+                <span>${emoji}</span>
+                <span style="flex:1;font-weight:${isCur ? '700' : '400'};color:#3C3028">${s.name}${isCur ? ' 🐾' : ''}</span>
+                <span style="color:#9AA0A6;font-size:10px">${s.visitCount || 0}회${evCount ? ' · ' + evCount + '건' : ''}</span>
+                <span class="wt-pop-sub-del" data-subid="${s.id}" style="cursor:pointer;color:#F5A8A8;font-size:12px" title="삭제">✕</span>
+            </div>`;
+        }).join('');
+        list.html(html);
+        const self = this;
+        list.find('.wt-pop-sub-del').on('click', async function(e) {
+            e.stopPropagation();
+            const subId = $(this).attr('data-subid');
+            console.log(`[${EXTENSION_NAME}] 🔧 sub-del: id=${subId}`);
+            if (!confirm('이 내부 장소를 삭제할까요?')) return;
+            await self.lm.deleteLocation(subId);
+            if (self.lm.currentSubLocationId === subId) self.lm.currentSubLocationId = null;
+            self._renderPopSubList(parentId);
+            toastSuccess('🗑️ 삭제됨');
+        });
     }
 
     // ========== 분위기 카드 (이모지 기반 자동 생성) ==========
@@ -2370,7 +2430,7 @@ export class UIManager {
 
     // ---- 거리 입력 섹션 ----
     _updDistSection(locId) {
-        const others = this.lm.locations.filter(l => l.id !== locId);
+        const others = this.lm.locations.filter(l => l.id !== locId && !l.parentId); // ★ 서브 장소 제외
         if (!others.length) { $('#wt-pop-dist-section').hide(); return; }
         $('#wt-pop-dist-section').show();
 
@@ -2380,7 +2440,7 @@ export class UIManager {
             let otherId = d.fromId === locId ? d.toId : d.toId === locId ? d.fromId : null;
             if (!otherId) continue;
             const other = this.lm.locations.find(l => l.id === otherId);
-            if (!other) continue;
+            if (!other || other.parentId) continue; // ★ 서브 장소 거리 안 표시
             const item = $(`<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5A4030;background:#FAFAF5;padding:4px 8px;border-radius:6px">
                 <span style="flex:1">${other.name}</span><span style="color:#9A8A7A">${d.distanceText||'—'}</span>
                 <button class="wt-btn-icon" style="font-size:12px;padding:2px 4px;color:#F5A8A8" data-did="${d.id}">✕</button>

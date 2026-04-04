@@ -248,18 +248,28 @@ export class LocationManager {
         for (let i = 0; i < geoLocs.length; i++) {
             for (let j = i + 1; j < geoLocs.length; j++) {
                 const a = geoLocs[i], b = geoLocs[j];
-                // 이미 거리 설정되어 있으면 스킵
-                if (this.getDistanceBetween(a.id, b.id)) continue;
-
                 const meters = this._haversine(a.lat, a.lng, b.lat, b.lng);
                 const level = this._metersToLevel(meters);
                 const text = this._metersToText(meters);
 
+                // 항상 좌표 로그 (디버그)
+                console.log(`[${EXTENSION_NAME}] 🔧 autoDist: "${a.name}" (${a.lat?.toFixed(6)},${a.lng?.toFixed(6)}) ↔ "${b.name}" (${b.lat?.toFixed(6)},${b.lng?.toFixed(6)}) = ${text} (${Math.round(meters)}m, lv${level})`);
+
+                // 이미 거리 설정되어 있으면 업데이트
+                const existing = this.getDistanceBetween(a.id, b.id);
+                if (existing) {
+                    // 수동 설정이면 스킵, 자동이면 업데이트
+                    if (existing._manual) continue;
+                    existing.distanceText = text;
+                    existing.level = level;
+                    await this.db.saveDistance(existing);
+                    continue;
+                }
+
                 await this.setDistance(a.id, b.id, text, null, level);
                 added++;
-                console.log(`[${EXTENSION_NAME}] 🔧 autoDist: "${a.name}" (${a.lat?.toFixed(4)},${a.lng?.toFixed(4)}) ↔ "${b.name}" (${b.lat?.toFixed(4)},${b.lng?.toFixed(4)}) = ${text} (${Math.round(meters)}m, lv${level})`);
             }
         }
-        if (added) console.log(`[${EXTENSION_NAME}] 🔧 autoDist: ${added} distances added`);
+        if (added) console.log(`[${EXTENSION_NAME}] 🔧 autoDist: ${added} new distances added`);
     }
 }

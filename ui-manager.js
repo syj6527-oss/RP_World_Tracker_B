@@ -1206,7 +1206,7 @@ export class UIManager {
             <div style="display:flex;gap:5px;padding:2px 14px 8px;overflow-x:auto">
                 <button class="wt-bs-pill-btn" data-action="move" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #2B8A6E;background:#2B8A6E;font-size:10.5px;font-weight:600;color:#fff;white-space:nowrap;cursor:pointer;font-family:inherit${cur ? ';opacity:.4' : ''}">🐾 이동</button>
                 <button class="wt-bs-pill-btn" data-action="edit" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #E0E0E0;background:#fff;font-size:10.5px;font-weight:600;color:#3C4043;white-space:nowrap;cursor:pointer;font-family:inherit">✏️ 수정</button>
-                <button class="wt-bs-pill-btn" data-action="save" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #2B8A6E;background:#E8F4F0;font-size:10.5px;font-weight:600;color:#2B8A6E;white-space:nowrap;cursor:pointer;font-family:inherit">🔖 저장됨</button>
+                <button class="wt-bs-pill-btn" data-action="save" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #2B8A6E;background:#E8F4F0;font-size:10.5px;font-weight:600;color:#2B8A6E;white-space:nowrap;cursor:pointer;font-family:inherit">🔖 ${((loc.tags||[]).length ? (loc.tags||[]).map(t=>({favorites:'💜',starred:'⭐',wantToGo:'🚩',travel:'🧳'})[t]||'').join('') : '저장')}</button>
                 <button class="wt-bs-pill-btn" data-action="dist" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #E0E0E0;background:#fff;font-size:10.5px;font-weight:600;color:#3C4043;white-space:nowrap;cursor:pointer;font-family:inherit">📏 거리</button>
             </div>
             <div id="wt-bs-tabs" style="display:flex;border-bottom:2px solid #F0EDE5">
@@ -1274,6 +1274,7 @@ export class UIManager {
             if (action === 'move' && id) { self.lm.moveTo(id).then(() => { self.pi?.inject(); self.refresh(); self._hideBottomSheet(); toastSuccess('🐾 이동!'); }); }
             if (action === 'edit' && id) { self._hideBottomSheet(); self.showPop(id); }
             if (action === 'dist' && id) { self._hideBottomSheet(); self.showPop(id); }
+            if (action === 'save' && id) { self._showTagPopup(id, $(this)); }
         });
         bs.find('.wt-bs-tab').on('click', function(e) {
             e.stopPropagation();
@@ -1544,14 +1545,41 @@ export class UIManager {
         const totalVisits = locs.reduce((s, l) => s + (l.visitCount || 0), 0);
         const mostVisited = locs.length ? [...locs].sort((a, b) => (b.visitCount || 0) - (a.visitCount || 0))[0] : null;
 
-        let recentHtml = locs.slice(0, 5).map(l => {
+        // 카테고리별 카운트
+        const tagCounts = {
+            favorites: locs.filter(l => (l.tags || []).includes('favorites')).length,
+            starred: locs.filter(l => (l.tags || []).includes('starred')).length,
+            wantToGo: locs.filter(l => (l.tags || []).includes('wantToGo')).length,
+            travel: locs.filter(l => (l.tags || []).includes('travel')).length,
+        };
+
+        let recentHtml = locs.filter(l => l.visitCount > 0).slice(0, 5).map(l => {
             const st = this.leafletRenderer?._locStyle?.(l.name) || { emoji: '📍' };
+            const tags = (l.tags || []).map(t => {
+                const icons = { favorites: '💜', starred: '⭐', wantToGo: '🚩', travel: '🧳' };
+                return icons[t] || '';
+            }).join('');
             return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #F1F3F4;cursor:pointer" class="wt-mp-loc" data-id="${l.id}">
                 <div style="width:28px;height:28px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:14px">${st.emoji}</div>
-                <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${l.name}</div><div style="font-size:10px;color:#70757A">방문 ${l.visitCount||0}회</div></div>
-                <span style="font-size:14px;color:#9AA0A6">🔖</span>
+                <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${l.name}${tags ? ' ' + tags : ''}</div><div style="font-size:10px;color:#70757A">방문 ${l.visitCount||0}회</div></div>
+                <span style="font-size:14px;color:#9AA0A6">›</span>
             </div>`;
         }).join('');
+
+        // 미방문 장소 (미래 등록)
+        const unvisited = locs.filter(l => !l.visitCount || l.visitCount === 0);
+        let unvisitedHtml = '';
+        if (unvisited.length) {
+            unvisitedHtml = `<div style="font-size:12px;font-weight:700;color:#202124;margin:14px 0 4px">🔮 미방문 장소</div>` +
+                unvisited.map(l => {
+                    const st = this.leafletRenderer?._locStyle?.(l.name) || { emoji: '📍' };
+                    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F1F3F4;cursor:pointer;opacity:.7" class="wt-mp-loc" data-id="${l.id}">
+                        <div style="width:28px;height:28px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:14px">${st.emoji}</div>
+                        <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${l.name}</div><div style="font-size:10px;color:#9AA0A6">미방문</div></div>
+                        <span style="font-size:14px;color:#9AA0A6">›</span>
+                    </div>`;
+                }).join('');
+        }
 
         const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;min-height:44px;cursor:pointer"><div style="width:32px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
             <div style="padding:8px 14px;overflow-y:auto">
@@ -1559,34 +1587,221 @@ export class UIManager {
                 <div style="display:flex;gap:6px;margin-bottom:12px;overflow-x:auto">
                     <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap;min-width:60px;text-align:center"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${locs.length}</div><div style="font-size:8px;color:#70757A">총 장소</div></div>
                     <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap;min-width:60px;text-align:center"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${totalVisits}</div><div style="font-size:8px;color:#70757A">총 방문</div></div>
-                    <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap;min-width:60px;text-align:center"><div style="font-size:16px;font-weight:800;color:#2B8A6E">${mostVisited?.name||'—'}</div><div style="font-size:8px;color:#70757A">최다 방문</div></div>
+                    <div style="padding:8px 12px;background:#F8F9FA;border-radius:10px;border:1px solid #E8EAED;white-space:nowrap;min-width:60px;text-align:center;overflow:hidden;text-overflow:ellipsis"><div style="font-size:14px;font-weight:800;color:#2B8A6E;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${mostVisited?.name||'—'}</div><div style="font-size:8px;color:#70757A">최다 방문</div></div>
                 </div>
                 <div style="font-size:12px;font-weight:700;color:#202124;margin-bottom:4px">최근 방문한 장소</div>
                 ${recentHtml || '<div style="padding:12px;text-align:center;color:#9AA0A6;font-size:11px">아직 없어요</div>'}
-                <div style="font-size:12px;font-weight:700;color:#202124;margin:14px 0 6px;display:flex;justify-content:space-between">내 목록 <span style="font-size:10px;color:#1A73E8;font-weight:500">+ 새 목록</span></div>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4">💜<div style="flex:1"><div style="font-size:12px;font-weight:600">즐겨찾는 장소</div><div style="font-size:10px;color:#70757A">비공개 · ${locs.length}곳</div></div>⋮</div>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4">⭐<div style="flex:1"><div style="font-size:12px;font-weight:600">별표표시된 장소</div><div style="font-size:10px;color:#70757A">비공개</div></div>⋮</div>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4">🚩<div style="flex:1"><div style="font-size:12px;font-weight:600">가고 싶은 장소</div><div style="font-size:10px;color:#70757A">비공개</div></div>⋮</div>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0">🧳<div style="flex:1"><div style="font-size:12px;font-weight:600">여행 계획</div><div style="font-size:10px;color:#70757A">비공개</div></div>⋮</div>
+                ${unvisitedHtml}
+                <div style="font-size:12px;font-weight:700;color:#202124;margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center">
+                    내 목록
+                    <span class="wt-mp-addloc" style="font-size:10px;color:#1A73E8;font-weight:500;cursor:pointer">+ 장소 등록</span>
+                </div>
+                <div class="wt-mp-list-item" data-tag="favorites" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                    <span style="font-size:16px">💜</span>
+                    <div style="flex:1"><div style="font-size:12px;font-weight:600">즐겨찾는 장소</div><div style="font-size:10px;color:#70757A">${tagCounts.favorites}곳</div></div>
+                    <span style="color:#9AA0A6;font-size:14px">›</span>
+                </div>
+                <div class="wt-mp-list-item" data-tag="starred" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                    <span style="font-size:16px">⭐</span>
+                    <div style="flex:1"><div style="font-size:12px;font-weight:600">별표표시된 장소</div><div style="font-size:10px;color:#70757A">${tagCounts.starred}곳</div></div>
+                    <span style="color:#9AA0A6;font-size:14px">›</span>
+                </div>
+                <div class="wt-mp-list-item" data-tag="wantToGo" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F1F3F4;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                    <span style="font-size:16px">🚩</span>
+                    <div style="flex:1"><div style="font-size:12px;font-weight:600">가고 싶은 장소</div><div style="font-size:10px;color:#70757A">${tagCounts.wantToGo}곳</div></div>
+                    <span style="color:#9AA0A6;font-size:14px">›</span>
+                </div>
+                <div class="wt-mp-list-item" data-tag="travel" style="display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                    <span style="font-size:16px">🧳</span>
+                    <div style="flex:1"><div style="font-size:12px;font-weight:600">여행 계획</div><div style="font-size:10px;color:#70757A">${tagCounts.travel}곳</div></div>
+                    <span style="color:#9AA0A6;font-size:14px">›</span>
+                </div>
             </div>`;
 
         const bs = $('#wt-bottomsheet');
         bs.html(html).show().css({ background: '#fff' });
-        this._applyBsStage(1); // peek (350px) — 전체 바텀시트 동일
+        this._applyBsStage(1);
         this._bindBsDrag(bs[0]);
-
-        // 핸들바 sticky
         bs.find('.wt-bs-handle').css({ position: 'sticky', top: 0, zIndex: 10, background: '#fff' });
 
         const self = this;
+        // 최근 방문 장소 클릭 → 바텀시트
         bs.find('.wt-mp-loc').on('click', function(e) {
-            // #8: 단계 전환 중 클릭 차단
             if (self._bsTransitioning) { e.stopPropagation(); return; }
             const id = $(this).data('id');
             self._hideBottomSheet();
             $('.wt-paw-tab[data-tab="explore"]').click();
             setTimeout(() => self._showBottomSheet(id), 300);
         });
+        // 카테고리 목록 클릭 → 해당 태그 장소 리스트
+        bs.find('.wt-mp-list-item').on('click', function(e) {
+            if (self._bsTransitioning) { e.stopPropagation(); return; }
+            const tag = $(this).data('tag');
+            self._showTagList(tag);
+        });
+        // + 장소 등록
+        bs.find('.wt-mp-addloc').on('click', (e) => {
+            e.stopPropagation();
+            this._showAddLocationPopup();
+        });
+    }
+
+    // ========== 태그별 장소 리스트 ==========
+    _showTagList(tag) {
+        const tagNames = { favorites: '💜 즐겨찾는 장소', starred: '⭐ 별표표시된 장소', wantToGo: '🚩 가고 싶은 장소', travel: '🧳 여행 계획' };
+        const tagged = this.lm.locations.filter(l => (l.tags || []).includes(tag));
+        const bs = $('#wt-bottomsheet');
+
+        let listHtml = '';
+        if (tagged.length) {
+            listHtml = tagged.map(l => {
+                const st = this.leafletRenderer?._locStyle?.(l.name) || { emoji: '📍' };
+                return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #F1F3F4;cursor:pointer" class="wt-tl-loc" data-id="${l.id}">
+                    <div style="width:28px;height:28px;border-radius:50%;background:#F1F3F4;display:flex;align-items:center;justify-content:center;font-size:14px">${st.emoji}</div>
+                    <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${l.name}</div><div style="font-size:10px;color:#70757A">${l.visitCount ? '방문 ' + l.visitCount + '회' : '미방문'}</div></div>
+                    <button class="wt-tl-untag" data-id="${l.id}" data-tag="${tag}" style="border:none;background:#F5A8A8;border-radius:6px;padding:4px 8px;font-size:10px;color:#501313;cursor:pointer;font-family:inherit">삭제</button>
+                </div>`;
+            }).join('');
+        } else {
+            listHtml = '<div style="padding:24px;text-align:center;color:#9AA0A6;font-size:12px">아직 등록된 장소가 없어요<br><span style="font-size:11px">바텀시트에서 장소를 태그해보세요!</span></div>';
+        }
+
+        const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;min-height:44px;cursor:pointer"><div style="width:32px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div style="padding:8px 14px;overflow-y:auto">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                    <span onclick="window.__wtNavTab&&window.__wtNavTab('mypage',document.querySelector('.wt-paw-tab[data-tab=mypage]'))" style="font-size:18px;cursor:pointer;color:#9AA0A6">←</span>
+                    <div style="font-size:15px;font-weight:800;color:#202124">${tagNames[tag] || tag}</div>
+                    <span style="font-size:11px;color:#9AA0A6;margin-left:auto">${tagged.length}곳</span>
+                </div>
+                ${listHtml}
+            </div>`;
+
+        bs.html(html).show().css({ background: '#fff' });
+        this._applyBsStage(2);
+        this._bindBsDrag(bs[0]);
+        bs.find('.wt-bs-handle').css({ position: 'sticky', top: 0, zIndex: 10, background: '#fff' });
+
+        const self = this;
+        bs.find('.wt-tl-loc').on('click', function(e) {
+            if ($(e.target).closest('.wt-tl-untag').length) return;
+            if (self._bsTransitioning) { e.stopPropagation(); return; }
+            const id = $(this).data('id');
+            self._hideBottomSheet();
+            $('.wt-paw-tab[data-tab="explore"]').click();
+            setTimeout(() => self._showBottomSheet(id), 300);
+        });
+        // 태그 삭제
+        bs.find('.wt-tl-untag').on('click', async function(e) {
+            e.stopPropagation();
+            const locId = $(this).data('id');
+            const t = $(this).data('tag');
+            const loc = self.lm.locations.find(l => l.id === locId);
+            if (loc) {
+                loc.tags = (loc.tags || []).filter(x => x !== t);
+                await self.lm.updateLocation(locId, { tags: loc.tags });
+                self._showTagList(t); // 리스트 리렌더
+                toastSuccess('🏷️ 태그 해제!');
+            }
+        });
+    }
+
+    // ========== 태그 토글 팝업 (바텀시트 "저장됨" 버튼) ==========
+    _showTagPopup(locId, btnEl) {
+        $('#wt-tag-popup').remove();
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+        const tags = loc.tags || [];
+        const allTags = [
+            { key: 'favorites', icon: '💜', label: '즐겨찾기' },
+            { key: 'starred', icon: '⭐', label: '별표' },
+            { key: 'wantToGo', icon: '🚩', label: '가고싶은곳' },
+            { key: 'travel', icon: '🧳', label: '여행계획' },
+        ];
+
+        const items = allTags.map(t => {
+            const on = tags.includes(t.key);
+            return `<div class="wt-tag-item" data-key="${t.key}" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;border-radius:8px;background:${on ? '#E8F4F0' : 'transparent'};-webkit-tap-highlight-color:transparent">
+                <span style="font-size:16px">${t.icon}</span>
+                <span style="font-size:12px;font-weight:${on ? '700' : '400'};color:${on ? '#2B8A6E' : '#5A4030'};flex:1">${t.label}</span>
+                <span style="font-size:14px">${on ? '✓' : ''}</span>
+            </div>`;
+        }).join('');
+
+        const popup = $(`<div id="wt-tag-popup" style="position:absolute;bottom:auto;top:120px;left:14px;right:14px;background:#fff;border:1.5px solid #E8E4D8;border-radius:12px;padding:6px;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.15);font-family:-apple-system,'Noto Sans KR',sans-serif">
+            <div style="font-size:11px;color:#9A8A7A;padding:4px 10px 6px;font-weight:500">목록에 저장</div>
+            ${items}
+        </div>`);
+
+        $('#wt-bottomsheet').append(popup);
+        const self = this;
+
+        popup.find('.wt-tag-item').on('click', async function() {
+            const key = $(this).data('key');
+            let curTags = loc.tags || [];
+            if (curTags.includes(key)) {
+                curTags = curTags.filter(t => t !== key);
+            } else {
+                curTags.push(key);
+            }
+            loc.tags = curTags;
+            await self.lm.updateLocation(locId, { tags: curTags });
+            // 리렌더 팝업
+            popup.remove();
+            self._showTagPopup(locId, btnEl);
+            // 저장됨 버튼 텍스트 업데이트
+            const tagIcons = curTags.map(t => {
+                const icons = { favorites: '💜', starred: '⭐', wantToGo: '🚩', travel: '🧳' };
+                return icons[t] || '';
+            }).join('');
+            btnEl.html(tagIcons ? `🔖 ${tagIcons}` : '🔖 저장');
+            console.log(`[${EXTENSION_NAME}] 🔧 tag toggle: "${loc.name}" tags=${curTags}`);
+        });
+
+        // 바깥 클릭 → 닫기
+        setTimeout(() => {
+            $(document).one('click.wtTagPopup', (e) => {
+                if (!$(e.target).closest('#wt-tag-popup').length) popup.remove();
+            });
+        }, 100);
+    }
+
+    // ========== 장소 추가 팝업 (#7 미래 장소 등록) ==========
+    _showAddLocationPopup() {
+        $('#wt-addloc-popup').remove();
+        const popup = $(`<div id="wt-addloc-popup" style="position:absolute;top:60px;left:14px;right:14px;background:#fff;border:2px solid #F6A93A;border-radius:14px;padding:14px;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.15);font-family:-apple-system,'Noto Sans KR',sans-serif">
+            <div style="font-size:14px;font-weight:700;color:#775537;margin-bottom:8px">📍 새 장소 등록</div>
+            <input type="text" id="wt-addloc-name" placeholder="장소 이름" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:8px;font-size:13px;font-family:inherit;margin-bottom:6px;box-sizing:border-box"/>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+                <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#5A4030;cursor:pointer"><input type="checkbox" class="wt-addloc-tag" value="wantToGo"/> 🚩 가고싶은곳</label>
+                <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#5A4030;cursor:pointer"><input type="checkbox" class="wt-addloc-tag" value="favorites"/> 💜 즐겨찾기</label>
+                <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#5A4030;cursor:pointer"><input type="checkbox" class="wt-addloc-tag" value="travel"/> 🧳 여행계획</label>
+            </div>
+            <div style="display:flex;gap:6px">
+                <button id="wt-addloc-ok" style="flex:1;padding:8px;background:#F7EC8D;border:1.5px solid #F6A93A;border-radius:8px;font-size:12px;font-weight:600;color:#775537;cursor:pointer;font-family:inherit">✚ 등록</button>
+                <button id="wt-addloc-cancel" style="flex:1;padding:8px;background:#fff;border:1.5px solid #E8E4D8;border-radius:8px;font-size:12px;color:#9A8A7A;cursor:pointer;font-family:inherit">취소</button>
+            </div>
+        </div>`);
+
+        $('#wt-bottomsheet').append(popup);
+        const self = this;
+
+        popup.find('#wt-addloc-ok').on('click', async () => {
+            const name = popup.find('#wt-addloc-name').val().trim();
+            if (!name) { popup.find('#wt-addloc-name').css('borderColor', '#F5A8A8'); return; }
+            const tags = [];
+            popup.find('.wt-addloc-tag:checked').each(function() { tags.push($(this).val()); });
+
+            const loc = await self.lm.addLocation(name);
+            if (loc && tags.length) {
+                await self.lm.updateLocation(loc.id, { tags });
+            }
+            popup.remove();
+            self._showMyPageBS(); // 리렌더
+            toastSuccess(`📍 "${name}" 등록!`);
+            console.log(`[${EXTENSION_NAME}] 🔧 addLocation from MyPage: "${name}" tags=${tags}`);
+        });
+        popup.find('#wt-addloc-cancel').on('click', () => popup.remove());
+        popup.find('#wt-addloc-name').focus();
     }
 
     // ========== 🕐 타임라인 (아코디언 — 오늘 펼침, 과거 접힘) ==========

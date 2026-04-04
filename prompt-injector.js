@@ -35,16 +35,18 @@ export class PromptInjector {
 
     inject() {
         const t = this.generate(); const fn = getFn();
+        console.log(`[${EXTENSION_NAME}] 🔧 inject(): fn=${!!fn}, text=${t ? t.length + 'c' : 'empty'}`);
         try { if (fn) { fn(PROMPT_KEY, t||'', 1, 0); if (t) console.log(`[${EXTENSION_NAME}] Prompt (${t.length}c):\n${t}`); } }
-        catch(e) { console.warn(`[${EXTENSION_NAME}]`, e.message); }
+        catch(e) { console.warn(`[${EXTENSION_NAME}] inject error:`, e.message); }
     }
     clear() { const fn=getFn(); try{if(fn)fn(PROMPT_KEY,'',1,0)}catch(_){} }
 
     generate() {
         const s = extension_settings[EXTENSION_NAME];
+        console.log(`[${EXTENSION_NAME}] 🔧 generate(): aiInjection=${s?.aiInjection}, locs=${this.lm.locations.length}, curId=${this.lm.currentLocationId}`);
         if (!s?.aiInjection || !this.lm.locations.length) return '';
         const cur = this.lm.locations.find(l => l.id === this.lm.currentLocationId);
-        if (!cur) return '';
+        if (!cur) { console.log(`[${EXTENSION_NAME}] 🔧 generate(): cur not found for id=${this.lm.currentLocationId}`); return ''; }
 
         const L = ['[🐶 World Tracker]'];
 

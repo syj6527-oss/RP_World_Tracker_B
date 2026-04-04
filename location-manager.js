@@ -8,9 +8,76 @@ export class LocationManager {
         this.db = db;
         this.currentChatId = null;
         this.currentLocationId = null;
+        this.currentSubLocationId = null; // ★ 현재 서브로케이션 엔티티 ID
         this.locations = [];
         this.movements = [];
         this.distances = [];
+    }
+
+    // ★ 서브로케이션 키워드
+    static SUB_LOCATIONS = [
+        '거실','부엌','주방','방','침실','안방','작은방','큰방','화장실','욕실','샤워실',
+        '베란다','발코니','옥상','지하실','다락','서재','창고','세탁실','드레스룸',
+        '복도','현관','로비','계단','엘리베이터',
+        '마당','뒤뜰','앞마당','정원','차고','테라스',
+        '사무실','회의실','휴게실','탕비실','대기실','접수처',
+        '교실','강당','운동장','도서실','급식실','보건실',
+        '과자 코너','음료 코너','계산대','진열대','매대',
+        'room','bedroom','kitchen','bathroom','living room','restroom','washroom',
+        'balcony','rooftop','basement','attic','study','garage','closet','pantry',
+        'hallway','corridor','lobby','stairs','staircase','elevator',
+        'yard','backyard','front yard','garden','terrace','porch',
+        'office','meeting room','break room','waiting room','reception',
+        'classroom','auditorium','gym','library','cafeteria',
+        'aisle','counter','checkout','shelf',
+    ];
+
+    isSubLocation(name) {
+        if (!name) return false;
+        const lo = name.toLowerCase().trim();
+        return LocationManager.SUB_LOCATIONS.some(s => lo === s.toLowerCase() || lo.endsWith(s.toLowerCase()));
+    }
+
+    // ★ 서브 장소 찾기/생성
+    async findOrCreateSub(parentId, subName) {
+        const lo = subName.toLowerCase().trim();
+        // 기존 서브 찾기
+        const existing = this.locations.find(l =>
+            l.parentId === parentId && (l.name.toLowerCase() === lo || (l.aliases||[]).some(a => a.toLowerCase() === lo))
+        );
+        if (existing) return existing;
+        // 새로 생성 (좌표 없음, 지도에 안 찍힘)
+        const loc = {
+            id: this.generateId(), chatId: this.currentChatId,
+            name: subName.trim(), aliases: [], parentId: parentId,
+            x: 0, y: 0, lat: null, lng: null,
+            visitCount: 0, firstVisited: null, lastVisited: null,
+            memo: '', status: '', color: this._rndColor(), createdAt: Date.now(),
+        };
+        await this.db.putLocation(loc); this.locations.push(loc);
+        console.log(`[${EXTENSION_NAME}] 🔧 sub-loc created: "${subName}" under "${this.locations.find(l=>l.id===parentId)?.name}"`);
+        return loc;
+    }
+
+    // ★ 서브 장소로 이동 (부모 이동 아님, visitCount만 업데이트)
+    async moveToSub(subId) {
+        const sub = this.locations.find(l => l.id === subId);
+        if (!sub) return;
+        sub.visitCount = (sub.visitCount || 0) + 1;
+        sub.lastVisited = Date.now();
+        if (!sub.firstVisited) sub.firstVisited = Date.now();
+        await this.db.putLocation(sub);
+        this.currentSubLocationId = subId;
+    }
+
+    // ★ 부모 장소의 서브 목록
+    getSubLocations(parentId) {
+        return this.locations.filter(l => l.parentId === parentId);
+    }
+
+    // ★ 최상위 장소만 (서브 제외)
+    getTopLocations() {
+        return this.locations.filter(l => !l.parentId);
     }
 
     getChatId() { const ctx = getContext(); return ctx?.chatId ? String(ctx.chatId) : null; }
@@ -29,7 +96,7 @@ export class LocationManager {
 
     async loadChat() {
         this.currentChatId = this.getDataKey();
-        if (!this.currentChatId) { this.locations=[]; this.movements=[]; this.distances=[]; this.currentLocationId=null; return; }
+        if (!this.currentChatId) { this.locations=[]; this.movements=[]; this.distances=[]; this.currentLocationId=null; this.currentSubLocationId=null; return; }
         this.locations = await this.db.getLocationsByChatId(this.currentChatId) || [];
         this.movements = await this.db.getMovementsByChatId(this.currentChatId) || [];
         this.distances = await this.db.getDistancesByChatId(this.currentChatId) || [];
@@ -146,6 +213,8 @@ export class LocationManager {
     async moveTo(locationId, rpDate) {
         const loc = this.locations.find(l => l.id === locationId); if (!loc) return;
         const prevId = this.currentLocationId;
+        // ★ 다른 장소로 이동하면 서브로케이션 클리어
+        if (prevId !== locationId) this.currentSubLocationId = null;
         loc.visitCount = (loc.visitCount || 0) + 1;
         loc.lastVisited = Date.now();
         if (rpDate) loc.rpLastVisited = rpDate;

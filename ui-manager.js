@@ -675,7 +675,8 @@ export class UIManager {
         }
 
         const cur = this.lm.locations.find(l => l.id === this.lm.currentLocationId);
-        $('#wt-scene-name').text(cur?.name || '—').css('color', cur?.color || '');
+        const subLoc = this.lm.currentSubLocationId ? this.lm.locations.find(l => l.id === this.lm.currentSubLocationId) : null;
+        $('#wt-scene-name').text(cur ? (cur.name + (subLoc ? ' > ' + subLoc.name : '')) : '—').css('color', cur?.color || '');
         // ★ Leaflet 풀스크린이면 장소목록/이동히스토리 숨김 유지
         if (this._isLeafletFull) {
             $('#wt-loc-toggle,#wt-loc-wrap,#wt-move-toggle,#wt-move-wrap,#wt-add-toggle,#wt-add-form,.wt-scene-loc,#wt-popover').hide();
@@ -1235,6 +1236,7 @@ export class UIManager {
                 <div class="wt-bs-tab" data-tab="overview" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#2B8A6E;cursor:pointer;border-bottom:2.5px solid #2B8A6E;margin-bottom:-2px">개요</div>
                 <div class="wt-bs-tab" data-tab="events" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">이벤트</div>
                 <div class="wt-bs-tab" data-tab="review" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">리뷰</div>
+                <div class="wt-bs-tab" data-tab="rooms" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">내부</div>
             </div>
             <div id="wt-bs-tab-overview" style="padding:10px 14px;overflow-y:auto">
                 <!-- 분위기 카드 갤러리 -->
@@ -1279,6 +1281,27 @@ export class UIManager {
                     <button id="wt-bs-gen-review" style="padding:8px 16px;background:#E8F0FE;border:1.5px solid #1A73E8;border-radius:18px;font-size:11px;font-weight:600;color:#1A73E8;cursor:pointer;font-family:inherit">🔄 랜덤 리뷰 생성</button>
                 </div>
                 <div id="wt-bs-review-list"></div>
+            </div>
+            <div id="wt-bs-tab-rooms" style="display:none;padding:10px 14px;overflow-y:auto">
+                ${(() => {
+                    const subs = this.lm.getSubLocations(locId);
+                    const subEmojis = { '거실':'🛋', '부엌':'🍳', '주방':'🍳', '방':'🛏', '침실':'🛏', '안방':'🛏', '화장실':'🚿', '욕실':'🚿', '베란다':'🌅', '발코니':'🌅', '옥상':'🌤', '서재':'📚', '마당':'🌳', '차고':'🚗', 'kitchen':'🍳', 'bedroom':'🛏', 'bathroom':'🚿', 'living room':'🛋', 'room':'🛏', 'study':'📚', 'garage':'🚗', 'balcony':'🌅' };
+                    const getEmoji = n => subEmojis[n.toLowerCase()] || '🚪';
+                    if (!subs.length) return '<div style="text-align:center;padding:20px;color:#9AA0A6;font-size:12px">아직 내부 장소가 없어요<br><span style="font-size:11px">RP 중 거실, 부엌 등이 자동 등록돼요!</span></div>';
+                    return subs.map(s => {
+                        const isCur = s.id === this.lm.currentSubLocationId;
+                        const evCount = (s.events||[]).length;
+                        return `<div class="wt-bs-sub-item" data-subid="${s.id}" style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid ${isCur?'#2B8A6E':'#F0EDE5'};border-radius:10px;margin-bottom:6px;cursor:pointer;background:${isCur?'#F0FFF4':'#fff'};-webkit-tap-highlight-color:transparent">
+                            <span style="font-size:16px">${getEmoji(s.name)}</span>
+                            <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${s.name}${isCur?' <span style="font-size:9px;color:#2B8A6E;background:#E8F5E9;padding:1px 5px;border-radius:6px">현재</span>':''}</div><div style="font-size:10px;color:#70757A">${s.visitCount||0}회${evCount?' · 이벤트 '+evCount+'건':''}</div></div>
+                            <span style="color:#9AA0A6;font-size:12px">></span>
+                        </div>`;
+                    }).join('');
+                })()}
+                <div style="display:flex;gap:4px;margin-top:8px">
+                    <input type="text" id="wt-bs-add-sub" placeholder="장소 이름 (EX. 거실)" style="flex:1;padding:7px 10px;border:1.5px solid #E8E4D8;border-radius:8px;font-size:12px;font-family:inherit"/>
+                    <button id="wt-bs-add-sub-btn" style="width:34px;height:34px;background:#5E84E2;border:none;border-radius:8px;color:#fff;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+                </div>
             </div>`;
 
         bs.html(html).show().css({ background: '#fff' });
@@ -1343,6 +1366,25 @@ export class UIManager {
             bs.find('#wt-bs-tab-events').show();
             if (self._bsStage < 3) self._applyBsStage(3);
         });
+        // ★ 내부 장소 클릭 → 서브 상세 뷰
+        bs.find('.wt-bs-sub-item').on('click', function(e) {
+            e.stopPropagation();
+            const subId = $(this).data('subid');
+            self._showSubLocationDetail(locId, subId);
+        });
+        // ★ 내부 장소 추가 버튼
+        bs.find('#wt-bs-add-sub-btn').on('click', async (e) => {
+            e.stopPropagation();
+            const name = bs.find('#wt-bs-add-sub').val().trim();
+            if (!name) { bs.find('#wt-bs-add-sub').css('borderColor', '#F5A8A8'); return; }
+            await self.lm.findOrCreateSub(locId, name);
+            toastSuccess(`🏠 "${name}" 추가!`);
+            self._showBottomSheet(locId); // 리렌더
+            // 내부 탭 다시 열기
+            setTimeout(() => {
+                bs.find('.wt-bs-tab[data-tab="rooms"]').click();
+            }, 100);
+        });
     }
 
     _hideBottomSheet() {
@@ -1353,6 +1395,63 @@ export class UIManager {
         if (bs) { bs.style.cssText = 'display:none'; bs.innerHTML = ''; }
         setTimeout(() => this.leafletRenderer?.invalidateSize(), 200);
         this._bsStage = 0;
+    }
+
+    // ★ 서브 장소 상세 뷰
+    _showSubLocationDetail(parentId, subId) {
+        const parent = this.lm.locations.find(l => l.id === parentId);
+        const sub = this.lm.locations.find(l => l.id === subId);
+        if (!parent || !sub) return;
+        const bs = $('#wt-bottomsheet');
+        const isCur = sub.id === this.lm.currentSubLocationId;
+        const events = (sub.events || []).slice(-10);
+
+        const subEmojis = { '거실':'🛋', '부엌':'🍳', '주방':'🍳', '방':'🛏', '침실':'🛏', '안방':'🛏', '화장실':'🚿', '욕실':'🚿', '서재':'📚', '마당':'🌳', '차고':'🚗', 'kitchen':'🍳', 'bedroom':'🛏', 'bathroom':'🚿', 'living room':'🛋', 'room':'🛏', 'study':'📚' };
+        const emoji = subEmojis[sub.name.toLowerCase()] || '🚪';
+
+        let evHtml = '';
+        if (events.length) {
+            evHtml = events.map(ev => `<div style="display:flex;align-items:flex-start;gap:6px;padding:6px 0;border-bottom:1px solid #F1F3F4">
+                <span style="font-size:12px">${ev.mood || '📝'}</span>
+                <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${ev.title || ev.text?.substring(0,30) || '—'}</div>
+                <div style="font-size:10px;color:#9AA0A6">${ev.timestamp ? this._fmt(ev.timestamp) : '—'}</div></div>
+            </div>`).join('');
+        } else {
+            evHtml = '<div style="text-align:center;padding:16px;color:#9AA0A6;font-size:11px">아직 이벤트가 없어요</div>';
+        }
+
+        const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;min-height:44px;cursor:pointer"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div style="padding:0 14px;overflow-y:auto">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span class="wt-sub-back" data-parentid="${parentId}" style="font-size:16px;color:#9AA0A6;cursor:pointer">←</span>
+                    <span style="font-size:11px;color:#9AA0A6">${parent.name}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span style="font-size:22px">${emoji}</span>
+                    <div>
+                        <div style="font-size:17px;font-weight:800;color:#202124">${sub.name}</div>
+                        <div style="font-size:11px;color:#70757A">방문 ${sub.visitCount||0}회${isCur ? ' · 현재 🐾' : ''}</div>
+                    </div>
+                </div>
+                ${sub.memo ? `<div style="padding:8px 0;border-top:1px solid #F0EDE5"><div style="font-size:11px;color:#5A4030;font-style:italic;border-left:3px solid #D4D0C8;padding-left:8px">"${sub.memo}"</div></div>` : ''}
+                <div style="padding:8px 0;border-top:1px solid #F0EDE5">
+                    <div style="font-size:12px;font-weight:700;color:#202124;margin-bottom:6px">이벤트</div>
+                    ${evHtml}
+                </div>
+            </div>`;
+
+        bs.html(html).show().css({ background: '#fff' });
+        this._applyBsStage(3); // full
+        this._bindBsDrag(bs[0]);
+        bs.find('.wt-bs-handle').css({ position: 'sticky', top: 0, zIndex: 10, background: '#fff' });
+
+        const self = this;
+        bs.find('.wt-sub-back').on('click', (e) => {
+            e.stopPropagation();
+            const pid = $(e.currentTarget).data('parentid');
+            self._showBottomSheet(pid);
+            setTimeout(() => { bs.find('.wt-bs-tab[data-tab="rooms"]').click(); }, 100);
+        });
     }
 
     // ★ 바텀시트 3단계 + 터치 드래그 (구글맵 스타일)

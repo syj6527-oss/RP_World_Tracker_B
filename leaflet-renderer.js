@@ -136,6 +136,7 @@ export class LeafletRenderer {
         // ========== 구글맵 스타일 물방울 핀 ==========
         for (const loc of locations) {
             if (!loc.lat || !loc.lng) continue;
+            if (loc.parentId) continue; // ★ 서브 장소는 지도에서 숨김
 
             const isCur = loc.id === currentLocationId;
             const isSel = loc.id === this._selectedPinId;

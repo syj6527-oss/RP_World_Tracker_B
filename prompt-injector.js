@@ -70,8 +70,10 @@ export class PromptInjector {
         const L = ['[🐶 World Tracker]'];
         L.push('⚙️ Use this location data to maintain spatial consistency and reference past events naturally in your narration.');
 
-        // 1. 장소 이름
-        L.push(`📍 Scene: ${cur.name}`);
+        // 1. 장소 이름 (+ 서브로케이션)
+        const subLocId = this.lm.currentSubLocationId;
+        const subLoc = subLocId ? this.lm.locations.find(l => l.id === subLocId) : null;
+        L.push(`📍 Scene: ${cur.name}${subLoc ? ' > ' + subLoc.name : ''}`);
 
         // 2. 주소
         if (cur.address) L.push(`📍 Address: ${cur.address}`);
@@ -100,9 +102,17 @@ export class PromptInjector {
         // 7. 특이사항 (AI 전용)
         if (cur.aiNotes) L.push(`📋 AI Notes: ${cur.aiNotes}`);
 
-        // 8. 이벤트 (최근 5개 + 날짜)
-        const evs = this._events(cur);
-        if (evs) L.push(`📝 Memories at this place:\n${evs}`);
+        // 8. 이벤트 — 서브 장소 있으면 서브 이벤트 우선
+        const evTarget = subLoc || cur;
+        const evs = this._events(evTarget);
+        if (evs) L.push(`📝 Memories${subLoc ? ' (' + subLoc.name + ')' : ''}:\n${evs}`);
+
+        // 8.5. 서브 장소 목록 (있으면)
+        const subs = this.lm.getSubLocations(cur.id);
+        if (subs.length) {
+            const subList = subs.map(s => `${s.name}(${s.visitCount||0})`).join(', ');
+            L.push(`🏠 Rooms: ${subList}`);
+        }
 
         // 9. 마지막 이동
         const last = this._last(); if (last) L.push(`🚶 Last move: ${last}`);

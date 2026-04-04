@@ -122,7 +122,16 @@ async function scanMessage(text, source = 'USER') {
             const metaLoc = locMatch[1].trim().replace(/[`*_]/g, '');
             if (metaLoc.length >= 2 && metaLoc.length <= 30) {
                 dbg(`📌 Meta location: "${metaLoc}"`);
-                // 기존 장소에 있는지 확인
+                // ★ 서브로케이션 체크 (거실, 부엌 등 → 현재 장소의 하위)
+                if (lm.isSubLocation(metaLoc) && lm.currentLocationId) {
+                    const sub = await lm.findOrCreateSub(lm.currentLocationId, metaLoc);
+                    await lm.moveToSub(sub.id);
+                    const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
+                    dbg(`🏠 Sub-location: "${curLoc?.name} > ${metaLoc}"`);
+                    pi.inject();
+                    await _tryEvent(text, sub.id, source); // ★ 이벤트는 서브에 저장!
+                    return true;
+                }                // 기존 장소에 있는지 확인
                 const existing = lm.locations.find(l =>
                     l.name.toLowerCase() === metaLoc.toLowerCase() ||
                     (l.aliases || []).some(a => a.toLowerCase() === metaLoc.toLowerCase())
@@ -196,6 +205,16 @@ async function scanMessage(text, source = 'USER') {
         // 새 장소 발견 (mode 전달 → AI는 엄격)
         const np = det.detectNewPlace(text, mode);
         if (np) {
+            // ★ 서브로케이션 체크 (거실, 부엌 등 → 현재 장소의 하위)
+            if (lm.isSubLocation(np) && lm.currentLocationId) {
+                const sub = await lm.findOrCreateSub(lm.currentLocationId, np);
+                await lm.moveToSub(sub.id);
+                const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
+                dbg(`🏠 Sub-location: "${curLoc?.name} > ${np}"`);
+                pi.inject();
+                await _tryEvent(text, sub.id, source); // ★ 이벤트는 서브에 저장!
+                return true;
+            }
             dbg(`🆕 "${np}" (${source})`);
             if (!lm.currentChatId) await lm.loadChat();
             if (lm.currentChatId) {

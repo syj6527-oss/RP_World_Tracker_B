@@ -95,6 +95,7 @@ export class MapRenderer {
         const curLoc = locations.find(l => l.id === currentLocationId) || locations[0];
         const dists = this.lm.distances || [];
         const hubPins = curLoc ? locations.filter(l => {
+            if (l.parentId) return false; // ★ 서브 장소는 약도에서 숨김
             if (l.id === curLoc.id) return true;
             const d = dists.find(dd =>
                 (dd.fromId === curLoc.id && dd.toId === l.id) ||

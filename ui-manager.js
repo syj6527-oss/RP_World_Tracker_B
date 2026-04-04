@@ -902,13 +902,15 @@ export class UIManager {
 
     // ========== 장소 목록 / 이동 히스토리 ==========
     _updLocList() {
-        const list=$('#wt-loc-list').empty(); $('#wt-loc-count').text(this.lm.locations.length);
-        if (!this.lm.locations.length) { list.html('<div class="wt-empty">RP를 시작하면 장소가 자동 추가돼요!</div>'); return; }
-        for (const loc of [...this.lm.locations].sort((a,b)=>(b.visitCount||0)-(a.visitCount||0))) {
+        const topLocs = this.lm.locations.filter(l => !l.parentId); // ★ 서브 장소 제외
+        const list=$('#wt-loc-list').empty(); $('#wt-loc-count').text(topLocs.length);
+        if (!topLocs.length) { list.html('<div class="wt-empty">RP를 시작하면 장소가 자동 추가돼요!</div>'); return; }
+        for (const loc of [...topLocs].sort((a,b)=>(b.visitCount||0)-(a.visitCount||0))) {
             const cur = loc.id === this.lm.currentLocationId;
+            const subCount = this.lm.getSubLocations(loc.id).length;
             const item = $(`<div class="wt-loc-item ${cur?'wt-loc-active':''}" data-id="${loc.id}">
                 <div class="wt-loc-dot" style="background:${loc.color}"></div>
-                <div class="wt-loc-info"><div class="wt-loc-name">${loc.name}${cur?' 🐾':''}</div></div>
+                <div class="wt-loc-info"><div class="wt-loc-name">${loc.name}${cur?' 🐾':''}${subCount?' <span style="font-size:9px;color:#9AA0A6">(+${subCount})</span>':''}</div></div>
                 <div class="wt-loc-visits">${loc.visitCount||0}회</div></div>`);
             item.on('click', () => this.showPop(loc.id));
             list.append(item);
@@ -958,6 +960,19 @@ export class UIManager {
     // ========== 팝오버 (장소 상세) ==========
     showPop(id) {
         const l = this.lm.locations.find(x=>x.id===id); if(!l) return;
+        // ★ 서브 장소면 부모 팝오버 열고 서브 수정창 오버레이
+        if (l.parentId) {
+            const parentExists = this.lm.locations.find(x => x.id === l.parentId);
+            if (parentExists) {
+                this.showPop(l.parentId); // 부모 먼저 열기
+                setTimeout(() => this._showSubPop(l.parentId, id), 50);
+                return;
+            }
+        }
+        // ★ 이전 서브 오버레이 정리 + 원래 body 표시
+        $('#wt-popover .wt-subpop-overlay').remove();
+        $('#wt-popover .wt-pop-body').show();
+        
         $('#wt-popover').attr('data-id', id);
         $('#wt-pop-title').val(l.name); $('#wt-pop-visits').text(l.visitCount||0);
         $('#wt-pop-first').text(l.rpFirstVisited || (l.firstVisited?this._fmt(l.firstVisited):'—'));

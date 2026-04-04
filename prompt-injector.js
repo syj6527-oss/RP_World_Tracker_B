@@ -193,7 +193,7 @@ export class PromptInjector {
         if (!addressed.length) return null;
         const parts = {};
         for (const loc of addressed) {
-            const chunks = loc.address.split(',').map(s => s.trim()).filter(s => s.length > 2);
+            const chunks = loc.address.split(',').map(s => s.trim()).filter(s => s.length > 2 && !/^\d+$/.test(s));
             for (const chunk of chunks.slice(-2)) {
                 parts[chunk] = (parts[chunk] || 0) + 1;
             }

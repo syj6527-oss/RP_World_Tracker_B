@@ -220,8 +220,8 @@ export class LocationManager {
     // 좌표 있는 장소 → 주소 자동 저장 (역지오코딩)
     async autoReverseGeocode() {
         const targets = this.locations.filter(l => l.lat != null && l.lng != null && !l.address);
+        console.log(`[${EXTENSION_NAME}] 🔧 autoGeo: ${targets.length} locations need address (total ${this.locations.length}, with coords ${this.locations.filter(l=>l.lat!=null).length})`);
         if (!targets.length) return;
-        console.log(`[${EXTENSION_NAME}] 🔧 autoReverseGeocode: ${targets.length} locations need address`);
 
         for (const loc of targets) {
             try {

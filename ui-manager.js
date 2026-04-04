@@ -1042,7 +1042,7 @@ export class UIManager {
         console.log(`[${EXTENSION_NAME}] 🔧 renderPopSubList: ${subs.length} items, handlers bound`);
     }
 
-    // ★ 서브 장소 수정창 (팝오버 교체)
+    // ★ 서브 장소 수정창 (팝오버 위에 오버레이)
     _showSubPop(parentId, subId) {
         const parent = this.lm.locations.find(l => l.id === parentId);
         const sub = this.lm.locations.find(l => l.id === subId);
@@ -1065,91 +1065,95 @@ export class UIManager {
             </div>`;
         }).join('') : '<div style="padding:10px;text-align:center;color:#9AA0A6;font-size:11px">아직 이벤트가 없어요</div>';
 
+        // ★ 기존 팝오버 숨기고 오버레이 추가 (DOM 교체 안 함!)
         const pop = $('#wt-popover');
-        const content = pop.find('.wt-pop-body');
-        console.log(`[${EXTENSION_NAME}] 🔧 showSubPop: content el=${content.length}`);
-        // 기존 내용 백업
-        this._parentPopBackup = content.html();
-        this._parentPopId = parentId;
+        pop.find('.wt-pop-body').hide();
+        pop.find('.wt-subpop-overlay').remove();
 
-        content.html(`
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        const overlay = $(`<div class="wt-subpop-overlay" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;gap:8px">
                 <span id="wt-subpop-back" style="font-size:16px;color:#9A8A7A;cursor:pointer">←</span>
                 <span style="font-size:11px;color:#9AA0A6">${parent.name}</span>
                 <span id="wt-subpop-close" style="margin-left:auto;font-size:14px;color:#9A8A7A;cursor:pointer">✕</span>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:22px">${emoji}</span>
                 <div>
                     <div style="font-size:17px;font-weight:800;color:#3C3028">${sub.name}</div>
                     <div style="font-size:11px;color:#70757A">방문 ${sub.visitCount || 0}회${isCur ? ' · 현재 🐾' : ''}</div>
                 </div>
             </div>
-            <div style="font-size:12px;color:#9A8A7A;margin-bottom:3px">💭 메모</div>
+            <div style="font-size:12px;color:#9A8A7A">💭 메모</div>
             <textarea id="wt-subpop-memo" class="wt-input" placeholder="예: 소파가 편해서 맨날 잠" style="height:45px;resize:none;font-size:12px">${sub.memo || ''}</textarea>
-            <div style="font-size:12px;color:#9A8A7A;margin:6px 0 3px">🤖 특이사항 (AI에게만 전달)</div>
+            <div style="font-size:12px;color:#9A8A7A">🤖 특이사항 (AI에게만 전달)</div>
             <textarea id="wt-subpop-ainotes" class="wt-input" placeholder="예: 큰 TV가 있음, 창문이 남향" style="height:35px;resize:none;font-size:12px">${sub.aiNotes || ''}</textarea>
-            <div style="font-size:12px;color:#9A8A7A;margin:6px 0 3px">📝 이벤트 기록</div>
+            <div style="font-size:12px;color:#9A8A7A">📝 이벤트 기록</div>
             <div id="wt-subpop-events" style="border:1px solid #E8E4D8;border-radius:8px;overflow:hidden;background:#fff">${eventsHtml}</div>
-            <div style="display:flex;gap:4px;margin-top:4px">
+            <div style="display:flex;gap:4px">
                 <input type="text" id="wt-subpop-ev-input" class="wt-input" placeholder="이벤트 추가..." style="flex:1;font-size:11px;padding:5px 8px"/>
                 <button id="wt-subpop-ev-add" class="wt-btn-accent wt-btn-s">+</button>
             </div>
-            <div style="display:flex;gap:6px;margin-top:10px">
+            <div style="display:flex;gap:6px;margin-top:4px">
                 <button id="wt-subpop-save" class="wt-btn-primary" style="flex:1">💾 저장</button>
                 <button id="wt-subpop-del" class="wt-btn-danger" style="width:40px">🗑️</button>
             </div>
-        `);
+        </div>`);
 
-        pop.attr('data-id', subId);
+        pop.append(overlay);
         const self = this;
 
-        // ← 뒤로가기
-        $('#wt-subpop-back').on('click', () => {
-            content.html(self._parentPopBackup);
-            pop.attr('data-id', parentId);
-            self.showPop(parentId);
+        // ← 뒤로가기 (오버레이 제거 + 원래 팝오버 표시)
+        overlay.find('#wt-subpop-back').on('click', () => {
+            overlay.remove();
+            pop.find('.wt-pop-body').show();
+            // 내부 장소 리스트 리렌더 (삭제/추가 반영)
+            self._renderPopSubList(parentId);
         });
-        // ✕ 닫기
-        $('#wt-subpop-close').on('click', () => self.hidePop());
+        overlay.find('#wt-subpop-close').on('click', () => { overlay.remove(); self.hidePop(); });
         // 💾 저장
-        $('#wt-subpop-save').on('click', async () => {
+        overlay.find('#wt-subpop-save').on('click', async () => {
             await self.lm.updateLocation(subId, {
-                memo: $('#wt-subpop-memo').val().trim(),
-                aiNotes: $('#wt-subpop-ainotes').val().trim(),
+                memo: overlay.find('#wt-subpop-memo').val().trim(),
+                aiNotes: overlay.find('#wt-subpop-ainotes').val().trim(),
             });
             toastSuccess('💾 저장!');
             self.pi?.inject();
         });
         // 🗑 삭제
-        $('#wt-subpop-del').on('click', async () => {
+        overlay.find('#wt-subpop-del').on('click', async () => {
             if (!confirm(`"${sub.name}" 삭제?`)) return;
             await self.lm.deleteLocation(subId);
             if (self.lm.currentSubLocationId === subId) self.lm.currentSubLocationId = null;
+            overlay.remove();
+            pop.find('.wt-pop-body').show();
+            self._renderPopSubList(parentId);
             toastSuccess('🗑️ 삭제됨');
-            self.showPop(parentId);
         });
         // + 이벤트 추가
-        $('#wt-subpop-ev-add').on('click', () => {
-            const text = $('#wt-subpop-ev-input').val().trim();
+        overlay.find('#wt-subpop-ev-add').on('click', () => {
+            const text = overlay.find('#wt-subpop-ev-input').val().trim();
             if (!text) return;
             if (!sub.events) sub.events = [];
             sub.events.push({ text, title: text.substring(0, 20), mood: '📝', timestamp: Date.now(), source: 'manual' });
             self.lm.updateLocation(subId, { events: sub.events });
-            $('#wt-subpop-ev-input').val('');
-            self._showSubPop(parentId, subId); // 리렌더
             toastSuccess('📝 이벤트 추가!');
+            // 리렌더
+            overlay.remove();
+            pop.find('.wt-pop-body').hide();
+            self._showSubPop(parentId, subId);
         });
-        $('#wt-subpop-ev-input').on('keydown', (e) => { if (e.key === 'Enter') $('#wt-subpop-ev-add').click(); });
+        overlay.find('#wt-subpop-ev-input').on('keydown', (e) => { if (e.key === 'Enter') overlay.find('#wt-subpop-ev-add').click(); });
         // ✕ 이벤트 삭제
-        $('#wt-subpop-events').find('.wt-subpop-ev-del').on('click', function(e) {
+        overlay.find('.wt-subpop-ev-del').on('click', function(e) {
             e.stopPropagation();
             const idx = parseInt($(this).attr('data-idx'));
             if (!confirm('이벤트 삭제?')) return;
             sub.events.splice(idx, 1);
             self.lm.updateLocation(subId, { events: sub.events });
+            overlay.remove();
+            pop.find('.wt-pop-body').hide();
             self._showSubPop(parentId, subId);
-            toastSuccess('🗑️ 이벤트 삭제!');
+            toastSuccess('🗑️ 삭제!');
         });
         console.log(`[${EXTENSION_NAME}] 🔧 showSubPop: "${parent.name} > ${sub.name}"`);
     }

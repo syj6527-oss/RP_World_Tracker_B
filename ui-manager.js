@@ -1066,7 +1066,8 @@ export class UIManager {
         }).join('') : '<div style="padding:10px;text-align:center;color:#9AA0A6;font-size:11px">아직 이벤트가 없어요</div>';
 
         const pop = $('#wt-popover');
-        const content = pop.find('.wt-pop-content');
+        const content = pop.find('.wt-pop-body');
+        console.log(`[${EXTENSION_NAME}] 🔧 showSubPop: content el=${content.length}`);
         // 기존 내용 백업
         this._parentPopBackup = content.html();
         this._parentPopId = parentId;

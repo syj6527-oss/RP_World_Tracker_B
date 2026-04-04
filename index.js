@@ -145,6 +145,8 @@ async function scanMessage(text, source = 'USER') {
                             pi.inject(); if (ui.panelVisible) ui.refresh();
                             ui.showAutoToast(loc);
                             await _tryEvent(text, loc.id, source);
+                            // ★ 즉시 자동 거리+주소
+                            setTimeout(async () => { try { await lm.autoCalcDistances(); await lm.autoReverseGeocode(); pi.inject(); } catch(_){} }, 1500);
                         }
                     }
                     return true;
@@ -182,6 +184,8 @@ async function scanMessage(text, source = 'USER') {
                     pi.inject(); if (ui.panelVisible) ui.refresh();
                     ui.showAutoToast(loc);
                     await _tryEvent(text, loc.id, source);
+                    // ★ 즉시 자동 거리+주소
+                    setTimeout(async () => { try { await lm.autoCalcDistances(); await lm.autoReverseGeocode(); pi.inject(); } catch(_){} }, 1500);
                 }
             }
             return true;

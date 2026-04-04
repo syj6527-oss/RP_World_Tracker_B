@@ -1036,8 +1036,10 @@ export class UIManager {
         // 서브 장소 클릭 → 서브 수정창
         list.find('.wt-pop-sub-item').on('click', function() {
             const subId = $(this).attr('data-subid');
+            console.log(`[${EXTENSION_NAME}] 🔧 sub-item clicked: ${subId}`);
             self._showSubPop(parentId, subId);
         });
+        console.log(`[${EXTENSION_NAME}] 🔧 renderPopSubList: ${subs.length} items, handlers bound`);
     }
 
     // ★ 서브 장소 수정창 (팝오버 교체)

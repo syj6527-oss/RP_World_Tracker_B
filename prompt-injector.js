@@ -7,12 +7,12 @@ import { EXTENSION_NAME, PROMPT_KEY } from './index.js';
 function getFn() {
     try {
         // 방법 1: script.js에서 직접 import (최신 SillyTavern)
-        if (typeof setExtensionPrompt === 'function') return setExtensionPrompt;
+        if (typeof setExtensionPrompt === 'function') { console.log(`[${EXTENSION_NAME}] 🔧 getFn: found via import`); return setExtensionPrompt; }
         // 방법 2: getContext()
         const ctx = getContext();
-        if (typeof ctx?.setExtensionPrompt === 'function') return ctx.setExtensionPrompt;
+        if (typeof ctx?.setExtensionPrompt === 'function') { console.log(`[${EXTENSION_NAME}] 🔧 getFn: found via getContext`); return ctx.setExtensionPrompt; }
         // 방법 3: window 전역 (구버전)
-        if (typeof window.setExtensionPrompt === 'function') return window.setExtensionPrompt;
+        if (typeof window.setExtensionPrompt === 'function') { console.log(`[${EXTENSION_NAME}] 🔧 getFn: found via window`); return window.setExtensionPrompt; }
     } catch(e) { console.warn(`[${EXTENSION_NAME}] 🔧 getFn error:`, e.message); }
     return null;
 }
@@ -45,7 +45,17 @@ export class PromptInjector {
     inject() {
         const t = this.generate(); const fn = getFn();
         console.log(`[${EXTENSION_NAME}] 🔧 inject(): fn=${!!fn}, text=${t ? t.length + 'c' : 'empty'}`);
-        try { if (fn) { fn(PROMPT_KEY, t||'', 1, 0); if (t) console.log(`[${EXTENSION_NAME}] Prompt (${t.length}c):\n${t}`); } }
+        try {
+            if (fn) {
+                fn(PROMPT_KEY, t||'', 1, 0);
+                if (t) {
+                    console.log(`[${EXTENSION_NAME}] ✅ Prompt injected (${t.length}c):\n${t}`);
+                    console.log(`[${EXTENSION_NAME}] 🔧 Prompt key: "${PROMPT_KEY}"`);
+                }
+            } else {
+                console.warn(`[${EXTENSION_NAME}] ❌ setExtensionPrompt not found!`);
+            }
+        }
         catch(e) { console.warn(`[${EXTENSION_NAME}] inject error:`, e.message); }
     }
     clear() { const fn=getFn(); try{if(fn)fn(PROMPT_KEY,'',1,0)}catch(_){} }

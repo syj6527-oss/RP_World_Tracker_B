@@ -794,6 +794,28 @@ export class UIManager {
                         } else { toastSuccess(`📍 "${loc.name}" 이동!`); }
                     } catch(_) { toastSuccess(`📍 "${loc.name}" 이동!`); }
                 };
+                // ★ 빈 곳 롱프레스 → 새 장소 등록
+                this.leafletRenderer.onLongPress = async (lat, lng) => {
+                    const name = prompt('📍 새 장소 이름:');
+                    if (!name?.trim()) return;
+                    const loc = await this.lm.addLocation(name.trim());
+                    if (loc) {
+                        await this.lm.updateLocation(loc.id, { lat, lng });
+                        // 역지오코딩
+                        try {
+                            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=ko`, { headers: { 'User-Agent': 'RP-World-Tracker/0.3' } });
+                            if (res.ok) {
+                                const d = await res.json();
+                                const addr = d.display_name?.split(',').slice(0, 3).join(', ') || '';
+                                if (addr) await this.lm.updateLocation(loc.id, { address: addr });
+                            }
+                        } catch(_) {}
+                        this.leafletRenderer.render();
+                        try { await this.lm.autoCalcDistances(); } catch(_){}
+                        toastSuccess(`📍 "${name.trim()}" 등록!`);
+                        console.log(`[${EXTENSION_NAME}] 🔧 longPress addLoc: "${name.trim()}" (${lat.toFixed(4)},${lng.toFixed(4)})`);
+                    }
+                };
             }
             this.leafletRenderer.render();
             // #46: 모바일 invalidateSize — 여러 타이밍에 반복
@@ -1773,6 +1795,7 @@ export class UIManager {
         const popup = $(`<div id="wt-addloc-popup" style="position:absolute;top:60px;left:14px;right:14px;background:#fff;border:2px solid #F6A93A;border-radius:14px;padding:14px;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.15);font-family:-apple-system,'Noto Sans KR',sans-serif">
             <div style="font-size:14px;font-weight:700;color:#775537;margin-bottom:8px">📍 새 장소 등록</div>
             <input type="text" id="wt-addloc-name" placeholder="장소 이름" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:8px;font-size:13px;font-family:inherit;margin-bottom:6px;box-sizing:border-box"/>
+            <input type="text" id="wt-addloc-addr" placeholder="주소 (선택 — 비우면 자동 지정)" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:8px;font-size:12px;font-family:inherit;margin-bottom:6px;box-sizing:border-box;color:#5A4030"/>
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
                 <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#5A4030;cursor:pointer"><input type="checkbox" class="wt-addloc-tag" value="wantToGo"/> 🚩 가고싶은곳</label>
                 <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#5A4030;cursor:pointer"><input type="checkbox" class="wt-addloc-tag" value="favorites"/> 💜 즐겨찾기</label>
@@ -1790,17 +1813,35 @@ export class UIManager {
         popup.find('#wt-addloc-ok').on('click', async () => {
             const name = popup.find('#wt-addloc-name').val().trim();
             if (!name) { popup.find('#wt-addloc-name').css('borderColor', '#F5A8A8'); return; }
+            const addr = popup.find('#wt-addloc-addr').val().trim();
             const tags = [];
             popup.find('.wt-addloc-tag:checked').each(function() { tags.push($(this).val()); });
 
             const loc = await self.lm.addLocation(name);
-            if (loc && tags.length) {
-                await self.lm.updateLocation(loc.id, { tags });
+            if (loc) {
+                const updates = {};
+                if (tags.length) updates.tags = tags;
+                // 주소 입력 → Nominatim 검색해서 좌표도 저장
+                if (addr) {
+                    updates.address = addr;
+                    try {
+                        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`, { headers: { 'User-Agent': 'RP-World-Tracker/0.3' } });
+                        const data = await res.json();
+                        if (data?.[0]) {
+                            updates.lat = parseFloat(data[0].lat);
+                            updates.lng = parseFloat(data[0].lon);
+                            console.log(`[${EXTENSION_NAME}] 🔧 addLoc geocode: "${addr}" → (${updates.lat},${updates.lng})`);
+                        }
+                    } catch(e) { console.warn(`[${EXTENSION_NAME}] 🔧 addLoc geocode failed:`, e.message); }
+                }
+                if (Object.keys(updates).length) await self.lm.updateLocation(loc.id, updates);
             }
             popup.remove();
-            self._showMyPageBS(); // 리렌더
+            self._showMyPageBS();
             toastSuccess(`📍 "${name}" 등록!`);
-            console.log(`[${EXTENSION_NAME}] 🔧 addLocation from MyPage: "${name}" tags=${tags}`);
+            // 거리 자동 계산
+            try { await self.lm.autoCalcDistances(); } catch(_){}
+            console.log(`[${EXTENSION_NAME}] 🔧 addLocation from MyPage: "${name}" addr="${addr}" tags=${tags}`);
         });
         popup.find('#wt-addloc-cancel').on('click', () => popup.remove());
         popup.find('#wt-addloc-name').focus();

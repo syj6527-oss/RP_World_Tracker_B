@@ -88,6 +88,34 @@ export class LeafletRenderer {
         });
 
         console.log(`[${EXTENSION_NAME}] Leaflet initialized`);
+
+        // ★ 빈 곳 롱프레스 → 새 장소 등록
+        let _lpTimer = null, _lpPos = null;
+        this.map.getContainer().addEventListener('touchstart', (e) => {
+            if (this._movingLocId) return;
+            if (e.touches.length !== 1) return;
+            _lpPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            _lpTimer = setTimeout(() => {
+                if (!_lpPos) return;
+                const latlng = this.map.containerPointToLatLng([
+                    _lpPos.x - this.map.getContainer().getBoundingClientRect().left,
+                    _lpPos.y - this.map.getContainer().getBoundingClientRect().top
+                ]);
+                if (navigator.vibrate) navigator.vibrate(50);
+                if (this.onLongPress) this.onLongPress(latlng.lat, latlng.lng);
+                _lpPos = null;
+            }, 600);
+        }, { passive: true });
+        this.map.getContainer().addEventListener('touchmove', (e) => {
+            if (_lpTimer && _lpPos) {
+                const dx = e.touches[0].clientX - _lpPos.x, dy = e.touches[0].clientY - _lpPos.y;
+                if (Math.sqrt(dx*dx + dy*dy) > 10) { clearTimeout(_lpTimer); _lpTimer = null; _lpPos = null; }
+            }
+        }, { passive: true });
+        this.map.getContainer().addEventListener('touchend', () => {
+            clearTimeout(_lpTimer); _lpTimer = null; _lpPos = null;
+        }, { passive: true });
+
         return true;
     }
 

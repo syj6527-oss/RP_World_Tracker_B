@@ -208,11 +208,11 @@ export class LocationManager {
         return 10;                  // 다른 지역
     }
 
-    // 거리(m) → 텍스트
+    // 거리(m) → 텍스트 (x1.4 도보 보정)
     _metersToText(m) {
+        const walk = m * 1.4; // 직선→도보 보정
         if (m < 50) return '바로 옆';
-        if (m < 200) return `도보 ${Math.round(m / 80)}분`;
-        if (m < 1500) return `도보 ${Math.round(m / 80)}분`;
+        if (walk < 1200) return `도보 ${Math.round(walk / 80)}분`;
         if (m < 5000) return `${(m/1000).toFixed(1)}km`;
         return `${Math.round(m/1000)}km`;
     }
@@ -257,7 +257,7 @@ export class LocationManager {
 
                 await this.setDistance(a.id, b.id, text, null, level);
                 added++;
-                console.log(`[${EXTENSION_NAME}] 🔧 autoDist: "${a.name}" ↔ "${b.name}" = ${text} (${Math.round(meters)}m, lv${level})`);
+                console.log(`[${EXTENSION_NAME}] 🔧 autoDist: "${a.name}" (${a.lat?.toFixed(4)},${a.lng?.toFixed(4)}) ↔ "${b.name}" (${b.lat?.toFixed(4)},${b.lng?.toFixed(4)}) = ${text} (${Math.round(meters)}m, lv${level})`);
             }
         }
         if (added) console.log(`[${EXTENSION_NAME}] 🔧 autoDist: ${added} distances added`);

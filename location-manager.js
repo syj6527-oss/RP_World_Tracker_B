@@ -182,4 +182,84 @@ export class LocationManager {
         const c = ['#F5A8A8','#FCE7AE','#A8E6CF','#A8D8EA','#C3B1E1','#F5C6AA','#B5EAD7','#FFD3B6'];
         return c[Math.floor(Math.random() * c.length)];
     }
+
+    // ========== 위치 기반 자동 확장 ==========
+
+    // Haversine 공식 (두 좌표 간 직선 거리, 미터)
+    _haversine(lat1, lng1, lat2, lng2) {
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // 거리(m) → 레벨(1~10)
+    _metersToLevel(m) {
+        if (m < 50) return 1;      // 바로 옆
+        if (m < 150) return 2;     // 매우 가까움
+        if (m < 300) return 3;     // 가까움
+        if (m < 500) return 4;     // 도보 5분
+        if (m < 1000) return 5;    // 도보권
+        if (m < 2000) return 6;    // 도보 15분+
+        if (m < 5000) return 7;    // 대중교통
+        if (m < 15000) return 8;   // 차량 필요
+        if (m < 50000) return 9;   // 먼 거리
+        return 10;                  // 다른 지역
+    }
+
+    // 거리(m) → 텍스트
+    _metersToText(m) {
+        if (m < 50) return '바로 옆';
+        if (m < 200) return `도보 ${Math.round(m / 80)}분`;
+        if (m < 1500) return `도보 ${Math.round(m / 80)}분`;
+        if (m < 5000) return `${(m/1000).toFixed(1)}km`;
+        return `${Math.round(m/1000)}km`;
+    }
+
+    // 좌표 있는 장소 → 주소 자동 저장 (역지오코딩)
+    async autoReverseGeocode() {
+        const targets = this.locations.filter(l => l.lat != null && l.lng != null && !l.address);
+        if (!targets.length) return;
+        console.log(`[${EXTENSION_NAME}] 🔧 autoReverseGeocode: ${targets.length} locations need address`);
+
+        for (const loc of targets) {
+            try {
+                // Nominatim 요청 간격 (1초)
+                await new Promise(r => setTimeout(r, 1100));
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${loc.lat}&lon=${loc.lng}&accept-language=ko`, { headers: { 'User-Agent': 'RP-World-Tracker/0.3' } });
+                if (!res.ok) continue;
+                const d = await res.json();
+                const addr = d.display_name?.split(',').slice(0, 3).join(', ') || '';
+                if (addr) {
+                    await this.updateLocation(loc.id, { address: addr });
+                    console.log(`[${EXTENSION_NAME}] 🔧 autoGeo: "${loc.name}" → ${addr}`);
+                }
+            } catch(e) { console.warn(`[${EXTENSION_NAME}] autoGeo error for "${loc.name}":`, e.message); }
+        }
+    }
+
+    // 좌표 있는 장소 쌍 → 거리 자동 계산
+    async autoCalcDistances() {
+        const geoLocs = this.locations.filter(l => l.lat != null && l.lng != null);
+        if (geoLocs.length < 2) return;
+        let added = 0;
+
+        for (let i = 0; i < geoLocs.length; i++) {
+            for (let j = i + 1; j < geoLocs.length; j++) {
+                const a = geoLocs[i], b = geoLocs[j];
+                // 이미 거리 설정되어 있으면 스킵
+                if (this.getDistanceBetween(a.id, b.id)) continue;
+
+                const meters = this._haversine(a.lat, a.lng, b.lat, b.lng);
+                const level = this._metersToLevel(meters);
+                const text = this._metersToText(meters);
+
+                await this.setDistance(a.id, b.id, text, null, level);
+                added++;
+                console.log(`[${EXTENSION_NAME}] 🔧 autoDist: "${a.name}" ↔ "${b.name}" = ${text} (${Math.round(meters)}m, lv${level})`);
+            }
+        }
+        if (added) console.log(`[${EXTENSION_NAME}] 🔧 autoDist: ${added} distances added`);
+    }
 }

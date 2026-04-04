@@ -2138,11 +2138,15 @@ export class UIManager {
                     $('#wt-pop-geo-input').val('');
                     self.hidePop();
                     self._setMapMode('leaflet');
-                    setTimeout(() => {
+                    setTimeout(async () => {
                         if (self.leafletRenderer?.map) {
                             self.leafletRenderer.render();
                             self.leafletRenderer.map.setView([lat, lng], 15);
                         }
+                        // ★ 위치 기반 자동 확장
+                        try { await self.lm.autoCalcDistances(); } catch(_){}
+                        try { await self.lm.autoReverseGeocode(); } catch(_){}
+                        self.pi?.inject();
                     }, 500);
                 });
                 resultsDiv.append(item);

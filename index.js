@@ -276,6 +276,12 @@ async function init() {
         if (!await scanContext()) {
             setTimeout(() => scanContext(), 1000);
         }
+        // ★ 위치 기반 자동 확장
+        setTimeout(async () => {
+            try { await lm.autoCalcDistances(); } catch(_){}
+            try { await lm.autoReverseGeocode(); } catch(_){}
+            if (ui.panelVisible) ui.refresh();
+        }, 3000);
     });
 
     if (event_types.MESSAGE_SENDING) {
@@ -289,6 +295,12 @@ async function init() {
     // 초기 데이터 로드 + 렌더링
     await lm.loadChat();
     ui.refresh();
+    // ★ 위치 기반 자동 확장 (비동기, 로딩 안 막음)
+    setTimeout(async () => {
+        try { await lm.autoCalcDistances(); } catch(_){}
+        try { await lm.autoReverseGeocode(); } catch(_){}
+        ui.refresh();
+    }, 2000);
 }
 
 async function scanContext() {

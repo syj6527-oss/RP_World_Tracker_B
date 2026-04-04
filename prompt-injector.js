@@ -68,6 +68,7 @@ export class PromptInjector {
         if (!cur) { console.log(`[${EXTENSION_NAME}] 🔧 generate(): cur not found for id=${this.lm.currentLocationId}`); return ''; }
 
         const L = ['[🐶 World Tracker]'];
+        L.push('⚙️ Use this location data to maintain spatial consistency and reference past events naturally in your narration.');
 
         // 1. 장소 이름
         L.push(`📍 Scene: ${cur.name}`);

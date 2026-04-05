@@ -10,8 +10,19 @@ const dbg = (...a) => console.log(`[${EXTENSION_NAME}]`, ...a);
 function _getApiConfig() {
     try {
         // ST 전역 변수에서 API 정보 읽기
-        const mainApi = window.main_api; // "openai" | "kobold" | "novel" 등
-        const chatCompletion = window.oai_settings?.chat_completion_source; // "openai" | "makersuite" | "openrouter" 등
+        const mainApi = window.main_api;
+        const oai = window.oai_settings;
+        const chatCompletion = oai?.chat_completion_source;
+
+        dbg('🔧 LLM detect:', { mainApi, chatCompletion, hasOai: !!oai });
+        dbg('🔧 LLM keys:', {
+            makersuite: oai?.api_key_makersuite ? '✅' : '❌',
+            openai: oai?.api_key_openai ? '✅' : '❌',
+            openrouter: oai?.api_key_openrouter ? '✅' : '❌',
+            claude: oai?.api_key_claude ? '✅' : '❌',
+            google_model: oai?.google_model,
+            openai_model: oai?.openai_model,
+        });
 
         let type = null, key = null, model = null, url = null;
 

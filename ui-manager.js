@@ -3183,13 +3183,9 @@ export class UIManager {
             for (let i = 0; i < weights.length; i++) {
                 if (rnd < weights[i]) { reviewCount = i + 1; break; }
             }
-            const prompt = `[SYSTEM OVERRIDE — THIS IS NOT A ROLEPLAY MESSAGE]
-[DO NOT CONTINUE THE STORY — DO NOT WRITE NARRATIVE — JSON ONLY]
+            const prompt = `You are writing Google Maps-style character reviews for an RP location. Write in-character, vivid, emotional reviews that reflect each reviewer's unique personality.
 
-You are a data generator. Your ONLY job: output a JSON object.
-NEVER write story text, dialogue, actions, or narrative.
-
-Generate ${reviewCount} Google Maps-style reviews.
+Generate ${reviewCount} reviews.
 Place: "${loc.name}" | Visits: ${loc.visitCount || 0} | Memo: "${loc.memo || ''}"
 Events: ${evSummary}
 Characters: User="${userName}", Char="${charName}"

@@ -381,43 +381,63 @@ async function init() {
             if (ui.panelVisible) ui.refresh();
         }, 3000);
 
-        // ★ 캐릭터시트에서 1차 주소 자동 추출 (장소 0개일 때만)
-        if (lm.locations.length === 0) {
-            setTimeout(async () => {
-                try {
-                    const ctx = getContext();
-                    const desc = ctx.characters?.[ctx.characterId]?.description || '';
-                    const scenario = ctx.characters?.[ctx.characterId]?.scenario || '';
-                    const combined = desc + ' ' + scenario;
-                    if (combined.length < 10) return;
-                    // 주소/지역 패턴 추출
-                    const patterns = [
-                        /(?:lives?\s+in|based\s+in|located\s+in|set\s+in|takes?\s+place\s+in)\s+([A-Z][a-zA-Z\s]+?)(?:[,.\n]|$)/i,
-                        /(?:사는\s*곳|거주지|배경|위치)[:\s]*([^\n,]{2,15})/,
-                        /(?:서울|부산|대구|인천|광주|대전|울산|세종|제주|경기|강원|충북|충남|전북|전남|경북|경남)/,
-                        /(?:London|New York|Tokyo|Paris|Seoul|Berlin|Moscow|Beijing|Shanghai|Los Angeles|Chicago|Toronto|Sydney|Melbourne|Singapore|Hong Kong)/i,
-                        /(?:기지|base|camp|headquarters|HQ|barracks|막사|본부|사령부)\s*(?:in\s+)?([A-Za-z\uAC00-\uD7A3\s]{2,15})?/i,
-                    ];
-                    for (const pat of patterns) {
-                        const m = combined.match(pat);
-                        if (m) {
-                            const place = (m[1] || m[0]).trim().substring(0, 20);
-                            if (place.length >= 2 && !lm.findByName(place)) {
-                                dbg(`🏠 Character sheet address detected: "${place}"`);
-                                const loc = await lm.addLocation(place);
-                                if (loc) {
-                                    await lm.moveTo(loc.id);
-                                    pi.inject();
-                                    if (ui.panelVisible) ui.refresh();
-                                    wtNotify(`🏠 캐릭터 시트에서 "${place}" 감지!`, 'new', 4000);
-                                }
+        // ★ 캐릭터시트에서 1차 주소/지역 자동 추출 (GPS 앵커 없을 때)
+        setTimeout(async () => {
+            try {
+                // GPS 좌표 있는 장소가 하나라도 있으면 스킵 (이미 앵커 있음)
+                const hasAnchor = lm.locations.some(l => l.lat && l.lng);
+                if (hasAnchor) return;
+
+                const ctx = getContext();
+                const desc = ctx.characters?.[ctx.characterId]?.description || '';
+                const scenario = ctx.characters?.[ctx.characterId]?.scenario || '';
+                const persona = ctx.characters?.[ctx.characterId]?.personality || '';
+                const combined = [desc, scenario, persona].join(' ');
+                if (combined.length < 10) return;
+
+                // 주소/지역 패턴 추출 (폭넓은 매칭)
+                const patterns = [
+                    // 영어: "lives in X", "based in X", "set in X"
+                    /(?:lives?\s+in|based\s+in|located\s+in|set\s+in|takes?\s+place\s+in|stationed\s+in|deployed\s+to)\s+([A-Z][a-zA-Z\s,]+?)(?:[.\n;]|$)/i,
+                    // 한국어: "~에 사는", "배경: ~"
+                    /(?:사는\s*곳|거주지|배경|위치|거점|활동지)[:\s은는이가]*([^\n,.]{2,15})/,
+                    // 도시명 직접 매칭 (영어)
+                    /(New\s+Orleans|Los\s+Angeles|New\s+York|San\s+Francisco|Las\s+Vegas|Hong\s+Kong|Rio\s+de\s+Janeiro|Buenos\s+Aires|Kuala\s+Lumpur|Tel\s+Aviv|Abu\s+Dhabi|London|Tokyo|Paris|Seoul|Berlin|Moscow|Beijing|Shanghai|Chicago|Toronto|Sydney|Melbourne|Singapore|Mumbai|Bangkok|Dubai|Rome|Madrid|Amsterdam|Prague|Vienna|Istanbul|Cairo|Nairobi|Jakarta|Manila|Taipei|Osaka|Kyoto|Busan|Hanoi|Saigon|Havana|Lima|Bogota|Mexico\s+City)/i,
+                    // 도시명 직접 매칭 (한국어 외래어)
+                    /(뉴올리언스|로스앤젤레스|뉴욕|샌프란시스코|라스베이거스|홍콩|런던|도쿄|파리|베를린|모스크바|베이징|상하이|시카고|토론토|시드니|멜버른|싱가포르|뭄바이|방콕|두바이|로마|마드리드|암스테르담|프라하|비엔나|이스탄불|카이로|자카르타|마닐라|타이베이|오사카|교토|부산|하노이|하바나|리마|멕시코시티)/,
+                    // 한국 도시
+                    /(서울|부산|대구|인천|광주|대전|울산|세종|제주|수원|성남|고양|용인|창원|청주|전주|포항|천안|김해|평택)/,
+                    // 군사/기지
+                    /(?:기지|base|camp|fort|headquarters|HQ|barracks|막사|본부|사령부|주둔지)\s*(?:in\s+|:?\s*)([A-Za-z\uAC00-\uD7A3\s]{2,20})/i,
+                ];
+
+                for (const pat of patterns) {
+                    const m = combined.match(pat);
+                    if (m) {
+                        const place = (m[1] || m[0]).replace(/[,.\s]+$/g, '').trim().substring(0, 25);
+                        if (place.length >= 2) {
+                            dbg(`🏠 Character sheet region detected: "${place}"`);
+                            // 이미 같은 이름의 장소 있으면 스킵
+                            if (lm.findByName(place)) {
+                                dbg(`🏠 "${place}" already exists, skipping`);
                                 break;
                             }
+                            const loc = await lm.addLocation(place);
+                            if (loc) {
+                                loc.memo = '캐릭터시트에서 감지된 지역';
+                                await lm.updateLocation(loc.id, { memo: loc.memo });
+                                // 첫 장소이거나 현재 위치 없으면 여기로 이동
+                                if (!lm.currentLocationId) await lm.moveTo(loc.id);
+                                pi.inject();
+                                if (ui.panelVisible) ui.refresh();
+                                wtNotify(`🏠 캐릭터 시트에서 "${place}" 감지!`, 'new', 4000);
+                            }
+                            break;
                         }
                     }
-                } catch(e) { dbg('⚠️ CharSheet addr error:', e.message); }
-            }, 2000);
-        }
+                }
+            } catch(e) { dbg('⚠️ CharSheet addr error:', e.message); }
+        }, 2000);
     });
 
     if (event_types.MESSAGE_SENDING) {

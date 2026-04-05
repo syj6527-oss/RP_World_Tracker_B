@@ -3217,6 +3217,9 @@ export class UIManager {
             for (let i = 0; i < weights.length; i++) {
                 if (rnd < weights[i]) { reviewCount = i + 1; break; }
             }
+            // ★ 터줏대감 목록 (리뷰어로 활용)
+            const npcList = (loc.npcs || []).map(n => `"${n.name}"(${n.role || n.type})`).join(', ');
+
             const prompt = `You are writing Google Maps-style character reviews for an RP location. Write in-character, vivid, emotional reviews that reflect each reviewer's unique personality and speech patterns from the RP.
 
 Generate ${reviewCount} reviews.
@@ -3226,8 +3229,8 @@ Characters: User="${userName}", Char="${charName}"
 ${charContext ? `Character context: ${charContext}` : ''}
 ${langInst}
 ${recentChat ? `\n[Recent RP scenes — use these to absorb character voice, tone, and relationship dynamics]:\n${recentChat}\n` : ''}
-Reviewers: pick from "${charName}", "${userName}", Pet/Animal, NPC, Wild creature.
-Each review: 1-2 sentences max, in-character voice. Match the RP's tone and each character's unique speech style.
+Reviewers: pick from "${charName}", "${userName}"${npcList ? `, ${npcList}` : ''}, or other NPCs/animals that might visit this place.
+Each review: 1-2 sentences max, in-character voice. Match the RP's tone and each character's unique speech style.${npcList ? `\nIMPORTANT: Prioritize the known NPCs/animals listed above as reviewers — they are real characters from this location.` : ''}
 
 OUTPUT THIS EXACT FORMAT (valid JSON, no markdown, no explanation):
 {"summary":"one poetic sentence","reviews":[{"name":"reviewer","role":"role","avatar":"emoji","stars":4,"text":"review text","daysAgo":3}]}

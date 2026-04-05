@@ -276,12 +276,13 @@ async function scanMessage(text, source = 'USER') {
                     const loc = await lm.addLocation(promisePlace);
                     if (loc) {
                         loc.tags = ['wantToGo'];
-                        await lm.updateLocation(loc.id, { tags: loc.tags });
+                        loc._tempAddress = true;
+                        loc.memo = '📅 약속 장소 (주소 미확정)';
                         if (!loc.events) loc.events = [];
                         loc.events.push({ text: `📅 약속 장소로 등록됨`, title: '약속 장소', mood: '📅', timestamp: Date.now(), source: 'auto' });
-                        await lm.updateLocation(loc.id, { events: loc.events });
-                        dbg(`📅 Promise place: "${promisePlace}" auto-registered with 🚩 tag`);
-                        if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${promisePlace}`, 'new', 3500);
+                        await lm.updateLocation(loc.id, { tags: loc.tags, events: loc.events, _tempAddress: true, memo: loc.memo });
+                        dbg(`📅 Promise place: "${promisePlace}" (temp address)`);
+                        if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${promisePlace} (주소 미확정)`, 'new', 3500);
                         pi.inject(); if (ui?.panelVisible) ui.refresh();
                     }
                 }
@@ -666,11 +667,13 @@ ${trimmed}${userCtx}`;
                             const newLoc = await lm.addLocation(pPlace);
                             if (newLoc) {
                                 newLoc.tags = ['wantToGo'];
+                                newLoc._tempAddress = true; // ★ 임시 주소 표시
+                                newLoc.memo = '📅 약속 장소 (주소 미확정)';
                                 if (!newLoc.events) newLoc.events = [];
                                 newLoc.events.push({ text: `📅 "${evTitle}" — 여기서 만나기로 약속`, title: '약속 장소', mood: '📅', timestamp: Date.now(), source: 'auto' });
-                                await lm.updateLocation(newLoc.id, { tags: newLoc.tags, events: newLoc.events });
-                                dbg(`📅 Promise place registered: "${pPlace}" from LLM`);
-                                if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${pPlace}`, 'new', 3500);
+                                await lm.updateLocation(newLoc.id, { tags: newLoc.tags, events: newLoc.events, _tempAddress: true, memo: newLoc.memo });
+                                dbg(`📅 Promise place registered: "${pPlace}" (temp address)`);
+                                if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${pPlace} (주소 미확정)`, 'new', 3500);
                                 pi.inject(); if (ui?.panelVisible) ui.refresh();
                             }
                         }

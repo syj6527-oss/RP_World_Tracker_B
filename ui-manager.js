@@ -1526,6 +1526,7 @@ export class UIManager {
                 <button id="wt-bs-x" style="width:28px;height:28px;border:none;background:rgba(0,0,0,.04);border-radius:50%;font-size:12px;color:#70757A;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
             </div>
             ${loc.memo ? `<div style="padding:0 14px 6px"><div style="font-size:11px;color:#5A4030;font-style:italic;border-left:3px solid #D4D0C8;padding-left:8px">"${loc.memo}"</div></div>` : ''}
+            ${loc._tempAddress ? `<div style="padding:0 14px 6px"><div style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#FFF3E0;border:1px solid #FFB74D;border-radius:14px;font-size:10px;color:#E65100;font-weight:500">📍 임시 주소 · 실제 지도에서 확정해주세요</div></div>` : ''}
             <div style="display:flex;gap:5px;padding:2px 14px 8px;overflow-x:auto">
                 <button class="wt-bs-pill-btn" data-action="move" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #2B8A6E;background:#2B8A6E;font-size:10.5px;font-weight:600;color:#fff;white-space:nowrap;cursor:pointer;font-family:inherit${cur ? ';opacity:.4' : ''}">🐾 이동</button>
                 <button class="wt-bs-pill-btn" data-action="edit" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #E0E0E0;background:#fff;font-size:10.5px;font-weight:600;color:#3C4043;white-space:nowrap;cursor:pointer;font-family:inherit">✏️ 수정</button>
@@ -2492,8 +2493,16 @@ export class UIManager {
         overlay.find('.wt-reg-merge').on('click', async function() {
             const sid = $(this).attr('data-sid');
             const sname = $(this).attr('data-sname');
-            await self.lm.deleteLocation(loc.id);
+            // ★ 이벤트 이전 (삭제 전에!)
             const target = self.lm.locations.find(l => l.id === sid);
+            if (target && loc.events?.length) {
+                if (!target.events) target.events = [];
+                target.events.push(...loc.events);
+                if (target.events.length > 20) target.events = target.events.slice(-20);
+                await self.lm.updateLocation(sid, { events: target.events });
+                dbg(`📎 Transferred ${loc.events.length} events from "${loc.name}" → "${sname}"`);
+            }
+            await self.lm.deleteLocation(loc.id);
             if (target) await self.lm.updateLocation(sid, { aliases: [...(target.aliases || []), loc.name] });
             await self.lm.moveTo(sid);
             toastSuccess(`📎 "${sname}"에 병합!`);
@@ -2507,6 +2516,18 @@ export class UIManager {
         // ✏️ 수정 — 패널 열고 수정 폼
         overlay.find('#wt-reg-edit').on('click', () => {
             overlay.remove();
+            // ★ 이벤트 임시 보관 (삭제 전에!)
+            const savedEvents = loc.events ? [...loc.events] : [];
+            const curId = self.lm.currentLocationId;
+            if (curId && savedEvents.length) {
+                const curLoc = self.lm.locations.find(l => l.id === curId);
+                if (curLoc) {
+                    if (!curLoc.events) curLoc.events = [];
+                    curLoc.events.push(...savedEvents);
+                    self.lm.updateLocation(curId, { events: curLoc.events });
+                    dbg(`✏️ Transferred ${savedEvents.length} events from "${loc.name}" → "${curLoc.name}"`);
+                }
+            }
             self.togglePanel(true);
             setTimeout(() => {
                 $('#wt-add-form').slideDown(200); $('#wt-add-arrow').text('▴');
@@ -2517,10 +2538,22 @@ export class UIManager {
 
         // ↩️ 취소
         overlay.find('#wt-reg-undo').on('click', async () => {
+            // ★ 이벤트 이전 → 현재 위치로 (삭제 전에!)
+            const curId = self.lm.currentLocationId;
+            if (curId && loc.events?.length) {
+                const curLoc = self.lm.locations.find(l => l.id === curId);
+                if (curLoc) {
+                    if (!curLoc.events) curLoc.events = [];
+                    curLoc.events.push(...loc.events);
+                    if (curLoc.events.length > 20) curLoc.events = curLoc.events.slice(-20);
+                    await self.lm.updateLocation(curId, { events: curLoc.events });
+                    dbg(`↩️ Transferred ${loc.events.length} events from "${loc.name}" → "${curLoc.name}"`);
+                }
+            }
             await self.lm.deleteLocation(loc.id);
             self.pi?.inject(); self.refresh();
             overlay.remove();
-            toastSuccess('↩️ 취소됨');
+            toastSuccess('↩️ 취소됨 (이벤트는 현재 장소로 이전)');
         });
 
         // 15초 후 자동 제거 (유저가 안 누르면)
@@ -2849,7 +2882,7 @@ export class UIManager {
                     const lat = parseFloat($(this).attr('data-lat'));
                     const lng = parseFloat($(this).attr('data-lng'));
                     const addrText = $(this).text().replace('📍 ', '').trim();
-                    await self.lm.updateLocation(locId, { lat, lng, address: addrText });
+                    await self.lm.updateLocation(locId, { lat, lng, address: addrText, _tempAddress: false });
 
                     // 앵커 포인트 기반 원형 분포 — 좌표 없는 다른 장소들도 배치
                     const others = self.lm.locations.filter(l => l.id !== locId && !l.lat && !l.lng);

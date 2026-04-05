@@ -76,6 +76,32 @@ export class LocationDetector {
             '전화','문자','편지','소식','연락','대화','약속','계약','거래','선물',
             '사진','그림','영화','음악','노래','춤','게임','운동','여행','산책',
             '옥정','문장','단어','글자','숫자','이름','제목','내용','의미','뜻',
+            // ★ 두 글자 오탐 방지 (위치/방향/상태)
+            '옆에','앞에','위에','밑에','속에','안에','밖에','뒤에','곁에','쪽에',
+            '편에','사이','중간','근처','주변','건너','맞은','뒤편','앞쪽','뒷쪽',
+            '좌측','우측','상단','하단','중앙','내부','외부','측면','정면','후면',
+            '자리','위치','장소','지점','구역','영역','방면','방향','경로','통로',
+            '입구','출구','모퉁이','코너','끝자락','가장자리',
+            // ★ 두 글자 오탐 방지 (동작/상태)
+            '정도','하루','이틀','사흘','나흘','며칠','매일','어젯','오늘','내일',
+            '모레','항상','가끔','잠시','잠깐','아직','벌써','이미','드디어','겨우',
+            '먼저','나중','다시','또다','금방','당장','곧바','즉시','바로','이내',
+            '갑자','급히','빨리','천천','살짝','슬쩍','몰래','조용','가만','그냥',
+            '혼자','함께','같이','서로','각자','따로','직접','간접',
+            // ★ 두 글자 오탐 방지 (관계/호칭)
+            '오빠','언니','누나','형아','동생','아빠','엄마','아들','딸','조카',
+            '친구','선배','후배','동료','상사','부하','아군','적군','동맹',
+            '선생','학생','의사','간호','경찰','군인','장교','병사','대위','중위',
+            '소위','대령','중령','소령','대장','중장','소장','원수','병장','상병',
+            '일병','이등','하사','중사','상사','소총','저격',
+            // ★ 두 글자 오탐 방지 (사물/기타)
+            '총알','탄창','칼날','화살','방패','갑옷','헬멧','무전','통신',
+            '담배','라이터','시가','성냥','연기','재떨이',
+            '열쇠','자물','손잡','문고','창틀','난간','계단','복도','천정',
+            '지붕','담장','울타리','철조','바리','장벽','기둥','지하','옥상',
+            '대문','뒷문','쪽문','현관','정원','화단','잔디','연못',
+            '의식','무의식','직감','본능','반사','경험','감각','인식','판단','결정',
+            '기술','능력','실력','경험','자격','권한','의무','책임','규칙','규율',
         ];
         this.singleKo = ['집','방','숲','강','산','역','관','점','원','장'];
 
@@ -376,11 +402,31 @@ export class LocationDetector {
         if (c.length > 8) return false;
         if (this.lm.findByName(c)) return false;
         if (this.skipKo.includes(c)) return false;
-        if (c.length === 2 && /[을를이가에]$/.test(c)) return false;
+        if (c.length === 2 && /[을를이가에은는도로서]$/.test(c)) return false;
+        // ★ 두 글자 한글: 조사 붙은 형태, 순수 동사/형용사 어근 필터
+        if (c.length === 2 && /^[가-힣]{2}$/.test(c)) {
+            // 동사/형용사 어근 (X다, X고, X며, X면, X서, X니, X게, X지, X듯, X적)
+            if (/[다고며면서니게지듯적]$/.test(c)) return false;
+        }
         return true;
     }
 
-    _strip(t) { return t.replace(/<[^>]+>/g,'').replace(/\*{1,2}([^*]+)\*{1,2}/g,'$1').replace(/_{1,2}([^_]+)_{1,2}/g,'$1'); }
+    // ★ skipKo + skipEn 통합 체크 (약속 장소 감지 등에서 사용)
+    _isSkip(place) {
+        if (!place) return true;
+        const lower = place.toLowerCase();
+        if (this.skipKo.includes(place)) return true;
+        if (this.skipKo.includes(lower)) return true;
+        // 영어 일반 명사 필터
+        const skipEn = ['the','a','an','this','that','here','there','where','my','your','his','her',
+            'place','somewhere','anywhere','nowhere','outside','inside','back','front','home',
+            'way','side','thing','stuff','part','end','top','bottom','left','right','it','me'];
+        if (skipEn.includes(lower)) return true;
+        if (place.length <= 1) return true;
+        return false;
+    }
+
+    _strip(t) { return t.replace(/<[^>]+>/g,'').replace(/\*{1,2}([^*]+)\*{1,2}/g,'$1').replace(/_{1,2}([^_]+)_{1,2}/g,'$1').replace(/\[([^\]]*)\]/g, '$1'); }
     _findAll(t,n) { const r=[]; let p=0; while(true){ const i=t.indexOf(n,p); if(i===-1)break; r.push(i); p=i+1; } return r; }
     _inDlg(t,pos) { const b=t.substring(0,pos); for(const[o,c]of[['"','"'],['"','"'],['「','」']]){const lo=b.lastIndexOf(o);if(lo>-1&&lo>b.lastIndexOf(c))return true;} return false; }
     _getDlg(t,pos) { for(const[o,c]of[['"','"'],['"','"'],['「','」']]){const s=t.lastIndexOf(o,pos);if(s===-1)continue;const e=t.indexOf(c,s+1);if(e>-1&&e>=pos)return t.substring(s+1,e);} return null; }
@@ -457,16 +503,34 @@ export class LocationDetector {
             // 한국어: "~로 여행가자", "~로 가자", "~에 놀러가자"
             /(?:내일|모레|다음에|나중에|주말에|다음달|다음주|이번주말?)\s*(.{1,15}?)(?:로|으로)\s*(?:여행|놀러|출발|떠나|가자|갈까|가볼까)/,
             /(.{1,15}?)(?:로|으로)\s*(?:여행\s*가자|여행\s*갈까|놀러\s*가자|놀러\s*갈까|떠나자|떠날까|출발)/,
+            // 한국어: "테스코 나들이", "마트 장보기", "~쇼핑" (일정/계획 형태)
+            /(?:내일|모레|다음에|주말에|다음달|다음주)[.\s]+['"']?(.{1,15}?)\s*(?:나들이|장보기|쇼핑|탐방|투어|가기|방문|데이트)/,
+            /[''""](.{1,15}?)\s*(?:나들이|Run|Trip|Shopping|Tour)[''""]/i,
+            // 한국어: "~에 가기로", "~갈 예정", "~갈 거야"
+            /(.{1,15}?)(?:에|로)\s*(?:가기로|갈\s*예정|갈\s*거[야예]|갈\s*계획|가자고)/,
+            // 한국어: 일정/달력/스케줄에 장소 언급
+            /(?:일정|달력|스케줄|schedule|calendar)[^.]{0,30}?[''""](.{1,15}?)[''"" ]/i,
             // 영어: "meet at ~", "let's go to ~ tomorrow"
             /(?:tomorrow|next\s+(?:time|week|month)|later|weekend|tonight|this\s+weekend)\s+(?:at|in|to)\s+(.{2,20})/i,
             /(?:meet|see you|let'?s go|travel|trip|visit|head)\s+(?:at|to|in)\s+(.{2,20}?)(?:\s+(?:tomorrow|next|later|tonight|this|soon))?/i,
-            /(?:let'?s|we\s+should|we\s+could)\s+(?:go|travel|fly|drive|head)\s+(?:to|for)\s+(.{2,20})/i,
+            /(?:let'?s|we'?ll|we\s+(?:should|could|can|are\s+going\s+to|will|gotta))\s+(?:go|travel|fly|drive|head|visit|hit)\s+(?:to|for)?\s*(.{2,20})/i,
+            // 영어: "Tomorrow. 'Tesco Run'" 형태 (일정/계획 스타일)
+            /[Tt]omorrow[.\s]+['"']?([A-Z][a-zA-Z]+)\s*(?:Run|Trip|Visit|Shopping|Day|Tour)['"']?/,
+            /(?:schedule|calendar|planned|plan)[^.]{0,30}?[''""]([A-Z][a-zA-Z\s]{1,20}?)[''"" ]/i,
+            // 영어: "~ tomorrow", "~ this weekend"
+            /[''""]([A-Z][a-zA-Z\s]{1,15}?)[''""]\s*\.?\s*(?:tomorrow|next week|this weekend|tonight)/i,
+            // 영어: "TESCO RUN", "Tesco run" (대문자 장소 + run/trip)
+            /([A-Z][a-zA-Z]+)\s+(?:run|trip|visit|shopping|invasion|mission|outing|excursion)(?:\s|!|\.|\?|$)/i,
+            // 영어: "go to Tesco" 느슨한 매칭 (we'll discuss, supply run 등 컨텍스트 무관)
+            /(?:go\s+to|head\s+to|hit\s+up|stop\s+by|trip\s+to|run\s+to|visit)\s+([A-Z][a-zA-Z\s']{1,20}?)(?:[.!?,\s]|$)/i,
+            // 한국어: "테스코 나들이/장보기/쇼핑" (느슨)
+            /([A-Za-z\uAC00-\uD7A3]{2,10})\s*(?:나들이|장보기|쇼핑|탐방|투어|습격|작전|가기|방문)/,
         ];
 
         for (const pat of patterns) {
             const m = clean.match(pat);
             if (m?.[1]) {
-                const place = m[1].replace(/[,."'!?…]+$/g, '').trim();
+                const place = m[1].replace(/[\[\](){}「」""''",.'!?…:;]+/g, '').replace(/\s+/g, ' ').trim();
                 if (place.length >= 1 && place.length <= 15 && !this._isSkip(place)) {
                     return place;
                 }

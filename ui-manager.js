@@ -880,7 +880,7 @@ export class UIManager {
                         if (res.ok) {
                             const d = await res.json();
                             const addr = d.display_name?.split(',').slice(0, 3).join(', ') || '';
-                            if (addr) await this.lm.updateLocation(locId, { address: addr });
+                            if (addr) await this.lm.updateLocation(locId, { address: addr, _tempAddress: false });
                             toastSuccess(`📍 "${loc.name}" → ${addr}`);
                         } else { toastSuccess(`📍 "${loc.name}" 이동!`); }
                     } catch(_) { toastSuccess(`📍 "${loc.name}" 이동!`); }
@@ -1203,7 +1203,7 @@ export class UIManager {
             <div style="font-size:12px;color:#9A8A7A">🤖 특이사항 (AI에게만 전달)</div>
             <textarea id="wt-subpop-ainotes" class="wt-input" placeholder="예: 큰 TV가 있음, 창문이 남향" style="height:35px;resize:none;font-size:12px">${sub.aiNotes || ''}</textarea>
             <div style="font-size:12px;color:#9A8A7A">📝 이벤트 기록</div>
-            <div id="wt-subpop-events" style="border:1px solid #E8E4D8;border-radius:8px;overflow:hidden;background:#fff">${eventsHtml}</div>
+            <div id="wt-subpop-events" style="border:1px solid #E8E4D8;border-radius:8px;overflow-y:auto;max-height:200px;-webkit-overflow-scrolling:touch;background:#fff">${eventsHtml}</div>
             <div style="display:flex;gap:4px">
                 <input type="text" id="wt-subpop-ev-input" class="wt-input" placeholder="이벤트 추가..." style="flex:1;font-size:11px;padding:5px 8px"/>
                 <button id="wt-subpop-ev-add" class="wt-btn-accent wt-btn-s">+</button>
@@ -1497,9 +1497,11 @@ export class UIManager {
             eventsHtml = events.slice(-5).reverse().map(ev => {
                 const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
                 const hasDetail = ev.text && ev.text !== ev.title && ev.text.length > 15;
-                return `<div class="wt-bs-ev-card" style="background:#FAFAF5;border-radius:7px;padding:7px 9px;border:1px solid #EAE6DC;margin-bottom:4px;cursor:${hasDetail ? 'pointer' : 'default'}">
-                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:#5A4030">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span>${hasDetail ? '<span class="wt-bs-ev-arrow" style="font-size:8px;color:#B0A898">▼</span>' : ''}</div>
-                    ${hasDetail ? `<div class="wt-bs-ev-detail" style="display:none;margin-top:5px;padding-top:5px;border-top:1px dashed #EAE6DC;font-size:9.5px;line-height:1.6;color:#7A7060">${ev.text}</div>` : ''}
+                const moodColors = { '💕': { bg:'#FFF0F3', border:'#F5C0CE', text:'#8B2252' }, '⚡': { bg:'#FFF3E0', border:'#F5C28A', text:'#8B4513' }, '📅': { bg:'#E8F5E9', border:'#A5D6A7', text:'#2E5E3E' } };
+                const mc = moodColors[ev.mood] || { bg:'#F5F5F5', border:'#E0E0E0', text:'#4A4A4A' };
+                return `<div class="wt-bs-ev-card" style="background:${mc.bg};border-radius:7px;padding:7px 9px;border:1px solid ${mc.border};margin-bottom:4px;cursor:${hasDetail ? 'pointer' : 'default'}">
+                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:${mc.text}">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span>${hasDetail ? '<span class="wt-bs-ev-arrow" style="font-size:8px;color:#B0A898">▼</span>' : ''}</div>
+                    ${hasDetail ? `<div class="wt-bs-ev-detail" style="display:none;margin-top:5px;padding-top:5px;border-top:1px dashed ${mc.border};font-size:9.5px;line-height:1.6;color:#7A7060">${ev.text}</div>` : ''}
                 </div>`;
             }).join('');
         } else {
@@ -1529,9 +1531,9 @@ export class UIManager {
             ${loc._tempAddress ? `<div style="padding:0 14px 6px"><div style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#FFF3E0;border:1px solid #FFB74D;border-radius:14px;font-size:10px;color:#E65100;font-weight:500">📍 임시 주소 · 실제 지도에서 확정해주세요</div></div>` : ''}
             <div style="display:flex;gap:5px;padding:2px 14px 8px;overflow-x:auto">
                 <button class="wt-bs-pill-btn" data-action="move" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #2B8A6E;background:#2B8A6E;font-size:10.5px;font-weight:600;color:#fff;white-space:nowrap;cursor:pointer;font-family:inherit${cur ? ';opacity:.4' : ''}">🐾 이동</button>
-                <button class="wt-bs-pill-btn" data-action="edit" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #E0E0E0;background:#fff;font-size:10.5px;font-weight:600;color:#3C4043;white-space:nowrap;cursor:pointer;font-family:inherit">✏️ 수정</button>
-                <button class="wt-bs-pill-btn" data-action="save" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #2B8A6E;background:#E8F4F0;font-size:10.5px;font-weight:600;color:#2B8A6E;white-space:nowrap;cursor:pointer;font-family:inherit">🔖 ${((loc.tags||[]).length ? (loc.tags||[]).map(t=>({favorites:'💜',starred:'⭐',wantToGo:'🚩',travel:'🧳'})[t]||'').join('') : '저장')}</button>
-                <button class="wt-bs-pill-btn" data-action="dist" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #E0E0E0;background:#fff;font-size:10.5px;font-weight:600;color:#3C4043;white-space:nowrap;cursor:pointer;font-family:inherit">📏 거리</button>
+                <button class="wt-bs-pill-btn" data-action="edit" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #5E84E2;background:#EAF0FF;font-size:10.5px;font-weight:600;color:#3A5FBA;white-space:nowrap;cursor:pointer;font-family:inherit">✏️ 수정</button>
+                <button class="wt-bs-pill-btn" data-action="save" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #8B6BB4;background:#F3EEFA;font-size:10.5px;font-weight:600;color:#6B4F91;white-space:nowrap;cursor:pointer;font-family:inherit">🔖 ${((loc.tags||[]).length ? (loc.tags||[]).map(t=>({favorites:'💜',starred:'⭐',wantToGo:'🚩',travel:'🧳'})[t]||'').join('') : '저장')}</button>
+                <button class="wt-bs-pill-btn" data-action="dist" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #E07C3A;background:#FFF3E8;font-size:10.5px;font-weight:600;color:#B85A1A;white-space:nowrap;cursor:pointer;font-family:inherit">📏 거리</button>
             </div>
             <div id="wt-bs-tabs" style="display:flex;border-bottom:2px solid #F0EDE5">
                 <div class="wt-bs-tab" data-tab="overview" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#2B8A6E;cursor:pointer;border-bottom:2.5px solid #2B8A6E;margin-bottom:-2px">개요</div>
@@ -1546,7 +1548,7 @@ export class UIManager {
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
                 ${nearbyHtml}
-                ${(loc.npcs?.length) ? `<div style="margin-top:8px"><div style="font-size:11px;font-weight:600;color:#5A4030;margin-bottom:4px">👥 터줏대감</div>${loc.npcs.map(n => `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;color:#3C4043"><span style="font-size:13px">${n.type==='animal'?'🐾':'🧑'}</span>${n.name}${n.role?` <span style="font-size:9px;color:#9AA0A6">(${n.role})</span>`:''}<span style="font-size:9px;color:#B0A898;margin-left:auto">×${n.count||1}</span></div>`).join('')}</div>` : ''}
+                ${(loc.npcs?.length) ? `<div style="margin-top:8px;padding:8px 10px;background:#F3EEFA;border-left:3px solid #8B6BB4;border-radius:0 8px 8px 0"><div style="font-size:10px;font-weight:600;color:#6B4F91;margin-bottom:3px">👥 터줏대감</div>${loc.npcs.map(n => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px;color:#5A4070"><span style="font-size:12px">${n.type==='animal'?'🐾':'🧑'}</span>${n.name}${n.role?` <span style="font-size:9px;color:#8B6BB4">(${n.role})</span>`:''}<span style="font-size:9px;color:#B0A898;margin-left:auto">×${n.count||1}</span></div>`).join('')}</div>` : ''}
                 <!-- T3: 리뷰 미리보기 (개요 안) -->
                 <div id="wt-bs-rv-preview" style="margin-top:10px;padding-top:8px;border-top:1px solid #F0EDE5">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -1620,14 +1622,16 @@ export class UIManager {
             const id = bs.attr('data-id');
             if (action === 'move' && id) { self.lm.moveTo(id).then(() => { self.pi?.inject(); self.refresh(); self._hideBottomSheet(); toastSuccess('🐾 이동!'); }); }
             if (action === 'edit' && id) { self._hideBottomSheet(); self.showPop(id); }
-            if (action === 'dist' && id) { self._hideBottomSheet(); self.showPop(id); }
+            if (action === 'dist' && id) { self._showDistanceMeasure(id); }
             if (action === 'save' && id) { self._showTagPopup(id, $(this)); }
         });
         bs.find('.wt-bs-tab').on('click', function(e) {
             e.stopPropagation();
             const tab = $(this).data('tab');
+            const tabColors = { overview: '#2B8A6E', events: '#CF6E2E', review: '#5E84E2', rooms: '#8B6B4A' };
+            const color = tabColors[tab] || '#2B8A6E';
             bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
-            $(this).css({ color: '#2B8A6E', borderBottomColor: '#2B8A6E' });
+            $(this).css({ color, borderBottomColor: color });
             bs.find('[id^="wt-bs-tab-"]').hide();
             bs.find(`#wt-bs-tab-${tab}`).show();
             // 이벤트/리뷰 탭은 full로 확장
@@ -1654,7 +1658,7 @@ export class UIManager {
             e.stopPropagation();
             // 리뷰 탭으로 전환
             bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
-            bs.find('.wt-bs-tab[data-tab="review"]').css({ color: '#2B8A6E', borderBottomColor: '#2B8A6E' });
+            bs.find('.wt-bs-tab[data-tab="review"]').css({ color: '#5E84E2', borderBottomColor: '#5E84E2' });
             bs.find('[id^="wt-bs-tab-"]').hide();
             bs.find('#wt-bs-tab-review').show();
             if (self._bsStage < 3) self._applyBsStage(3);
@@ -1717,10 +1721,11 @@ export class UIManager {
                 const title = ev.title || ev.text?.substring(0, 40) || '—';
                 const fullText = ev.text || '';
                 const hasDetail = fullText.length > 0 && fullText !== title;
-                return `<div class="wt-sub-ev-card" style="padding:8px 0;border-bottom:1px solid #F1F3F4;cursor:${hasDetail ? 'pointer' : 'default'};-webkit-tap-highlight-color:transparent">
+                return `<div class="wt-sub-ev-card" data-idx="${i}" style="padding:8px 0;border-bottom:1px solid #F1F3F4;cursor:${hasDetail ? 'pointer' : 'default'};-webkit-tap-highlight-color:transparent">
                     <div style="display:flex;align-items:center;gap:6px">
                         <span style="font-size:12px;flex-shrink:0">${ev.mood || '📝'}</span>
                         <span style="flex:1;font-weight:600;font-size:12px;color:#202124">${title}</span>
+                        <span class="wt-sub-ev-del" data-idx="${i}" style="cursor:pointer;color:#F5A8A8;font-size:11px;padding:2px 4px">✕</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px">
                         <span style="font-size:10px;color:#9AA0A6">${ev.timestamp ? this._fmt(ev.timestamp) : '—'}</span>
@@ -1749,7 +1754,7 @@ export class UIManager {
                 ${sub.memo ? `<div style="padding:8px 0;border-top:1px solid #F0EDE5"><div style="font-size:11px;color:#5A4030;font-style:italic;border-left:3px solid #D4D0C8;padding-left:8px">"${sub.memo}"</div></div>` : ''}
                 <div style="padding:8px 0;border-top:1px solid #F0EDE5">
                     <div style="font-size:12px;font-weight:700;color:#202124;margin-bottom:6px">이벤트</div>
-                    ${evHtml}
+                    <div style="max-height:40vh;overflow-y:auto;-webkit-overflow-scrolling:touch">${evHtml}</div>
                 </div>
             </div>`;
 
@@ -1769,13 +1774,24 @@ export class UIManager {
             setTimeout(() => { $('#wt-bottomsheet').find('.wt-bs-tab[data-tab="rooms"]').click(); }, 100);
         });
         // ★ 이벤트 아코디언 토글
-        bs.find('.wt-sub-ev-card').on('click', function() {
+        bs.find('.wt-sub-ev-card').on('click', function(e) {
+            if ($(e.target).closest('.wt-sub-ev-del').length) return; // 삭제 버튼 클릭 시 무시
             const det = $(this).find('.wt-sub-ev-detail');
             const arrow = $(this).find('.wt-sub-ev-arrow');
             if (det.length) {
                 det.slideToggle(200);
                 arrow.text(det.is(':visible') ? '▲' : '▼');
             }
+        });
+        // ★ 이벤트 삭제
+        bs.find('.wt-sub-ev-del').on('click', function(e) {
+            e.stopPropagation();
+            const idx = parseInt($(this).data('idx'));
+            if (isNaN(idx)) return;
+            sub.events.splice(idx, 1);
+            self.lm.updateLocation(subId, { events: sub.events });
+            self._showSubLocationDetail(parentId, subId); // 리렌더
+            toastSuccess('✕ 이벤트 삭제');
         });
     }
 
@@ -2068,7 +2084,7 @@ export class UIManager {
 
         const bs = $('#wt-bottomsheet');
         bs.html(html).show().css({ background: '#fff' });
-        this._applyBsStage(1);
+        this._applyBsStage(2); // half — 타임라인과 동일 높이
         this._bindBsDrag(bs[0]);
         bs.find('.wt-bs-handle').css({ position: 'sticky', top: 0, zIndex: 10, background: '#fff' });
 
@@ -2151,6 +2167,92 @@ export class UIManager {
                 await self.lm.updateLocation(locId, { tags: loc.tags });
                 self._showTagList(t); // 리스트 리렌더
                 toastSuccess('🏷️ 태그 해제!');
+            }
+        });
+    }
+
+    // ========== 📏 거리 측정 (바텀시트 "거리" 버튼) ==========
+    _showDistanceMeasure(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+        const others = this.lm.locations.filter(l => l.id !== locId && !l.parentId);
+        if (!others.length) { toastSuccess('📏 다른 장소가 없어요!'); return; }
+
+        const self = this;
+        const bs = $('#wt-bottomsheet');
+
+        let listHtml = others.map(o => {
+            const existing = this.lm.getDistanceBetween(locId, o.id);
+            const st = this.leafletRenderer?._locStyle?.(o.name) || { emoji: '📍' };
+
+            let autoInfo = '';
+            if (loc.lat && loc.lng && o.lat && o.lng) {
+                const R = 6371000;
+                const dLat = (o.lat - loc.lat) * Math.PI / 180;
+                const dLon = (o.lng - loc.lng) * Math.PI / 180;
+                const a = Math.sin(dLat/2)**2 + Math.cos(loc.lat*Math.PI/180) * Math.cos(o.lat*Math.PI/180) * Math.sin(dLon/2)**2;
+                const meters = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+                const walkMin = Math.max(1, Math.round((meters * 1.4) / 80));
+                autoInfo = `<span style="font-size:10px;color:#2B8A6E;font-weight:500">${meters}m · 도보 ${walkMin}분</span>`;
+            }
+
+            const savedInfo = existing ? `<span style="font-size:10px;color:#9AA0A6">저장: ${existing.distanceText || ''}</span>` : '';
+
+            return `<div class="wt-dist-item" data-id="${o.id}" style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #F1F3F4;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                <span style="font-size:16px">${st.emoji}</span>
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:#202124;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.name}</div>
+                    <div style="display:flex;gap:8px;align-items:center">${autoInfo}${savedInfo}</div>
+                </div>
+                <span style="font-size:12px;color:#9AA0A6">›</span>
+            </div>`;
+        }).join('');
+
+        const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;min-height:44px;cursor:pointer;position:sticky;top:0;z-index:10;background:#fff;border-radius:16px 16px 0 0"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
+            <div style="padding:8px 14px;overflow-y:auto">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                    <span class="wt-dist-back" data-locid="${locId}" style="font-size:18px;cursor:pointer;color:#9AA0A6">←</span>
+                    <div style="font-size:15px;font-weight:800;color:#202124">📏 ${loc.name}에서의 거리</div>
+                </div>
+                ${listHtml}
+            </div>`;
+
+        bs.html(html).show().css({ background: '#fff' });
+        this._applyBsStage(2);
+        this._bindBsDrag(bs[0]);
+
+        // ← 뒤로가기
+        bs.find('.wt-dist-back').on('click', (e) => {
+            e.stopPropagation();
+            const lid = $(e.currentTarget).data('locid');
+            self._showBottomSheet(lid);
+        });
+
+        // 장소 클릭 → 거리 자동 저장
+        bs.find('.wt-dist-item').on('click', async function() {
+            const otherId = $(this).data('id');
+            const other = self.lm.locations.find(l => l.id === otherId);
+            if (!other) return;
+
+            if (loc.lat && loc.lng && other.lat && other.lng) {
+                const R = 6371000;
+                const dLat = (other.lat - loc.lat) * Math.PI / 180;
+                const dLon = (other.lng - loc.lng) * Math.PI / 180;
+                const a = Math.sin(dLat/2)**2 + Math.cos(loc.lat*Math.PI/180) * Math.cos(other.lat*Math.PI/180) * Math.sin(dLon/2)**2;
+                const meters = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+                const walkMin = Math.max(1, Math.round((meters * 1.4) / 80));
+                const distText = `도보 ${walkMin}분`;
+                const level = walkMin <= 1 ? 1 : walkMin <= 3 ? 2 : walkMin <= 5 ? 3 : walkMin <= 8 ? 4 : walkMin <= 12 ? 5 : walkMin <= 15 ? 6 : walkMin <= 20 ? 7 : walkMin <= 30 ? 8 : 9;
+
+                await self.lm.setDistance(locId, otherId, distText, null, level);
+                toastSuccess(`📏 ${loc.name} ↔ ${other.name}: ${meters}m (${distText})`);
+                self.pi?.inject();
+                // 리스트 리렌더
+                self._showDistanceMeasure(locId);
+            } else {
+                self._showBottomSheet(locId);
+                setTimeout(() => { self._hideBottomSheet(); self.showPop(locId); }, 200);
+                toastSuccess('📏 좌표가 없어서 수동 설정으로 이동합니다');
             }
         });
     }
@@ -3253,7 +3355,7 @@ export class UIManager {
             // ★ 터줏대감 목록 (리뷰어로 활용)
             const npcList = (loc.npcs || []).map(n => `"${n.name}"(${n.role || n.type})`).join(', ');
 
-            const prompt = `You are writing Google Maps-style character reviews for an RP location. Write in-character, vivid, emotional reviews that reflect each reviewer's unique personality and speech patterns from the RP.
+            const prompt = `You are writing Google Maps-style character reviews for an RP location. Each reviewer has STRONG opinions, personal grudges, inside jokes, and emotional memories tied to this place. Write like real people leaving passionate, opinionated, sometimes petty reviews.
 
 Generate ${reviewCount} reviews.
 Place: "${loc.name}" | Visits: ${loc.visitCount || 0} | Memo: "${loc.memo || ''}"
@@ -3263,18 +3365,29 @@ ${charContext ? `Character context: ${charContext}` : ''}
 ${langInst}
 ${recentChat ? `\n[Recent RP scenes — use these to absorb character voice, tone, and relationship dynamics]:\n${recentChat}\n` : ''}
 Reviewers: pick from "${charName}", "${userName}"${npcList ? `, ${npcList}` : ''}, or other NPCs/animals that might visit this place.
-Each review: 1-2 sentences max, in-character voice. Match the RP's tone and each character's unique speech style.${npcList ? `\nIMPORTANT: Prioritize the known NPCs/animals listed above as reviewers — they are real characters from this location.` : ''}
+
+REVIEW STYLE RULES:
+- Each review: 2-4 sentences. Be DETAILED and SPECIFIC.
+- Reference ACTUAL events that happened here (from the Events list above).
+- Use each character's UNIQUE speech patterns, slang, and personality quirks.
+- Include sensory details (smells, sounds, textures, temperature).
+- Mix emotions: nostalgia, complaint, humor, affection, sarcasm, passive-aggression.
+- Some reviews should be hilariously petty or oddly specific.
+- Animals/pets write from their perspective (a cat reviewing a kitchen = "the warm spot near the stove is acceptable").
+- NPCs can have strong opinions about the main characters.
+${npcList ? `\nIMPORTANT: Prioritize the known NPCs/animals listed above as reviewers — they are real characters from this location.` : ''}
 
 OUTPUT THIS EXACT FORMAT (valid JSON, no markdown, no explanation):
-{"summary":"one poetic sentence","reviews":[{"name":"reviewer","role":"role","avatar":"emoji","stars":4,"text":"review text","daysAgo":3}]}
+{"summary":"one atmospheric, poetic sentence capturing this place's soul","reviews":[{"name":"reviewer","role":"role","avatar":"emoji","stars":4,"text":"detailed review 2-4 sentences","daysAgo":3}]}
 
 CRITICAL: Start your response with { and end with }. Nothing else.`;
 
             const result = await callLLM(prompt);
-            if (!result) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">생성 실패 — 다시 시도해주세요</div>'); return; }
+            console.log(`[${EXTENSION_NAME}] 🔧 Review LLM result: ${result ? result.substring(0, 100) + '...' : 'null'}`);
+            if (!result) { list.html('<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ LLM 응답 없음 — API 키를 확인하거나 다시 시도해주세요</div>'); return; }
 
             const parsed = parseLLMJson(result);
-            if (!parsed) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">파싱 실패 — 다시 시도해주세요</div>'); return; }
+            if (!parsed) { list.html(`<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ JSON 파싱 실패<div style="font-size:9px;margin-top:4px;color:#B0A898;word-break:break-all">${result.substring(0, 150)}...</div></div>`); return; }
             const reviews = parsed.reviews || parsed;
             const aiSummary = parsed.summary || '';
             if (!Array.isArray(reviews) || !reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
@@ -3303,11 +3416,11 @@ CRITICAL: Start your response with { and end with }. Nothing else.`;
     _renderReviews(container, reviews, aiSummary) {
         container.empty();
 
-        // 1. AI 요약 (블루박스)
+        // 1. AI 요약 (골드 사이드바)
         if (aiSummary) {
-            container.append(`<div style="padding:10px 12px;background:rgba(94,132,226,.06);border-radius:8px;border:1px solid rgba(94,132,226,.1);margin-bottom:10px">
-                <div style="font-size:10px;color:#5E84E2;font-weight:600;margin-bottom:3px">🤖 AI 리뷰 요약</div>
-                <div style="font-size:12px;color:#5E84E2;line-height:1.6;font-style:italic">"${aiSummary}"</div>
+            container.append(`<div style="padding:8px 10px;background:#FFFBF0;border-left:3px solid #F6A93A;border-radius:0 8px 8px 0;margin-bottom:10px">
+                <div style="font-size:10px;color:#8B6B14;font-weight:600;margin-bottom:3px">AI 리뷰 요약</div>
+                <div style="font-size:12px;color:#6B5B14;line-height:1.6;font-style:italic">"${aiSummary}"</div>
             </div>`);
         }
 

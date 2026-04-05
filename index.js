@@ -120,23 +120,101 @@ async function scanMessage(text, source = 'USER') {
         // ★ 메타데이터에서 Location 직접 추출 (memo/yaml 블록)
         const locMatch = text.match(/[-*]\s*Location[:\s]+(.+)/i);
         if (locMatch) {
-            const metaLoc = locMatch[1].trim().replace(/[`*_]/g, '');
-            if (metaLoc.length >= 2 && metaLoc.length <= 30) {
+            let metaLoc = locMatch[1].trim().replace(/[`*_]/g, '');
+            if (metaLoc.length >= 2 && metaLoc.length <= 80) {
+                dbg(`📌 Meta location raw: "${metaLoc}"`);
+
+                // ★ 이동 중/차량 내부 → 장소 등록 건너뛰기 (현재 위치 유지)
+                const transitSkip = /이동\s*중|향으로\s*이동|밴\s*내부|차량\s*내부|차\s*안|버스\s*안|택시\s*안|en\s*route|in\s*transit|on\s+the\s+way|driving|riding|heading\s+to|moving\s+to/i;
+                if (transitSkip.test(metaLoc)) {
+                    dbg(`🚗 Transit location skipped: "${metaLoc}"`);
+                    if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
+                    return true;
+                }
+                // ★ "Parent - Sub" 또는 "Parent — Sub" 형태 분리
+                let metaParent = null, metaSub = null;
+                const sepMatch = metaLoc.match(/^(.+?)\s*[-–—]\s*([\uAC00-\uD7A3A-Za-z].+)$/);
+                if (sepMatch) {
+                    const part1 = sepMatch[1].trim();
+                    const part2 = sepMatch[2].trim();
+                    // part2가 서브장소 키워드 포함하면 분리
+                    const subKw = /kitchen|living|bed|bath|room|거실|부엌|주방|침실|화장실|방|마당|차고|서재|발코니|테라스|현관|복도|다락|지하|옥상|lobby|hall|office|studio|garage|balcony|terrace|rooftop|basement/i;
+                    if (subKw.test(part2)) {
+                        metaParent = part1;
+                        metaSub = part2;
+                        dbg(`📌 Split: parent="${metaParent}", sub="${metaSub}"`);
+                    }
+                }
+
+                // 분리된 경우: 부모 장소 매칭 → 서브 등록
+                if (metaParent && metaSub) {
+                    const parentLoc = lm.locations.find(l =>
+                        l.name.toLowerCase() === metaParent.toLowerCase() ||
+                        metaParent.toLowerCase().includes(l.name.toLowerCase()) ||
+                        l.name.toLowerCase().includes(metaParent.toLowerCase()) ||
+                        (l.aliases || []).some(a => metaParent.toLowerCase().includes(a.toLowerCase()))
+                    );
+                    if (parentLoc) {
+                        // 서브장소 "&"로 나뉜 경우 첫번째만 사용 ("Kitchen & Living Room" → "Kitchen")
+                        const subName = metaSub.split(/\s*[&,+]\s*/)[0].trim();
+                        const sub = await lm.findOrCreateSub(parentLoc.id, subName);
+                        if (lm.currentLocationId !== parentLoc.id) await lm.moveTo(parentLoc.id, rpDate);
+                        await lm.moveToSub(sub.id);
+                        dbg(`🏠 Meta sub-location: "${parentLoc.name} > ${subName}"`);
+                        pi.inject(); if (ui.panelVisible) ui.refresh();
+                        await _tryEvent(text, sub.id, source);
+                        return true;
+                    }
+                    // 부모 못 찾으면 전체를 일반 처리
+                    metaLoc = metaParent;
+                }
+
                 dbg(`📌 Meta location: "${metaLoc}"`);
+
+                // ★ 괄호 내용 제거 후 정리 ("집 (22nd's old NCO Barracks) 주방" → "집 주방")
+                const metaClean = metaLoc.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+
                 // ★ 서브로케이션 체크 (거실, 부엌 등 → 현재 장소의 하위)
-                if (lm.isSubLocation(metaLoc) && lm.currentLocationId) {
-                    const sub = await lm.findOrCreateSub(lm.currentLocationId, metaLoc);
+                if (lm.isSubLocation(metaClean) && lm.currentLocationId) {
+                    const sub = await lm.findOrCreateSub(lm.currentLocationId, metaClean);
                     await lm.moveToSub(sub.id);
                     const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
-                    dbg(`🏠 Sub-location: "${curLoc?.name} > ${metaLoc}"`);
+                    dbg(`🏠 Sub-location: "${curLoc?.name} > ${metaClean}"`);
                     pi.inject();
-                    await _tryEvent(text, sub.id, source); // ★ 이벤트는 서브에 저장!
+                    await _tryEvent(text, sub.id, source);
                     return true;
-                }                // 기존 장소에 있는지 확인
-                const existing = lm.locations.find(l =>
-                    l.name.toLowerCase() === metaLoc.toLowerCase() ||
-                    (l.aliases || []).some(a => a.toLowerCase() === metaLoc.toLowerCase())
-                );
+                }
+
+                // ★ 기존 장소 매칭 — 부분 포함 + 단어 겹침 검사
+                const metaLower = metaLoc.toLowerCase();
+                const metaCleanLower = (metaClean || metaLoc).toLowerCase();
+                // 메타데이터에서 핵심 단어 추출 (2글자 이상)
+                const metaWords = new Set(metaLower.replace(/[()[\]{}"',./\\-]/g, ' ').split(/\s+/).filter(w => w.length >= 2));
+
+                const existing = lm.locations.find(l => {
+                    const n = l.name.toLowerCase();
+                    // 1. 정확히 일치
+                    if (n === metaLower || n === metaCleanLower) return true;
+                    // 2. 기존 이름이 메타데이터에 포함
+                    if (n.length >= 2 && (metaLower.includes(n) || metaCleanLower.includes(n))) return true;
+                    // 3. 메타데이터가 기존 이름에 포함
+                    if (metaCleanLower.length >= 3 && n.includes(metaCleanLower)) return true;
+                    // 4. 별칭 매칭
+                    if ((l.aliases || []).some(a => {
+                        const al = a.toLowerCase();
+                        return al === metaLower || al === metaCleanLower || (al.length >= 2 && metaLower.includes(al)) || (metaCleanLower.length >= 3 && al.includes(metaCleanLower));
+                    })) return true;
+                    // 5. ★ 단어 겹침 매칭 (핵심 단어 50%+ 겹치면 같은 곳)
+                    const locWords = new Set(n.replace(/[()[\]{}"',./\\-]/g, ' ').split(/\s+/).filter(w => w.length >= 2));
+                    const allAliasWords = (l.aliases || []).flatMap(a => a.toLowerCase().split(/\s+/).filter(w => w.length >= 2));
+                    allAliasWords.forEach(w => locWords.add(w));
+                    if (locWords.size >= 1 && metaWords.size >= 1) {
+                        let overlap = 0;
+                        for (const w of metaWords) { if (locWords.has(w)) overlap++; }
+                        if (overlap >= 1 && overlap / Math.min(locWords.size, metaWords.size) >= 0.4) return true;
+                    }
+                    return false;
+                });
                 if (existing) {
                     if (lm.currentLocationId !== existing.id) {
                         await lm.moveTo(existing.id, rpDate);
@@ -152,11 +230,10 @@ async function scanMessage(text, source = 'USER') {
                         // ★ 위치 기반 중복 방지: AI가 현재 위치의 다른 이름을 언급한 경우
                         if (mode === 'ai' && lm.currentLocationId) {
                             const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
-                            const lastMove = lm.movements.length ? lm.movements[lm.movements.length - 1] : null;
-                            // 최근 2분 이내에 이동한 곳이면 → 같은 곳의 구체적 이름일 확률 높음
-                            if (curLoc && lastMove && (Date.now() - lastMove.timestamp < 120000)) {
-                                dbg(`🔀 AI loc "${metaLoc}" at current "${curLoc.name}" → auto-alias`);
-                                const aliases = [...(curLoc.aliases || []), metaLoc];
+                            // ★ AI 메타데이터 Location은 대부분 현재 위치의 변형 → 항상 별칭으로 처리
+                            if (curLoc) {
+                                dbg(`🔀 AI meta loc "${metaLoc}" at current "${curLoc.name}" → auto-alias`);
+                                const aliases = [...new Set([...(curLoc.aliases || []), metaLoc, metaClean].filter(Boolean))];
                                 await lm.updateLocation(curLoc.id, { aliases });
                                 wtNotify(`📎 "${metaLoc}" → "${curLoc.name}"의 별칭`, 'info', 3000);
                                 await _tryEvent(text, curLoc.id, source);
@@ -607,19 +684,24 @@ async function _geocodePlace(locId, placeName, retry = 0) {
 
 // ========== RP 날짜 추출 (메타데이터에서) ==========
 function _extractRpDate(text) {
-    // 패턴 1: - Time: 2025/07/12 또는 Date: 2025.07.12
-    const m1 = text.match(/[-*]\s*(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
+    // HTML 태그 제거 (렌더된 마크다운 대응)
+    const clean = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+    // 패턴 1: - Time: 2025/07/12 또는 Date: 2025.07.12 (- 선택적)
+    const m1 = clean.match(/(?:[-*]\s*)?(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
     if (m1) return `${m1[1]}/${parseInt(m1[2])}/${parseInt(m1[3])}`;
+    // 패턴 1b: 2024/12/19 단독 (날짜 형식만으로도 감지)
+    const m1b = clean.match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2}),?\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)/);
+    if (m1b) return `${m1b[1]}/${parseInt(m1b[2])}/${parseInt(m1b[3])}`;
     // 패턴 2: July 12, 2025 또는 12 July 2025
     const months = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
-    const m2 = text.match(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
+    const m2 = clean.match(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
     if (m2 && months[m2[1].substring(0,3).toLowerCase()]) return `${m2[3]}/${months[m2[1].substring(0,3).toLowerCase()]}/${parseInt(m2[2])}`;
-    const m3 = text.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+    const m3 = clean.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
     if (m3 && months[m3[2].substring(0,3).toLowerCase()]) return `${m3[3]}/${months[m3[2].substring(0,3).toLowerCase()]}/${parseInt(m3[1])}`;
     // 패턴 3: 7월 12일 (년도 없으면 빈값)
-    const m4 = text.match(/(\d{1,2})월\s*(\d{1,2})일/);
+    const m4 = clean.match(/(\d{1,2})월\s*(\d{1,2})일/);
     if (m4) {
-        const yr = text.match(/(\d{4})년/);
+        const yr = clean.match(/(\d{4})년/);
         return yr ? `${yr[1]}/${parseInt(m4[1])}/${parseInt(m4[2])}` : `${parseInt(m4[1])}/${parseInt(m4[2])}`;
     }
     return '';
@@ -631,7 +713,7 @@ let _lastEventTime = 0;
 let _lastEventLocId = null; // 마지막 이벤트 저장 장소
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
-const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear/i;
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear|계획|작전|일정|schedule|operation|mission|trip|run|shopping|장보기|나들이|쇼핑/i;
 
 async function _tryEvent(text, locId, source) {
     dbg(`📋 _tryEvent (${source}) len=${text.length}`);
@@ -692,7 +774,7 @@ Rules:
 If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null}
 
 Respond with ONLY a JSON object, no markdown, no explanation:
-{"mood":"💕","title":"ultra-short hook max 15chars that emphasizes THIS PLACE's emotional meaning. Write like: 'OO한 곳' or 'OO이 시작된 곳'. Do NOT copy dialogue literally — capture the emotional significance. Match the scene's tone: playful scenes can have witty/humorous titles, serious scenes should stay sincere.","summary":"detailed 2-sentence summary","promisePlace":"if mood is 📅 and characters plan to meet at a SPECIFIC named place, write that place name here. Otherwise null."}
+{"mood":"💕","title":"ultra-short hook max 15chars that emphasizes THIS PLACE's emotional meaning. Write like: 'OO한 곳' or 'OO이 시작된 곳'. Do NOT copy dialogue literally — capture the emotional significance. Match the scene's tone: playful scenes can have witty/humorous titles, serious scenes should stay sincere.","summary":"detailed 2-sentence summary","promisePlace":"Extract ANY named store, city, building, or location that characters mention wanting to go to, discuss going to, plan to visit, or even joke about visiting. Be AGGRESSIVE — if a place name appears alongside words like 'go', 'run', 'trip', 'visit', 'let\\'s', 'we should', 'we could', 'discuss', 'plan', or shopping/travel context, extract it. Write ONLY the place name. If truly no future place, write null."}
 
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
@@ -712,8 +794,8 @@ ${trimmed}${userCtx}`;
                 evTitle = parsed.title || parsed.summary.substring(0, 15) + '...';
                 evMood = parsed.mood;
                 dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
-                // ★ 약속 장소 자동 등록 (LLM이 📅 이벤트에서 장소 추출)
-                if (parsed.promisePlace && parsed.promisePlace !== 'null' && parsed.mood === '📅') {
+                // ★ 약속 장소 자동 등록 (LLM이 이벤트에서 장소 추출 — 모든 무드)
+                if (parsed.promisePlace && parsed.promisePlace !== 'null' && parsed.promisePlace.toLowerCase() !== 'null') {
                     try {
                         const pPlace = parsed.promisePlace.trim();
                         if (pPlace.length >= 2 && pPlace.length <= 25 && !lm.findByName(pPlace)) {

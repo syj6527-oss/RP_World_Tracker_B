@@ -89,18 +89,61 @@ function _getApiConfig() {
 // ========== Google Gemini 직접 호출 ==========
 async function _callGoogle(key, model, prompt) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            systemInstruction: { parts: [{ text: 'You are a JSON-only data extraction assistant for an RP world tracker tool. You MUST respond with valid JSON only. Never write RP dialogue, narrative, or story continuation. Never roleplay.' }] },
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2000, responseMimeType: 'application/json' },
-        }),
-    });
-    if (!res.ok) throw new Error(`Google API ${res.status}: ${res.statusText}`);
-    const data = await res.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    // ★ 1차 시도: JSON 강제 모드
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                systemInstruction: { parts: [{ text: 'You are a JSON-only assistant. Respond with valid JSON only.' }] },
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.7, maxOutputTokens: 2000, responseMimeType: 'application/json' },
+            }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            dbg('🔧 Google raw:', JSON.stringify(data).substring(0, 300));
+            const parts = data?.candidates?.[0]?.content?.parts || [];
+            for (const part of parts) {
+                if (part.text && part.text.includes('{')) {
+                    dbg(`🔧 Google OK (JSON mode, part ${parts.indexOf(part)}, ${part.text.length}c)`);
+                    return part.text;
+                }
+            }
+            dbg(`⚠️ Google JSON mode: no JSON found in ${parts.length} parts`);
+        } else {
+            const errBody = await res.text().catch(() => '');
+            dbg(`⚠️ Google JSON mode: ${res.status} ${errBody.substring(0, 200)}`);
+        }
+    } catch(e) {
+        dbg(`⚠️ Google JSON mode error: ${e.message}`);
+    }
+
+    // ★ 2차 시도: JSON 강제 없이
+    try {
+        const res2 = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt + '\n\nCRITICAL: Respond with ONLY valid JSON. Start with { and end with }. No markdown, no explanation.' }] }],
+                generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
+            }),
+        });
+        if (!res2.ok) throw new Error(`Google API ${res2.status}: ${res2.statusText}`);
+        const data2 = await res2.json();
+        const parts2 = data2?.candidates?.[0]?.content?.parts || [];
+        for (const part of parts2) {
+            if (part.text && part.text.includes('{')) {
+                dbg(`🔧 Google API OK (fallback, ${part.text.length}c)`);
+                return part.text;
+            }
+        }
+        dbg(`⚠️ Google fallback: no JSON in parts either`);
+        return parts2[0]?.text || '';
+    } catch(e) {
+        throw new Error(`Google API both attempts failed: ${e.message}`);
+    }
 }
 
 // ========== OpenAI / OpenRouter 직접 호출 ==========
@@ -163,6 +206,7 @@ export async function callLLM(prompt) {
     }
 
     // ★ 방법 2: Fallback — generateQuietPrompt (본체 모델, 컨텍스트 포함)
+    // ⚠️ 주의: RP 컨텍스트 포함되므로 JSON 응답이 아니면 거부!
     try {
         const ctx = getContext();
         const gen = ctx?.generateQuietPrompt;
@@ -170,8 +214,14 @@ export async function callLLM(prompt) {
             const { runWithoutAutoDetect } = await import('./index.js');
             const result = await runWithoutAutoDetect(() => gen({ prompt }), 2500);
             if (result) {
-                dbg('🔧 LLM fallback (generateQuietPrompt) OK');
-                return result;
+                // ★ JSON 검증 — RP 이어쓰기 거부
+                if (result.includes('{') && result.includes('}')) {
+                    dbg('🔧 LLM fallback (generateQuietPrompt) OK');
+                    return result;
+                } else {
+                    dbg('⚠️ LLM fallback returned non-JSON (RP continuation?), rejecting');
+                    return null;
+                }
             }
         }
     } catch(e) {

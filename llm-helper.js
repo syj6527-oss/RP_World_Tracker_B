@@ -1,7 +1,7 @@
 // 🐶 World Tracker — llm-helper.js (Direct LLM Call)
 // generateQuietPrompt 우회 — 채팅 컨텍스트 없이 직접 API 호출
 
-import { getContext } from '../../../extensions.js';
+import { getContext, extension_settings } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
 
 const dbg = (...a) => console.log(`[${EXTENSION_NAME}]`, ...a);
@@ -9,11 +9,17 @@ const dbg = (...a) => console.log(`[${EXTENSION_NAME}]`, ...a);
 // ========== ST API 설정 읽기 ==========
 function _getApiConfig() {
     try {
-        const mainApi = window.main_api;
-        const oai = window.oai_settings;
-        const chatCompletion = oai?.chat_completion_source;
-
-        dbg('🔧 LLM detect:', { mainApi, chatCompletion, hasOai: !!oai });
+        // ★ 1순위: 우리 확장 설정에 저장된 API 키
+        const s = extension_settings?.[EXTENSION_NAME];
+        if (s?.llmApiKey) {
+            const provider = s.llmProvider || 'google';
+            const model = s.llmModel || (provider === 'google' ? 'gemini-2.0-flash' : provider === 'openai' ? 'gpt-4o-mini' : '');
+            let type = provider, url = null;
+            if (provider === 'openrouter') { type = 'openai'; url = 'https://openrouter.ai/api/v1'; }
+            else if (provider === 'openai') { url = 'https://api.openai.com/v1'; }
+            dbg('🔧 LLM using extension key:', provider, model);
+            return { type, key: s.llmApiKey, model, url };
+        }
 
         let type = null, key = null, model = null, url = null;
 
@@ -137,18 +143,7 @@ async function _callClaude(key, model, prompt, url) {
 
 // ========== 메인 호출 함수 ==========
 export async function callLLM(prompt) {
-    // ★ 방법 1: ST 서버 프록시 (API 키가 서버에 있으므로 가장 안정적)
-    try {
-        const result = await _callSTProxy(prompt);
-        if (result) {
-            dbg(`🔧 LLM ST-proxy OK (${result.length}c)`);
-            return result;
-        }
-    } catch(e) {
-        dbg('⚠️ LLM ST-proxy failed:', e.message);
-    }
-
-    // ★ 방법 2: 직접 API 호출 (API 키가 브라우저에 있는 경우)
+    // ★ 방법 1: 직접 API 호출 (확장 설정 키 또는 ST 변수)
     const cfg = _getApiConfig();
     if (cfg) {
         try {
@@ -166,7 +161,7 @@ export async function callLLM(prompt) {
         }
     }
 
-    // ★ 방법 3: Fallback — generateQuietPrompt
+    // ★ 방법 2: Fallback — generateQuietPrompt (본체 모델, 컨텍스트 포함)
     try {
         const ctx = getContext();
         const gen = ctx?.generateQuietPrompt;
@@ -183,33 +178,6 @@ export async function callLLM(prompt) {
     }
 
     return null;
-}
-
-// ========== ST 서버 프록시 호출 ==========
-async function _callSTProxy(prompt) {
-    // ST의 내부 generate 엔드포인트 사용 (채팅 컨텍스트 없이)
-    const res = await fetch('/api/backends/chat-completions/generate', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '',
-        },
-        body: JSON.stringify({
-            messages: [
-                { role: 'system', content: 'You are a JSON data generator. Output ONLY valid JSON. Do NOT write stories, narratives, or roleplay.' },
-                { role: 'user', content: prompt },
-            ],
-            // 채팅 컨텍스트 없이 프롬프트만!
-        }),
-    });
-    if (!res.ok) throw new Error(`ST proxy ${res.status}`);
-    const data = await res.json();
-    // ST 응답 형식에 따라 파싱
-    if (typeof data === 'string') return data;
-    if (data?.choices?.[0]?.message?.content) return data.choices[0].message.content;
-    if (data?.content) return typeof data.content === 'string' ? data.content : data.content[0]?.text || '';
-    if (data?.response) return data.response;
-    return JSON.stringify(data);
 }
 
 // ========== JSON 파싱 헬퍼 ==========

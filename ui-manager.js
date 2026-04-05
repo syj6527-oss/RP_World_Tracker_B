@@ -60,6 +60,17 @@ export class UIManager {
                     <select id="wt-s-eventlang" class="text_pole wt-select" style="flex:1;font-size:11px"><option value="auto">🔄 자동 (RP 언어)</option><option value="ko">🇰🇷 한국어</option><option value="en">🇺🇸 English</option></select>
                 </div>
                 <div class="wt-divider"></div>
+                <div class="wt-s-row"><label>🔑 LLM API 키 (리뷰/이벤트 생성용)</label></div>
+                <div class="wt-s-row" style="display:flex;gap:4px;align-items:center">
+                    <select id="wt-s-llm-provider" class="text_pole wt-select" style="width:90px;font-size:11px"><option value="google">Gemini</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select>
+                    <input type="password" id="wt-s-llm-key" class="text_pole" placeholder="API 키 입력..." style="flex:1;font-size:11px;padding:6px 8px"/>
+                </div>
+                <div class="wt-s-row" style="display:flex;gap:4px;align-items:center">
+                    <input type="text" id="wt-s-llm-model" class="text_pole" placeholder="모델명 (예: gemini-2.0-flash)" style="flex:1;font-size:11px;padding:6px 8px"/>
+                    <button id="wt-s-llm-test" class="menu_button" style="font-size:11px;padding:6px 10px;white-space:nowrap">🧪 테스트</button>
+                </div>
+                <span id="wt-s-llm-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px">미설정 → 기본(generateQuietPrompt) 사용</span>
+                <div class="wt-divider"></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-worldcont"/> 🌍 세계관 이어가기</label></div>
                 <span id="wt-s-worldcont-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:1px;margin-bottom:4px">새 채팅에서도 같은 캐릭터의 세계관 유지</span>
                 <div class="wt-divider"></div>
@@ -96,6 +107,34 @@ export class UIManager {
             $('#wt-s-profile-status').text(`✅ "${name}" 저장됨`).css('color','#5E84E2');
             toastSuccess(`🧠 감지 모델: ${name}`);
             setTimeout(() => $('#wt-s-profile-status').text(''), 3000);
+        });
+        // 🔑 LLM API 키 설정
+        $('#wt-s-llm-provider').val(s?.llmProvider || 'google');
+        $('#wt-s-llm-key').val(s?.llmApiKey || '');
+        $('#wt-s-llm-model').val(s?.llmModel || '');
+        if (s?.llmApiKey) $('#wt-s-llm-status').text('✅ API 키 설정됨').css('color', '#2B8A6E');
+        $('#wt-s-llm-provider').on('change', () => {
+            s.llmProvider = $('#wt-s-llm-provider').val();
+            const defaults = { google: 'gemini-2.0-flash', openai: 'gpt-4o-mini', openrouter: '' };
+            if (!$('#wt-s-llm-model').val()) $('#wt-s-llm-model').val(defaults[s.llmProvider] || '');
+            saveSettingsDebounced();
+        });
+        $('#wt-s-llm-key').on('change', () => { s.llmApiKey = $('#wt-s-llm-key').val().trim(); saveSettingsDebounced(); $('#wt-s-llm-status').text(s.llmApiKey ? '✅ 저장됨' : '미설정').css('color', s.llmApiKey ? '#2B8A6E' : '#9A8A7A'); });
+        $('#wt-s-llm-model').on('change', () => { s.llmModel = $('#wt-s-llm-model').val().trim(); saveSettingsDebounced(); });
+        $('#wt-s-llm-test').on('click', async () => {
+            $('#wt-s-llm-status').text('🔄 테스트 중...').css('color', '#5E84E2');
+            try {
+                const { callLLM } = await import('./llm-helper.js');
+                const result = await callLLM('Respond with ONLY this JSON: {"test":"ok"}');
+                if (result && result.includes('ok')) {
+                    $('#wt-s-llm-status').text('✅ 연결 성공!').css('color', '#2B8A6E');
+                    toastSuccess('🔑 LLM 연결 성공!');
+                } else {
+                    $('#wt-s-llm-status').text('⚠️ 응답 이상: ' + (result?.substring(0, 50) || 'empty')).css('color', '#F5A8A8');
+                }
+            } catch(e) {
+                $('#wt-s-llm-status').text('❌ 실패: ' + e.message).css('color', '#F5A8A8');
+            }
         });
         // 🌍 세계관 이어가기
         $('#wt-s-worldcont').prop('checked', s?.worldContinuity ?? false).on('change', async () => {

@@ -180,6 +180,37 @@ export async function callLLM(prompt) {
     return null;
 }
 
+// ========== 최근 채팅 맥락 추출 ==========
+export function getRecentChatContext(maxChars = 2000) {
+    try {
+        const ctx = getContext();
+        const chat = ctx?.chat;
+        if (!Array.isArray(chat) || !chat.length) return '';
+        let result = '';
+        // 최근 메시지부터 역순으로 모아서 maxChars까지
+        for (let i = chat.length - 1; i >= 0 && result.length < maxChars; i--) {
+            const msg = chat[i];
+            if (!msg?.mes) continue;
+            // HTML 태그 + 메타데이터 + 코드블록 제거
+            const clean = msg.mes
+                .replace(/<[^>]*>/g, '')
+                .replace(/```[\s\S]*?```/g, '')
+                .replace(/<memo>[\s\S]*?<\/memo>/g, '')
+                .trim();
+            if (!clean || clean.length < 10) continue;
+            const role = msg.is_user ? '👤' : '🤖';
+            const line = `${role} ${clean}\n---\n`;
+            result = line + result;
+        }
+        const trimmed = result.substring(0, maxChars).trim();
+        if (trimmed) dbg(`📋 Chat context: ${trimmed.length}c from recent messages`);
+        return trimmed;
+    } catch(e) {
+        dbg('⚠️ getRecentChatContext error:', e.message);
+        return '';
+    }
+}
+
 // ========== JSON 파싱 헬퍼 ==========
 export function parseLLMJson(raw) {
     if (!raw) return null;

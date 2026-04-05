@@ -5,7 +5,7 @@ console.log('[wt] ui-manager hotfix16 loaded');
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat, runWithoutAutoDetect } from './index.js';
-import { callLLM, parseLLMJson } from './llm-helper.js';
+import { callLLM, parseLLMJson, getRecentChatContext } from './llm-helper.js';
 import { MapRenderer } from './map-renderer.js';
 import { LeafletRenderer } from './leaflet-renderer.js';
 
@@ -3161,6 +3161,8 @@ export class UIManager {
 
             // 이벤트 요약 (최근 5개)
             const evSummary = (loc.events || []).slice(-5).map(e => `${e.mood||'📝'} ${e.title||e.text||''}`).join(', ') || '아직 이벤트 없음';
+            // ★ 최근 채팅 맥락 (리뷰 품질 향상 — 톤/말투/관계 흡수)
+            const recentChat = getRecentChatContext(2500);
 
             // 방문횟수 보정 리뷰 수 (최대 10개, 수 많을수록 확률 급감)
             const visits = loc.visitCount || 0;
@@ -3183,7 +3185,7 @@ export class UIManager {
             for (let i = 0; i < weights.length; i++) {
                 if (rnd < weights[i]) { reviewCount = i + 1; break; }
             }
-            const prompt = `You are writing Google Maps-style character reviews for an RP location. Write in-character, vivid, emotional reviews that reflect each reviewer's unique personality.
+            const prompt = `You are writing Google Maps-style character reviews for an RP location. Write in-character, vivid, emotional reviews that reflect each reviewer's unique personality and speech patterns from the RP.
 
 Generate ${reviewCount} reviews.
 Place: "${loc.name}" | Visits: ${loc.visitCount || 0} | Memo: "${loc.memo || ''}"
@@ -3191,9 +3193,9 @@ Events: ${evSummary}
 Characters: User="${userName}", Char="${charName}"
 ${charContext ? `Character context: ${charContext}` : ''}
 ${langInst}
-
+${recentChat ? `\n[Recent RP scenes — use these to absorb character voice, tone, and relationship dynamics]:\n${recentChat}\n` : ''}
 Reviewers: pick from "${charName}", "${userName}", Pet/Animal, NPC, Wild creature.
-Each review: 1-2 sentences max, in-character voice.
+Each review: 1-2 sentences max, in-character voice. Match the RP's tone and each character's unique speech style.
 
 OUTPUT THIS EXACT FORMAT (valid JSON, no markdown, no explanation):
 {"summary":"one poetic sentence","reviews":[{"name":"reviewer","role":"role","avatar":"emoji","stars":4,"text":"review text","daysAgo":3}]}

@@ -114,6 +114,16 @@ export class PromptInjector {
             L.push(`🏠 Rooms: ${subList}`);
         }
 
+        // 8.6. 터줏대감 — 이 장소의 NPC/동물
+        if (cur.npcs?.length) {
+            const npcList = cur.npcs.map(n => {
+                const icon = n.type === 'animal' ? '🐾' : '🧑';
+                const role = n.role ? `(${n.role})` : '';
+                return `${icon}${n.name}${role}`;
+            }).join(', ');
+            L.push(`👥 People here: ${npcList}`);
+        }
+
         // 9. 마지막 이동
         const last = this._last(); if (last) L.push(`🚶 Last move: ${last}`);
 

@@ -355,4 +355,37 @@ export class LocationManager {
         }
         if (added) console.log(`[${EXTENSION_NAME}] 🔧 autoDist: ${added} new distances added`);
     }
+
+    // ========== 터줏대감 (NPC/동물) 관리 ==========
+    async addNpcToLocation(locId, npc) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc) return false;
+        if (!loc.npcs) loc.npcs = [];
+        // 중복 방지 (이름 기준, 대소문자 무시)
+        const existing = loc.npcs.find(n => n.name.toLowerCase() === npc.name.toLowerCase());
+        if (existing) {
+            existing.count = (existing.count || 1) + 1;
+            existing.lastSeen = Date.now();
+            await this.db.saveLocation(loc);
+            return false; // 기존 NPC 카운트 업
+        }
+        loc.npcs.push({
+            name: npc.name,
+            type: npc.type || 'npc', // 'npc' | 'animal'
+            role: npc.role || '',
+            firstSeen: Date.now(),
+            lastSeen: Date.now(),
+            count: 1,
+        });
+        await this.db.saveLocation(loc);
+        console.log(`[${EXTENSION_NAME}] 🧑 NPC added: "${npc.name}" (${npc.type}) → ${loc.name}`);
+        return true; // 새 NPC
+    }
+
+    async removeNpcFromLocation(locId, npcName) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc?.npcs) return;
+        loc.npcs = loc.npcs.filter(n => n.name.toLowerCase() !== npcName.toLowerCase());
+        await this.db.saveLocation(loc);
+    }
 }

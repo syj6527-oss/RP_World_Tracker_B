@@ -348,6 +348,10 @@ export class UIManager {
                             <div style="font-size:12px;color:#9A8A7A;margin-bottom:3px">🤖 특이사항 <span style="font-size:10px;color:#B0A898">(AI에게만 전달)</span></div>
                             <textarea id="wt-pop-ainotes" class="wt-input wt-textarea" placeholder="예: 0900 붐빔, 바리스타 민수, 2층 창가석 단골..." rows="3" style="font-size:11px;line-height:1.5"></textarea>
                         </div>
+                        <div id="wt-pop-npcs-section" style="margin-top:4px">
+                            <div style="font-size:12px;color:#9A8A7A;margin-bottom:3px">👥 터줏대감 <span style="font-size:10px;color:#B0A898">(자동 감지)</span></div>
+                            <div id="wt-pop-npcs-list" style="display:flex;flex-direction:column;gap:2px;max-height:120px;overflow-y:auto"></div>
+                        </div>
                         <div id="wt-pop-events-section" style="margin-top:4px">
                             <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📝 이벤트 기록</div>
                             <div id="wt-pop-events-list" style="display:flex;flex-direction:column;gap:3px;max-height:300px;overflow-y:auto"></div>
@@ -1046,6 +1050,28 @@ export class UIManager {
         $('#wt-pop-last').text(l.rpLastVisited || (l.lastVisited?this._fmt(l.lastVisited):'—'));
         $('#wt-pop-memo').val(l.memo||''); $('#wt-pop-status').val(l.status||'');
         $('#wt-pop-ainotes').val(l.aiNotes||'');
+        // ★ 터줏대감 목록 렌더
+        const npcList = $('#wt-pop-npcs-list');
+        npcList.empty();
+        if (l.npcs?.length) {
+            l.npcs.forEach(n => {
+                const icon = n.type === 'animal' ? '🐾' : '🧑';
+                npcList.append(`<div style="display:flex;align-items:center;gap:4px;padding:3px 6px;background:#FAFAF5;border-radius:6px;font-size:11px;color:#3C4043">
+                    <span>${icon}</span><span style="font-weight:500">${n.name}</span>${n.role ? `<span style="font-size:9px;color:#9AA0A6">(${n.role})</span>` : ''}
+                    <span style="font-size:9px;color:#B0A898;margin-left:auto">×${n.count||1}</span>
+                    <span class="wt-npc-del" data-name="${n.name}" style="color:#F5A8A8;cursor:pointer;font-size:9px;margin-left:4px">✕</span>
+                </div>`);
+            });
+            npcList.find('.wt-npc-del').on('click', async function(e) {
+                e.stopPropagation();
+                const name = $(this).data('name');
+                const locId = $('#wt-popover').attr('data-id');
+                await self.lm.removeNpcFromLocation(locId, name);
+                $(this).closest('div').fadeOut(200, function() { $(this).remove(); });
+            });
+        } else {
+            npcList.html('<div style="font-size:10px;color:#B0A898;padding:4px">아직 감지된 인물이 없어요</div>');
+        }
         $('#wt-pop-aliases').val((l.aliases||[]).join(', '));
         // Task 5: 아이콘 타입 선택 복원
         $('#wt-pop-icon-type').val(l.locationType || '');
@@ -1519,6 +1545,7 @@ export class UIManager {
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
                 ${nearbyHtml}
+                ${(loc.npcs?.length) ? `<div style="margin-top:8px"><div style="font-size:11px;font-weight:600;color:#5A4030;margin-bottom:4px">👥 터줏대감</div>${loc.npcs.map(n => `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;color:#3C4043"><span style="font-size:13px">${n.type==='animal'?'🐾':'🧑'}</span>${n.name}${n.role?` <span style="font-size:9px;color:#9AA0A6">(${n.role})</span>`:''}<span style="font-size:9px;color:#B0A898;margin-left:auto">×${n.count||1}</span></div>`).join('')}</div>` : ''}
                 <!-- T3: 리뷰 미리보기 (개요 안) -->
                 <div id="wt-bs-rv-preview" style="margin-top:10px;padding-top:8px;border-top:1px solid #F0EDE5">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -1734,8 +1761,11 @@ export class UIManager {
         bs.find('.wt-sub-back').on('click', (e) => {
             e.stopPropagation();
             const pid = $(e.currentTarget).data('parentid');
+            // ★ 현재 스테이지 보존 (깜빡임 방지)
+            const prevStage = self._bsStage || 2;
             self._showBottomSheet(pid);
-            setTimeout(() => { bs.find('.wt-bs-tab[data-tab="rooms"]').click(); }, 100);
+            self._applyBsStage(prevStage);
+            setTimeout(() => { $('#wt-bottomsheet').find('.wt-bs-tab[data-tab="rooms"]').click(); }, 100);
         });
         // ★ 이벤트 아코디언 토글
         bs.find('.wt-sub-ev-card').on('click', function() {
@@ -1825,6 +1855,8 @@ export class UIManager {
             dragged = false;
             totalDelta = 0;
             bsEl.style.transition = 'none';
+            // ★ 드래그 중 스크롤 차단 (MyPage/Timeline 스와이프 버그 수정)
+            bsEl.style.overflowY = 'hidden';
             // ★ Full 상태면 top:0 → maxHeight 모드로 전환
             if (self._bsStage === 3) {
                 const wrapEl = bsEl.closest('#wt-leaflet-wrap') || bsEl.parentElement;
@@ -3164,21 +3196,21 @@ export class UIManager {
             // ★ 최근 채팅 맥락 (리뷰 품질 향상 — 톤/말투/관계 흡수)
             const recentChat = getRecentChatContext(2500);
 
-            // 방문횟수 보정 리뷰 수 (최대 10개, 수 많을수록 확률 급감)
+            // 방문횟수 보정 리뷰 수 (최소 2개 보장, 확률 상향)
             const visits = loc.visitCount || 0;
             let maxReviews, weights;
             if (visits <= 2) {
-                maxReviews = 3;
-                weights = [0.50, 0.85, 1.0];
+                maxReviews = 4;
+                weights = [0.15, 0.55, 0.85, 1.0]; // 2~3개 주력
             } else if (visits <= 5) {
-                maxReviews = 5;
-                weights = [0.30, 0.60, 0.80, 0.92, 1.0];
+                maxReviews = 6;
+                weights = [0.05, 0.25, 0.55, 0.78, 0.92, 1.0]; // 3~4개 주력
             } else if (visits <= 9) {
                 maxReviews = 8;
-                weights = [0.20, 0.45, 0.70, 0.85, 0.93, 0.97, 0.99, 1.0];
+                weights = [0.03, 0.12, 0.30, 0.55, 0.75, 0.88, 0.95, 1.0]; // 4~5개 주력
             } else {
                 maxReviews = 10;
-                weights = [0.15, 0.35, 0.60, 0.78, 0.88, 0.93, 0.96, 0.98, 0.99, 1.0];
+                weights = [0.02, 0.08, 0.20, 0.40, 0.60, 0.76, 0.88, 0.94, 0.98, 1.0]; // 5~6개 주력
             }
             const rnd = Math.random();
             let reviewCount = 1;

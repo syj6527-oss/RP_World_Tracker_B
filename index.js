@@ -256,6 +256,38 @@ async function scanMessage(text, source = 'USER') {
         // 장소 감지 실패해도, 현재 위치가 있으면 이벤트만 추출
         if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
 
+        // ★ AI 응답에서 NPC/동물 자동 감지 (터줏대감)
+        if (source === 'AI' && lm.currentLocationId) {
+            try {
+                const ctx = getContext();
+                const npcs = det.detectNPCs(text, ctx.name1, ctx.name2);
+                for (const npc of npcs) {
+                    await lm.addNpcToLocation(lm.currentLocationId, npc);
+                }
+                if (npcs.length) { pi.inject(); if (ui?.panelVisible) ui.refresh(); }
+            } catch(e) { dbg('⚠️ NPC detect error:', e.message); }
+        }
+
+        // ★ 약속 장소 감지 ("내일 ~에서 만나자")
+        if (lm.currentLocationId) {
+            try {
+                const promisePlace = det.detectPromisePlace(text);
+                if (promisePlace && !lm.findByName(promisePlace)) {
+                    const loc = await lm.addLocation(promisePlace);
+                    if (loc) {
+                        loc.tags = ['wantToGo'];
+                        await lm.updateLocation(loc.id, { tags: loc.tags });
+                        if (!loc.events) loc.events = [];
+                        loc.events.push({ text: `📅 약속 장소로 등록됨`, title: '약속 장소', mood: '📅', timestamp: Date.now(), source: 'auto' });
+                        await lm.updateLocation(loc.id, { events: loc.events });
+                        dbg(`📅 Promise place: "${promisePlace}" auto-registered with 🚩 tag`);
+                        if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${promisePlace}`, 'new', 3500);
+                        pi.inject(); if (ui?.panelVisible) ui.refresh();
+                    }
+                }
+            } catch(e) { dbg('⚠️ Promise detect error:', e.message); }
+        }
+
         return false;
     } catch(e) { console.error(`[${EXTENSION_NAME}] Scan:`, e); return false; }
 }
@@ -348,6 +380,44 @@ async function init() {
             try { await lm.autoReverseGeocode(); } catch(_){}
             if (ui.panelVisible) ui.refresh();
         }, 3000);
+
+        // ★ 캐릭터시트에서 1차 주소 자동 추출 (장소 0개일 때만)
+        if (lm.locations.length === 0) {
+            setTimeout(async () => {
+                try {
+                    const ctx = getContext();
+                    const desc = ctx.characters?.[ctx.characterId]?.description || '';
+                    const scenario = ctx.characters?.[ctx.characterId]?.scenario || '';
+                    const combined = desc + ' ' + scenario;
+                    if (combined.length < 10) return;
+                    // 주소/지역 패턴 추출
+                    const patterns = [
+                        /(?:lives?\s+in|based\s+in|located\s+in|set\s+in|takes?\s+place\s+in)\s+([A-Z][a-zA-Z\s]+?)(?:[,.\n]|$)/i,
+                        /(?:사는\s*곳|거주지|배경|위치)[:\s]*([^\n,]{2,15})/,
+                        /(?:서울|부산|대구|인천|광주|대전|울산|세종|제주|경기|강원|충북|충남|전북|전남|경북|경남)/,
+                        /(?:London|New York|Tokyo|Paris|Seoul|Berlin|Moscow|Beijing|Shanghai|Los Angeles|Chicago|Toronto|Sydney|Melbourne|Singapore|Hong Kong)/i,
+                        /(?:기지|base|camp|headquarters|HQ|barracks|막사|본부|사령부)\s*(?:in\s+)?([A-Za-z\uAC00-\uD7A3\s]{2,15})?/i,
+                    ];
+                    for (const pat of patterns) {
+                        const m = combined.match(pat);
+                        if (m) {
+                            const place = (m[1] || m[0]).trim().substring(0, 20);
+                            if (place.length >= 2 && !lm.findByName(place)) {
+                                dbg(`🏠 Character sheet address detected: "${place}"`);
+                                const loc = await lm.addLocation(place);
+                                if (loc) {
+                                    await lm.moveTo(loc.id);
+                                    pi.inject();
+                                    if (ui.panelVisible) ui.refresh();
+                                    wtNotify(`🏠 캐릭터 시트에서 "${place}" 감지!`, 'new', 4000);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                } catch(e) { dbg('⚠️ CharSheet addr error:', e.message); }
+            }, 2000);
+        }
     });
 
     if (event_types.MESSAGE_SENDING) {

@@ -93,8 +93,9 @@ async function _callGoogle(key, model, prompt) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+            systemInstruction: { parts: [{ text: 'You are a JSON-only data extraction assistant for an RP world tracker tool. You MUST respond with valid JSON only. Never write RP dialogue, narrative, or story continuation. Never roleplay.' }] },
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2000, responseMimeType: 'application/json' },
         }),
     });
     if (!res.ok) throw new Error(`Google API ${res.status}: ${res.statusText}`);

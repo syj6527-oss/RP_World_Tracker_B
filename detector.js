@@ -385,4 +385,89 @@ export class LocationDetector {
     _inDlg(t,pos) { const b=t.substring(0,pos); for(const[o,c]of[['"','"'],['"','"'],['「','」']]){const lo=b.lastIndexOf(o);if(lo>-1&&lo>b.lastIndexOf(c))return true;} return false; }
     _getDlg(t,pos) { for(const[o,c]of[['"','"'],['"','"'],['「','」']]){const s=t.lastIndexOf(o,pos);if(s===-1)continue;const e=t.indexOf(c,s+1);if(e>-1&&e>=pos)return t.substring(s+1,e);} return null; }
     _para(t,pos) { const b=t.substring(Math.max(0,pos-200),pos); const a=t.substring(pos,Math.min(t.length,pos+200)); return b.substring(Math.max(b.lastIndexOf('\n'),0))+(a.indexOf('\n')!==-1?a.substring(0,a.indexOf('\n')):a); }
+
+    // ========== 터줏대감 (NPC/동물) 감지 ==========
+    detectNPCs(text, userName, charName) {
+        const clean = this._strip(text);
+        const npcs = [];
+        const exclude = new Set([userName?.toLowerCase(), charName?.toLowerCase(), 'user', 'character', 'you', 'i', 'me', 'my', 'he', 'she', 'they', 'it', 'the', 'a', 'an'].filter(Boolean));
+
+        // 1. 대사 화자 감지 — "Name said", Name: "...", Name이/가 말했다
+        const speakerPatterns = [
+            /(?:^|\n)\s*(\*?\*?([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\*?\*?)\s*(?:said|asked|replied|whispered|yelled|muttered|added|growled|snarled|laughed|grinned|sighed|murmured|called|shouted)/gi,
+            /[""]([^""]+)[""]\s*(\w+)\s+(?:said|asked|replied)/gi,
+            /([\uAC00-\uD7A3]{2,6})(?:이|가|은|는)\s*(?:말했|물었|속삭|외쳤|중얼|대답했|소리쳤|웃으며|한숨)/g,
+        ];
+
+        for (const pat of speakerPatterns) {
+            let m;
+            while ((m = pat.exec(clean)) !== null) {
+                const name = (m[2] || m[1]).replace(/\*+/g, '').trim();
+                if (name.length >= 2 && name.length <= 20 && !exclude.has(name.toLowerCase())) {
+                    npcs.push({ name, type: 'npc', role: '' });
+                }
+            }
+        }
+
+        // 2. 동물 키워드 감지
+        const animalKw = {
+            ko: [
+                [/(?:고양이|냥이|야옹이|길냥)\s*([\uAC00-\uD7A3]{1,6})?/, '고양이'],
+                [/(?:강아지|멍멍이|퍼피)\s*([\uAC00-\uD7A3]{1,6})?/, '강아지'],
+                [/군견\s*([\uAC00-\uD7A3A-Za-z]{1,10})?/, '군견'],
+                [/([\uAC00-\uD7A3A-Za-z]{1,10})(?:라는|이라는)\s*(?:고양이|강아지|군견|개|새|앵무새|햄스터|토끼)/, 'animal'],
+            ],
+            en: [
+                [/(?:cat|kitten|feline)\s+(?:named\s+)?([A-Z][a-z]+)?/i, 'cat'],
+                [/(?:dog|puppy|canine|hound)\s+(?:named\s+)?([A-Z][a-z]+)?/i, 'dog'],
+                [/(?:military|guard|war)\s*dog\s+(?:named\s+)?([A-Z][a-z]+)?/i, 'military dog'],
+                [/([A-Z][a-z]+),?\s+(?:the|a)\s+(?:cat|dog|bird|parrot|hamster|rabbit|horse)/i, 'animal'],
+            ],
+        };
+
+        for (const patterns of Object.values(animalKw)) {
+            for (const [pat, animalType] of patterns) {
+                const m = clean.match(pat);
+                if (m) {
+                    const name = (m[1] || '').trim();
+                    if (name && name.length >= 1 && !exclude.has(name.toLowerCase())) {
+                        npcs.push({ name, type: 'animal', role: animalType });
+                    }
+                }
+            }
+        }
+
+        // 3. 중복 제거 (이름 기준)
+        const seen = new Set();
+        return npcs.filter(n => {
+            const key = n.name.toLowerCase();
+            if (seen.has(key) || exclude.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    // ========== 약속 장소 감지 ==========
+    detectPromisePlace(text) {
+        const clean = this._strip(text);
+        const patterns = [
+            // 한국어: "내일 ~에서 만나자", "다음에 ~가자", "~에서 보자"
+            /(?:내일|모레|다음에|나중에|주말에|이따가)\s+(.{1,15}?)(?:에서|에)\s*(?:만나|보자|가자|모이자|만날까|볼까|갈까)/,
+            /(.{1,15}?)(?:에서|에)\s*(?:만나자|보자|가자|만날래|볼래|갈래|약속)/,
+            // 영어: "meet at ~", "let's go to ~ tomorrow"
+            /(?:tomorrow|next time|later|weekend|tonight)\s+(?:at|in)\s+(.{2,20})/i,
+            /(?:meet|see you|let'?s go)\s+(?:at|to)\s+(.{2,20}?)(?:\s+(?:tomorrow|next|later|tonight))?/i,
+        ];
+
+        for (const pat of patterns) {
+            const m = clean.match(pat);
+            if (m?.[1]) {
+                const place = m[1].replace(/[,."'!?…]+$/g, '').trim();
+                if (place.length >= 1 && place.length <= 15 && !this._isSkip(place)) {
+                    return place;
+                }
+            }
+        }
+        return null;
+    }
 }

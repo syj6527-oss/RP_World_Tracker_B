@@ -7,6 +7,7 @@ import { LocationManager } from './location-manager.js';
 import { LocationDetector } from './detector.js';
 import { PromptInjector } from './prompt-injector.js';
 import { UIManager } from './ui-manager.js';
+import { callLLM, parseLLMJson } from './llm-helper.js';
 
 export const EXTENSION_NAME = 'rp-world-tracker';
 export const PROMPT_KEY = 'rp-world-tracker-prompt';
@@ -499,32 +500,23 @@ async function _tryEvent(text, locId, source) {
 
     let evText = null, evTitle = null, evMood = '💕';
 
-    // ★ Phase 2: LLM 요약 시도
+    // ★ Phase 2: LLM 요약 시도 (직접 API 호출)
     try {
         const ctx = getContext();
-        const generateQuietPrompt = ctx?.generateQuietPrompt;
-        if (generateQuietPrompt) {
-            // HTML 제거 + 메타데이터 제거
-            const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
-            if (clean.length < 30) return;
+        // HTML 제거 + 메타데이터 제거
+        const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
+        if (clean.length < 30) return;
 
-            // 2000자 제한 (토큰 절약)
-            const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
+        const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
+        const userCtx = _userContext ? `\n\n[User's action]: ${_userContext.replace(/<[^>]*>/g, '').substring(0, 300)}` : '';
+        const userName = ctx.name1 || 'User';
+        const charName = ctx.name2 || 'Character';
+        const eLang = extension_settings[EXTENSION_NAME]?.eventLang || 'auto';
+        const langInst = eLang === 'ko' ? 'Write the summary in Korean (한국어).'
+                       : eLang === 'en' ? 'Write the summary in English.'
+                       : 'Write in the SAME LANGUAGE as the input text.';
 
-            // 유저 입력 컨텍스트 추가 (있으면)
-            const userCtx = _userContext ? `\n\n[User's action]: ${_userContext.replace(/<[^>]*>/g, '').substring(0, 300)}` : '';
-
-            // 캐릭터 이름 가져오기
-            const userName = ctx.name1 || 'User';
-            const charName = ctx.name2 || 'Character';
-
-            // 언어 설정
-            const eLang = extension_settings[EXTENSION_NAME]?.eventLang || 'auto';
-            const langInst = eLang === 'ko' ? 'Write the summary in Korean (한국어).'
-                           : eLang === 'en' ? 'Write the summary in English.'
-                           : 'Write in the SAME LANGUAGE as the input text.';
-
-            const prompt = `You are a narrative memory keeper for an RP story. Read the scene and write a rich, detailed 2-sentence memory summary.
+        const prompt = `You are a narrative memory keeper for an RP story. Read the scene and write a rich, detailed 2-sentence memory summary.
 
 Character info: The user/protagonist is named "${userName}". The main character is "${charName}".
 IMPORTANT: You MUST use "${userName}" by name in the summary. Always write like: "${userName}이/가 [character]와..."
@@ -552,19 +544,14 @@ Examples:
 Text:
 ${trimmed}${userCtx}`;
 
-            const result = await generateQuietPrompt({ prompt });
-            if (result) {
-                // JSON 파싱
-                const jsonMatch = result.match(/\{[\s\S]*?\}/);
-                if (jsonMatch) {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    if (parsed.mood && parsed.summary) {
-                        evText = parsed.summary;
-                        evTitle = parsed.title || parsed.summary.substring(0, 15) + '...';
-                        evMood = parsed.mood;
-                        dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
-                    }
-                }
+        const result = await callLLM(prompt);
+        if (result) {
+            const parsed = parseLLMJson(result);
+            if (parsed?.mood && parsed?.summary) {
+                evText = parsed.summary;
+                evTitle = parsed.title || parsed.summary.substring(0, 15) + '...';
+                evMood = parsed.mood;
+                dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
             }
         }
     } catch (e) {

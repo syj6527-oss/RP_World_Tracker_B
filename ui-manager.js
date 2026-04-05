@@ -5,6 +5,7 @@ console.log('[wt] ui-manager hotfix16 loaded');
 import { getContext, extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import { EXTENSION_NAME, wtNotify, toastWarn, toastSuccess, loadLeaflet, wtMascot, wtTreat, runWithoutAutoDetect } from './index.js';
+import { callLLM, parseLLMJson } from './llm-helper.js';
 import { MapRenderer } from './map-renderer.js';
 import { LeafletRenderer } from './leaflet-renderer.js';
 
@@ -33,7 +34,7 @@ export class UIManager {
     createSettingsPanel() {
         const html = `<div id="wt-settings" class="wt-settings"><div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>🐶 World Tracker <span class="wt-version">v0.3.0-beta</span></b>
+                <b>🐶 World Tracker <span class="wt-version">v0.4.0</span></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div><div class="inline-drawer-content">
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-enabled"/> 활성화</label></div>
@@ -1070,13 +1071,20 @@ export class UIManager {
 
         const eventsHtml = events.length ? events.map((ev, i) => {
             const date = ev.timestamp ? this._fmt(ev.timestamp) : '—';
-            return `<div style="display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-bottom:1px solid #F1F3F4">
-                <span style="font-size:12px">${ev.mood || '📝'}</span>
-                <div style="flex:1">
-                    <div style="font-size:11px;font-weight:600;color:#202124">${ev.title || ev.text?.substring(0, 30) || '—'}</div>
-                    <div style="font-size:10px;color:#9AA0A6">${date}</div>
+            const title = ev.title || ev.text?.substring(0, 20) + '...' || '—';
+            const fullText = ev.text || '';
+            const hasDetail = fullText.length > 0 && fullText !== title;
+            return `<div class="wt-subpop-ev-card" style="padding:6px 8px;border-bottom:1px solid #F1F3F4">
+                <div style="display:flex;align-items:center;gap:5px">
+                    <span style="font-size:12px">${ev.mood || '📝'}</span>
+                    <span style="flex:1;font-weight:600;font-size:11px;color:#5A4030">${title}</span>
                 </div>
-                <span class="wt-subpop-ev-del" data-idx="${i}" style="cursor:pointer;color:#F5A8A8;font-size:11px">✕</span>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+                    <span style="font-size:10px;color:#9AA0A6">${date}</span>
+                    <span class="wt-subpop-ev-del" data-idx="${i}" style="cursor:pointer;color:#F5A8A8;font-size:11px;margin-left:auto">✕</span>
+                    ${hasDetail ? '<span class="wt-subpop-ev-toggle" style="cursor:pointer;font-size:10px;color:#B0A898">▼</span>' : ''}
+                </div>
+                ${hasDetail ? `<div class="wt-subpop-ev-detail" style="display:none;margin-top:4px;padding:6px 8px;background:#FAFAF5;border-radius:6px;font-size:11px;color:#5A4030;line-height:1.6">${fullText}</div>` : ''}
             </div>`;
         }).join('') : '<div style="padding:10px;text-align:center;color:#9AA0A6;font-size:11px">아직 이벤트가 없어요</div>';
 
@@ -1169,6 +1177,16 @@ export class UIManager {
             pop.find('.wt-pop-body').hide();
             self._showSubPop(parentId, subId);
             toastSuccess('🗑️ 삭제!');
+        });
+        // ▼ 이벤트 아코디언 토글
+        overlay.find('.wt-subpop-ev-card').on('click', function(e) {
+            if ($(e.target).closest('.wt-subpop-ev-del').length) return;
+            const det = $(this).find('.wt-subpop-ev-detail');
+            const arrow = $(this).find('.wt-subpop-ev-toggle');
+            if (det.length) {
+                det.slideToggle(200);
+                arrow.text(det.is(':visible') ? '▲' : '▼');
+            }
         });
         console.log(`[${EXTENSION_NAME}] 🔧 showSubPop: "${parent.name} > ${sub.name}"`);
     }
@@ -1601,11 +1619,22 @@ export class UIManager {
 
         let evHtml = '';
         if (events.length) {
-            evHtml = events.map(ev => `<div style="display:flex;align-items:flex-start;gap:6px;padding:6px 0;border-bottom:1px solid #F1F3F4">
-                <span style="font-size:12px">${ev.mood || '📝'}</span>
-                <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${ev.title || ev.text?.substring(0,30) || '—'}</div>
-                <div style="font-size:10px;color:#9AA0A6">${ev.timestamp ? this._fmt(ev.timestamp) : '—'}</div></div>
-            </div>`).join('');
+            evHtml = events.map((ev, i) => {
+                const title = ev.title || ev.text?.substring(0, 40) || '—';
+                const fullText = ev.text || '';
+                const hasDetail = fullText.length > 0 && fullText !== title;
+                return `<div class="wt-sub-ev-card" style="padding:8px 0;border-bottom:1px solid #F1F3F4;cursor:${hasDetail ? 'pointer' : 'default'};-webkit-tap-highlight-color:transparent">
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <span style="font-size:12px;flex-shrink:0">${ev.mood || '📝'}</span>
+                        <span style="flex:1;font-weight:600;font-size:12px;color:#202124">${title}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px">
+                        <span style="font-size:10px;color:#9AA0A6">${ev.timestamp ? this._fmt(ev.timestamp) : '—'}</span>
+                        ${hasDetail ? '<span class="wt-sub-ev-arrow" style="margin-left:auto;font-size:10px;color:#B0A898;cursor:pointer">▼</span>' : ''}
+                    </div>
+                    ${hasDetail ? `<div class="wt-sub-ev-detail" style="display:none;margin-top:4px;padding:6px 8px;background:#FAFAF5;border-radius:6px;font-size:11px;color:#5A4030;line-height:1.6;margin-left:18px">${fullText}</div>` : ''}
+                </div>`;
+            }).join('');
         } else {
             evHtml = '<div style="text-align:center;padding:16px;color:#9AA0A6;font-size:11px">아직 이벤트가 없어요</div>';
         }
@@ -1641,6 +1670,15 @@ export class UIManager {
             const pid = $(e.currentTarget).data('parentid');
             self._showBottomSheet(pid);
             setTimeout(() => { bs.find('.wt-bs-tab[data-tab="rooms"]').click(); }, 100);
+        });
+        // ★ 이벤트 아코디언 토글
+        bs.find('.wt-sub-ev-card').on('click', function() {
+            const det = $(this).find('.wt-sub-ev-detail');
+            const arrow = $(this).find('.wt-sub-ev-arrow');
+            if (det.length) {
+                det.slideToggle(200);
+                arrow.text(det.is(':visible') ? '▲' : '▼');
+            }
         });
     }
 
@@ -2950,13 +2988,9 @@ export class UIManager {
         // 긴 텍스트면 LLM으로 title 생성
         if (text.length > 20) {
             try {
-                const ctx = getContext();
-                const gen = ctx?.generateQuietPrompt;
-                if (gen) {
-                    const prompt = `Create a short, witty title (max 15 chars) for this event that emphasizes the place's meaning. Write like "OO한 곳". Respond with ONLY the title text, nothing else.\n\nEvent: ${text.substring(0, 300)}`;
-                    const result = await runWithoutAutoDetect(() => gen({ prompt }));
-                    if (result?.trim()) title = result.trim().substring(0, 20);
-                }
+                const prompt = `Create a short, witty title (max 15 chars) for this event that emphasizes the place's meaning. Write like "OO한 곳". Respond with ONLY the title text, nothing else.\n\nEvent: ${text.substring(0, 300)}`;
+                const result = await callLLM(prompt);
+                if (result?.trim()) title = result.trim().replace(/["\n]/g, '').substring(0, 20);
             } catch(e) {}
         }
 
@@ -3048,9 +3082,6 @@ export class UIManager {
 
         try {
             const ctx = getContext();
-            const gen = ctx?.generateQuietPrompt;
-            if (!gen) { list.html('<div style="font-size:11px;color:#F5A8A8;padding:8px">LLM 연결 필요</div>'); return; }
-
             const userName = ctx.name1 || 'User';
             const charName = ctx.name2 || 'Character';
             const s = extension_settings[EXTENSION_NAME];
@@ -3081,39 +3112,31 @@ export class UIManager {
             for (let i = 0; i < weights.length; i++) {
                 if (rnd < weights[i]) { reviewCount = i + 1; break; }
             }
-            const prompt = `Generate ${reviewCount} Google Maps-style reviews for an RP location. Each reviewer is a CHARACTER from the story with a distinct voice.
+            const prompt = `[SYSTEM OVERRIDE — THIS IS NOT A ROLEPLAY MESSAGE]
+[DO NOT CONTINUE THE STORY — DO NOT WRITE NARRATIVE — JSON ONLY]
 
-Place: "${loc.name}" | Memo: "${loc.memo || ''}" | Notes: "${loc.aiNotes || ''}" | Visits: ${loc.visitCount || 0}
+You are a data generator. Your ONLY job: output a JSON object.
+NEVER write story text, dialogue, actions, or narrative.
+
+Generate ${reviewCount} Google Maps-style reviews.
+Place: "${loc.name}" | Visits: ${loc.visitCount || 0} | Memo: "${loc.memo || ''}"
 Events: ${evSummary}
-User="${userName}", Character="${charName}"
+Characters: User="${userName}", Char="${charName}"
 ${langInst}
 
-REVIEWER POOL (pick ${reviewCount} randomly, can repeat types):
-• "${charName}" — main character, write in their personality. Reference events. Show relationship with ${userName}.
-• "${userName}" — protagonist, personal emotional reaction to this place.
-• Pet/Animal — a pet, stray cat, military dog, bird, etc. Write from animal POV (smells, food, warmth, territory).
-• NPC — barista, neighbor, soldier, ghost, street vendor, etc. Quirky and unexpected.
-• Wild creature — crow watching from rooftop, alley cat, stray dog. Pure instinct-based review.
+Reviewers: pick from "${charName}", "${userName}", Pet/Animal, NPC, Wild creature.
+Each review: 1-2 sentences max, in-character voice.
 
-VOICE RULES:
-• Tough character → blunt, short, reluctant praise
-• Gentle character → emotional, poetic, nostalgic
-• Animal → sensory (smell, warmth, food, nap spots). No human logic.
-• NPC → unique quirk that reveals something about the place
+OUTPUT THIS EXACT FORMAT (valid JSON, no markdown, no explanation):
+{"summary":"one poetic sentence","reviews":[{"name":"reviewer","role":"role","avatar":"emoji","stars":4,"text":"review text","daysAgo":3}]}
 
-Also generate a 1-sentence poetic SUMMARY that captures the emotional contrast of this place (combine the warmest and coldest memories).
+CRITICAL: Start your response with { and end with }. Nothing else.`;
 
-JSON ONLY, no markdown:
-{"summary":"poetic 1-sentence place summary","reviews":[{"name":"name","role":"role","avatar":"emoji","stars":1-5,"text":"1-2 sentences","daysAgo":1-30}]}`;
-
-            const result = await runWithoutAutoDetect(() => gen({ prompt }), 2500);
+            const result = await callLLM(prompt);
             if (!result) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">생성 실패 — 다시 시도해주세요</div>'); return; }
 
-            // JSON 파싱
-            const jsonMatch = result.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">파싱 실패 — 다시 시도해주세요</div>'); return; }
-
-            const parsed = JSON.parse(jsonMatch[0]);
+            const parsed = parseLLMJson(result);
+            if (!parsed) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">파싱 실패 — 다시 시도해주세요</div>'); return; }
             const reviews = parsed.reviews || parsed;
             const aiSummary = parsed.summary || '';
             if (!Array.isArray(reviews) || !reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
@@ -3518,7 +3541,6 @@ JSON ONLY, no markdown:
 
             try {
                 const ctx = getContext();
-                const generateQuietPrompt = ctx?.generateQuietPrompt;
                 const userName = ctx?.name1 || 'User';
                 const charName = ctx?.name2 || 'Character';
                 const s = extension_settings[EXTENSION_NAME];
@@ -3530,7 +3552,7 @@ JSON ONLY, no markdown:
                 let evTitle = null, evText = null, evMood = '📝';
                 const trimmed = selectedText.substring(0, 1500);
 
-                if (generateQuietPrompt) {
+                try {
                     const prompt = `Summarize this RP scene excerpt as a place-event memory. ${langInst}
 Character info: protagonist="${userName}", main character="${charName}".
 Respond with ONLY JSON: {"mood":"💕 or 📅 or ⚡","title":"place-meaning hook max 15chars","summary":"detailed 2-sentence summary"}
@@ -3538,19 +3560,16 @@ If mundane: {"mood":null}
 
 Text: ${trimmed}`;
 
-                    const result = await runWithoutAutoDetect(() => generateQuietPrompt({ prompt }), 2500);
+                    const result = await callLLM(prompt);
                     if (result) {
-                        const m = result.match(/\{[\s\S]*?\}/);
-                        if (m) {
-                            const p = JSON.parse(m[0]);
-                            if (p.mood && p.summary) {
-                                evTitle = p.title || p.summary.substring(0, 15) + '...';
-                                evText = p.summary;
-                                evMood = p.mood;
-                            }
+                        const p = parseLLMJson(result);
+                        if (p?.mood && p?.summary) {
+                            evTitle = p.title || p.summary.substring(0, 15) + '...';
+                            evText = p.summary;
+                            evMood = p.mood;
                         }
                     }
-                }
+                } catch(_) {}
 
                 // LLM 실패 시 선택 텍스트 그대로
                 if (!evText) {

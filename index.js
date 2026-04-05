@@ -431,6 +431,16 @@ async function init() {
                                 pi.inject();
                                 if (ui.panelVisible) ui.refresh();
                                 wtNotify(`🏠 캐릭터 시트에서 "${place}" 감지!`, 'new', 4000);
+                                // ★ Nominatim으로 GPS 좌표 자동 설정 (앵커!)
+                                try {
+                                    const geo = await ui.leafletRenderer?.autoGeocode(loc.id, place);
+                                    if (geo) {
+                                        dbg(`🏠 Anchor set: "${place}" → ${geo.lat.toFixed(4)},${geo.lng.toFixed(4)}`);
+                                        // 기존 좌표 없는 장소들도 이 앵커 주변에 자동 배치
+                                        await lm.autoCalcDistances();
+                                        if (ui.panelVisible) ui.refresh();
+                                    }
+                                } catch(e) { dbg('⚠️ CharSheet geocode error:', e.message); }
                             }
                             break;
                         }
@@ -686,10 +696,36 @@ ${trimmed}${userCtx}`;
     const rpDate = _extractRpDate(text);
 
     if (!loc.events) loc.events = [];
-    loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: Date.now(), rpDate, source });
+
+    // ★ 재생성/스와이프 중복 방지 — 최근 3분 이내 유사 이벤트면 교체
+    const now = Date.now();
+    let replaced = false;
+    if (loc.events.length > 0) {
+        const last = loc.events[loc.events.length - 1];
+        const timeDiff = now - (last.timestamp || 0);
+        if (timeDiff < 180000) { // 3분 이내
+            // 단어 유사도 체크
+            const wordsA = new Set((last.text || '').split(/\s+/).filter(w => w.length > 1));
+            const wordsB = new Set((evText || '').split(/\s+/).filter(w => w.length > 1));
+            if (wordsA.size > 0 && wordsB.size > 0) {
+                let overlap = 0;
+                for (const w of wordsB) { if (wordsA.has(w)) overlap++; }
+                const sim = overlap / Math.max(wordsA.size, wordsB.size);
+                if (sim > 0.35) {
+                    // 교체! (재생성/스와이프로 인한 중복)
+                    dbg(`🔄 Event dedup: ${(sim*100).toFixed(0)}% similar, replacing last event`);
+                    loc.events[loc.events.length - 1] = { text: evText, title: evTitle, mood: evMood, timestamp: now, rpDate, source };
+                    replaced = true;
+                }
+            }
+        }
+    }
+    if (!replaced) {
+        loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: now, rpDate, source });
+    }
     if (loc.events.length > 20) loc.events = loc.events.slice(-20);
     await lm.updateLocation(locId, { events: loc.events });
-    _lastEventTime = Date.now();
+    _lastEventTime = now;
     _lastEventLocId = locId;
     // 알림 (오버레이 → 읽기 전용)
     try {

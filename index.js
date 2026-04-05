@@ -511,6 +511,10 @@ async function _tryEvent(text, locId, source) {
         const userCtx = _userContext ? `\n\n[User's action]: ${_userContext.replace(/<[^>]*>/g, '').substring(0, 300)}` : '';
         const userName = ctx.name1 || 'User';
         const charName = ctx.name2 || 'Character';
+        // ★ 캐릭터 맥락 (이벤트 요약 품질 향상)
+        const charDesc = (ctx.characters?.[ctx.characterId]?.description || '').substring(0, 200);
+        const charPersonality = (ctx.characters?.[ctx.characterId]?.personality || '').substring(0, 100);
+        const charContext = [charDesc, charPersonality].filter(Boolean).join(' | ').substring(0, 300);
         const eLang = extension_settings[EXTENSION_NAME]?.eventLang || 'auto';
         const langInst = eLang === 'ko' ? 'Write the summary in Korean (한국어).'
                        : eLang === 'en' ? 'Write the summary in English.'
@@ -519,6 +523,7 @@ async function _tryEvent(text, locId, source) {
         const prompt = `You are a narrative memory keeper for an RP story. Read the scene and write a rich, detailed 2-sentence memory summary.
 
 Character info: The user/protagonist is named "${userName}". The main character is "${charName}".
+${charContext ? `Character context: ${charContext}` : ''}
 IMPORTANT: You MUST use "${userName}" by name in the summary. Always write like: "${userName}이/가 [character]와..."
 
 Rules:

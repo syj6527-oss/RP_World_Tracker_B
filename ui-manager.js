@@ -66,7 +66,7 @@ export class UIManager {
                     <input type="password" id="wt-s-llm-key" class="text_pole" placeholder="API 키 입력..." style="flex:1;font-size:11px;padding:6px 8px"/>
                 </div>
                 <div class="wt-s-row" style="display:flex;gap:4px;align-items:center">
-                    <input type="text" id="wt-s-llm-model" class="text_pole" placeholder="모델명 (예: gemini-2.0-flash)" style="flex:1;font-size:11px;padding:6px 8px"/>
+                    <select id="wt-s-llm-model" class="text_pole wt-select" style="flex:1;font-size:11px"></select>
                     <button id="wt-s-llm-test" class="menu_button" style="font-size:11px;padding:6px 10px;white-space:nowrap">🧪 테스트</button>
                 </div>
                 <span id="wt-s-llm-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px">미설정 → 기본(generateQuietPrompt) 사용</span>
@@ -109,18 +109,45 @@ export class UIManager {
             setTimeout(() => $('#wt-s-profile-status').text(''), 3000);
         });
         // 🔑 LLM API 키 설정
+        const llmModels = {
+            google: [
+                { value: 'gemini-2.5-flash', label: '⚡ Gemini 2.5 Flash (추천)' },
+                { value: 'gemini-2.0-flash', label: '⚡ Gemini 2.0 Flash' },
+                { value: 'gemini-2.5-pro', label: '🧠 Gemini 2.5 Pro (고품질)' },
+                { value: 'gemini-2.0-flash-lite', label: '💨 Gemini 2.0 Flash Lite (최저비용)' },
+            ],
+            openai: [
+                { value: 'gpt-4o-mini', label: '⚡ GPT-4o Mini (추천)' },
+                { value: 'gpt-4o', label: '🧠 GPT-4o (고품질)' },
+                { value: 'gpt-4.1-mini', label: '⚡ GPT-4.1 Mini' },
+                { value: 'gpt-4.1', label: '🧠 GPT-4.1' },
+            ],
+            openrouter: [
+                { value: 'google/gemini-2.5-flash', label: '⚡ Gemini 2.5 Flash' },
+                { value: 'google/gemini-2.5-pro', label: '🧠 Gemini 2.5 Pro' },
+                { value: 'openai/gpt-4o-mini', label: '⚡ GPT-4o Mini' },
+                { value: 'anthropic/claude-sonnet-4', label: '🧠 Claude Sonnet 4' },
+            ],
+        };
+        const _populateModels = (provider) => {
+            const sel = $('#wt-s-llm-model').empty();
+            const models = llmModels[provider] || [];
+            models.forEach(m => sel.append(`<option value="${m.value}">${m.label}</option>`));
+            // 저장된 모델 복원
+            if (s?.llmModel) sel.val(s.llmModel);
+        };
         $('#wt-s-llm-provider').val(s?.llmProvider || 'google');
+        _populateModels(s?.llmProvider || 'google');
         $('#wt-s-llm-key').val(s?.llmApiKey || '');
-        $('#wt-s-llm-model').val(s?.llmModel || '');
         if (s?.llmApiKey) $('#wt-s-llm-status').text('✅ API 키 설정됨').css('color', '#2B8A6E');
         $('#wt-s-llm-provider').on('change', () => {
             s.llmProvider = $('#wt-s-llm-provider').val();
-            const defaults = { google: 'gemini-2.0-flash', openai: 'gpt-4o-mini', openrouter: '' };
-            if (!$('#wt-s-llm-model').val()) $('#wt-s-llm-model').val(defaults[s.llmProvider] || '');
+            _populateModels(s.llmProvider);
+            s.llmModel = $('#wt-s-llm-model').val();
             saveSettingsDebounced();
         });
         $('#wt-s-llm-key').on('change', () => { s.llmApiKey = $('#wt-s-llm-key').val().trim(); saveSettingsDebounced(); $('#wt-s-llm-status').text(s.llmApiKey ? '✅ 저장됨' : '미설정').css('color', s.llmApiKey ? '#2B8A6E' : '#9A8A7A'); });
-        $('#wt-s-llm-model').on('change', () => { s.llmModel = $('#wt-s-llm-model').val().trim(); saveSettingsDebounced(); });
+        $('#wt-s-llm-model').on('change', () => { s.llmModel = $('#wt-s-llm-model').val(); saveSettingsDebounced(); });
         $('#wt-s-llm-test').on('click', async () => {
             $('#wt-s-llm-status').text('🔄 테스트 중...').css('color', '#5E84E2');
             try {
@@ -3123,6 +3150,11 @@ export class UIManager {
             const ctx = getContext();
             const userName = ctx.name1 || 'User';
             const charName = ctx.name2 || 'Character';
+            // ★ 캐릭터 맥락 추출 (리뷰 맛 향상)
+            const charDesc = (ctx.characters?.[ctx.characterId]?.description || '').substring(0, 300);
+            const charPersonality = (ctx.characters?.[ctx.characterId]?.personality || '').substring(0, 200);
+            const charScenario = (ctx.characters?.[ctx.characterId]?.scenario || '').substring(0, 200);
+            const charContext = [charDesc, charPersonality, charScenario].filter(Boolean).join(' | ').substring(0, 500);
             const s = extension_settings[EXTENSION_NAME];
             const eLang = s?.eventLang || 'auto';
             const langInst = eLang === 'ko' ? 'Write ALL reviews in Korean.' : eLang === 'en' ? 'Write ALL reviews in English.' : 'Write in the same language as the RP.';
@@ -3161,6 +3193,7 @@ Generate ${reviewCount} Google Maps-style reviews.
 Place: "${loc.name}" | Visits: ${loc.visitCount || 0} | Memo: "${loc.memo || ''}"
 Events: ${evSummary}
 Characters: User="${userName}", Char="${charName}"
+${charContext ? `Character context: ${charContext}` : ''}
 ${langInst}
 
 Reviewers: pick from "${charName}", "${userName}", Pet/Animal, NPC, Wild creature.

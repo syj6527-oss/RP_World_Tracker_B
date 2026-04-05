@@ -911,7 +911,7 @@ export class UIManager {
             const subCount = this.lm.getSubLocations(loc.id).length;
             const item = $(`<div class="wt-loc-item ${cur?'wt-loc-active':''}" data-id="${loc.id}">
                 <div class="wt-loc-dot" style="background:${loc.color}"></div>
-                <div class="wt-loc-info"><div class="wt-loc-name">${loc.name}${cur?' 🐾':''}${subCount?' <span style="font-size:9px;color:#9AA0A6">(+${subCount})</span>':''}</div></div>
+                <div class="wt-loc-info"><div class="wt-loc-name">${loc.name}${cur?' 🐾':''}${subCount?` <span style="font-size:9px;color:#9AA0A6">(+${subCount})</span>`:''}</div></div>
                 <div class="wt-loc-visits">${loc.visitCount||0}회</div></div>`);
             item.on('click', () => this.showPop(loc.id));
             list.append(item);

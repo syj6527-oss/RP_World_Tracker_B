@@ -9,59 +9,70 @@ const dbg = (...a) => console.log(`[${EXTENSION_NAME}]`, ...a);
 // ========== ST API 설정 읽기 ==========
 function _getApiConfig() {
     try {
-        // ST 전역 변수에서 API 정보 읽기
         const mainApi = window.main_api;
         const oai = window.oai_settings;
         const chatCompletion = oai?.chat_completion_source;
 
         dbg('🔧 LLM detect:', { mainApi, chatCompletion, hasOai: !!oai });
-        dbg('🔧 LLM keys:', {
-            makersuite: oai?.api_key_makersuite ? '✅' : '❌',
-            openai: oai?.api_key_openai ? '✅' : '❌',
-            openrouter: oai?.api_key_openrouter ? '✅' : '❌',
-            claude: oai?.api_key_claude ? '✅' : '❌',
-            google_model: oai?.google_model,
-            openai_model: oai?.openai_model,
-        });
 
         let type = null, key = null, model = null, url = null;
 
-        // Google (Gemini / MakerSuite)
-        if (chatCompletion === 'makersuite' || mainApi === 'openai' && chatCompletion === 'makersuite') {
-            type = 'google';
-            key = window.oai_settings?.api_key_makersuite || '';
-            model = window.oai_settings?.google_model || 'gemini-2.0-flash';
-            dbg('🔧 LLM config: Google', model);
+        // ★ 여러 경로에서 API 키 탐색
+        // Google (Gemini)
+        const gKey = oai?.api_key_makersuite
+            || window.api_key_makersuite
+            || document.getElementById('api_key_makersuite')?.value
+            || '';
+        const gModel = oai?.google_model
+            || window.google_model
+            || document.getElementById('model_google_select')?.value
+            || 'gemini-2.0-flash';
+
+        // OpenAI
+        const oKey = oai?.api_key_openai
+            || window.api_key_openai
+            || document.getElementById('api_key_openai')?.value
+            || '';
+
+        // OpenRouter
+        const orKey = oai?.api_key_openrouter
+            || window.api_key_openrouter
+            || document.getElementById('api_key_openrouter')?.value
+            || '';
+
+        dbg('🔧 LLM keys found:', {
+            google: gKey ? '✅ (' + gKey.substring(0, 8) + '...)' : '❌',
+            openai: oKey ? '✅' : '❌',
+            openrouter: orKey ? '✅' : '❌',
+            gModel,
+        });
+
+        // Google 우선 (유저가 Gemini 사용)
+        if (gKey && (chatCompletion === 'makersuite' || mainApi === 'openai')) {
+            type = 'google'; key = gKey; model = gModel;
+        }
+        // 명시적 Google 체크 (chatCompletion 없어도)
+        else if (gKey) {
+            type = 'google'; key = gKey; model = gModel;
         }
         // OpenAI
-        else if (chatCompletion === 'openai' || mainApi === 'openai' && !chatCompletion) {
-            type = 'openai';
-            key = window.oai_settings?.api_key_openai || '';
-            model = window.oai_settings?.openai_model || 'gpt-4o-mini';
-            url = window.oai_settings?.openai_reverse_proxy || 'https://api.openai.com/v1';
-            dbg('🔧 LLM config: OpenAI', model);
+        else if (oKey && (chatCompletion === 'openai' || !chatCompletion)) {
+            type = 'openai'; key = oKey;
+            model = oai?.openai_model || 'gpt-4o-mini';
+            url = oai?.openai_reverse_proxy || 'https://api.openai.com/v1';
         }
         // OpenRouter
-        else if (chatCompletion === 'openrouter') {
-            type = 'openai'; // OpenRouter uses OpenAI format
-            key = window.oai_settings?.api_key_openrouter || '';
-            model = window.oai_settings?.openrouter_model || '';
+        else if (orKey) {
+            type = 'openai'; key = orKey;
+            model = oai?.openrouter_model || '';
             url = 'https://openrouter.ai/api/v1';
-            dbg('🔧 LLM config: OpenRouter', model);
-        }
-        // Claude
-        else if (chatCompletion === 'claude') {
-            type = 'claude';
-            key = window.oai_settings?.api_key_claude || '';
-            model = window.oai_settings?.claude_model || 'claude-sonnet-4-20250514';
-            url = window.oai_settings?.claude_reverse_proxy || 'https://api.anthropic.com/v1';
-            dbg('🔧 LLM config: Claude', model);
         }
 
         if (!type || !key) {
-            dbg('⚠️ LLM config: no API key found, fallback to generateQuietPrompt');
+            dbg('⚠️ LLM: no API key found, fallback');
             return null;
         }
+        dbg('🔧 LLM selected:', type, model);
         return { type, key, model, url };
     } catch(e) {
         dbg('⚠️ LLM config error:', e.message);
@@ -126,9 +137,19 @@ async function _callClaude(key, model, prompt, url) {
 
 // ========== 메인 호출 함수 ==========
 export async function callLLM(prompt) {
-    const cfg = _getApiConfig();
+    // ★ 방법 1: ST 서버 프록시 (API 키가 서버에 있으므로 가장 안정적)
+    try {
+        const result = await _callSTProxy(prompt);
+        if (result) {
+            dbg(`🔧 LLM ST-proxy OK (${result.length}c)`);
+            return result;
+        }
+    } catch(e) {
+        dbg('⚠️ LLM ST-proxy failed:', e.message);
+    }
 
-    // 직접 호출 시도
+    // ★ 방법 2: 직접 API 호출 (API 키가 브라우저에 있는 경우)
+    const cfg = _getApiConfig();
     if (cfg) {
         try {
             let result = '';
@@ -137,15 +158,15 @@ export async function callLLM(prompt) {
             else if (cfg.type === 'claude') result = await _callClaude(cfg.key, cfg.model, prompt, cfg.url);
 
             if (result) {
-                dbg(`🔧 LLM direct call OK (${result.length}c)`);
+                dbg(`🔧 LLM direct OK (${result.length}c)`);
                 return result;
             }
         } catch(e) {
-            dbg('⚠️ LLM direct call failed:', e.message, '→ fallback');
+            dbg('⚠️ LLM direct failed:', e.message);
         }
     }
 
-    // Fallback: generateQuietPrompt (기존 방식)
+    // ★ 방법 3: Fallback — generateQuietPrompt
     try {
         const ctx = getContext();
         const gen = ctx?.generateQuietPrompt;
@@ -162,6 +183,33 @@ export async function callLLM(prompt) {
     }
 
     return null;
+}
+
+// ========== ST 서버 프록시 호출 ==========
+async function _callSTProxy(prompt) {
+    // ST의 내부 generate 엔드포인트 사용 (채팅 컨텍스트 없이)
+    const res = await fetch('/api/backends/chat-completions/generate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        },
+        body: JSON.stringify({
+            messages: [
+                { role: 'system', content: 'You are a JSON data generator. Output ONLY valid JSON. Do NOT write stories, narratives, or roleplay.' },
+                { role: 'user', content: prompt },
+            ],
+            // 채팅 컨텍스트 없이 프롬프트만!
+        }),
+    });
+    if (!res.ok) throw new Error(`ST proxy ${res.status}`);
+    const data = await res.json();
+    // ST 응답 형식에 따라 파싱
+    if (typeof data === 'string') return data;
+    if (data?.choices?.[0]?.message?.content) return data.choices[0].message.content;
+    if (data?.content) return typeof data.content === 'string' ? data.content : data.content[0]?.text || '';
+    if (data?.response) return data.response;
+    return JSON.stringify(data);
 }
 
 // ========== JSON 파싱 헬퍼 ==========

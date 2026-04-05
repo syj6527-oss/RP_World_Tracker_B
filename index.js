@@ -432,36 +432,8 @@ async function init() {
                                 pi.inject();
                                 if (ui.panelVisible) ui.refresh();
                                 wtNotify(`🏠 캐릭터 시트에서 "${place}" 감지!`, 'new', 4000);
-                                // ★ Nominatim 직접 호출로 GPS 좌표 설정 (leafletRenderer 의존 X)
-                                try {
-                                    const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(place)}&limit=1&accept-language=ko`;
-                                    const geoRes = await fetch(geoUrl, { headers: { 'User-Agent': 'RP-World-Tracker/0.4' } });
-                                    if (geoRes.ok) {
-                                        const geoData = await geoRes.json();
-                                        if (geoData.length > 0) {
-                                            const lat = parseFloat(geoData[0].lat);
-                                            const lng = parseFloat(geoData[0].lon);
-                                            const addr = geoData[0].display_name?.split(',').slice(0, 3).join(',') || place;
-                                            await lm.updateLocation(loc.id, { lat, lng, address: addr });
-                                            dbg(`🏠 Anchor set: "${place}" → ${lat.toFixed(4)},${lng.toFixed(4)} (${addr})`);
-                                            // 기존 좌표 없는 장소들도 이 앵커 주변에 자동 배치
-                                            const others = lm.locations.filter(l => l.id !== loc.id && !l.lat && !l.lng);
-                                            if (others.length > 0) {
-                                                const angleStep = (2 * Math.PI) / others.length;
-                                                for (let i = 0; i < others.length; i++) {
-                                                    const dist = 30 + Math.random() * 120;
-                                                    const angle = angleStep * i + (Math.random() * 0.3);
-                                                    const oLat = lat + (dist / 111320) * Math.cos(angle);
-                                                    const oLng = lng + (dist / (111320 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle);
-                                                    await lm.updateLocation(others[i].id, { lat: oLat, lng: oLng });
-                                                }
-                                                dbg(`🏠 Auto-placed ${others.length} locations around "${place}"`);
-                                            }
-                                            pi.inject();
-                                            if (ui.panelVisible) ui.refresh();
-                                        }
-                                    }
-                                } catch(e) { dbg('⚠️ CharSheet geocode error:', e.message); }
+                                // ★ Nominatim 직접 호출로 GPS 좌표 설정
+                                _geocodePlace(loc.id, place);
                             }
                             break;
                         }
@@ -571,6 +543,67 @@ async function scanChatHistory(ctx) {
 }
 
 jQuery(async () => { try { await init(); } catch(e) { console.error(`[${EXTENSION_NAME}] Init:`, e); } });
+
+// ========== 자동 지오코딩 (캐릭터시트/약속 장소용) ==========
+async function _geocodePlace(locId, placeName, retry = 0) {
+    dbg(`🌐 Geocoding attempt ${retry + 1}: "${placeName}" (locId=${locId})`);
+    try {
+        const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(placeName)}&limit=1&accept-language=ko`;
+        dbg(`🌐 Fetching: ${geoUrl}`);
+        const geoRes = await fetch(geoUrl, { headers: { 'User-Agent': 'RP-World-Tracker/0.4' } });
+        dbg(`🌐 Response: ${geoRes.status} ${geoRes.statusText}`);
+
+        if (!geoRes.ok) {
+            dbg(`⚠️ Nominatim HTTP error: ${geoRes.status}`);
+            if (retry < 2) { setTimeout(() => _geocodePlace(locId, placeName, retry + 1), 3000); return; }
+            wtNotify(`⚠️ 주소 검색 실패 (${geoRes.status}) — 수동으로 설정해주세요`, 'warn', 5000);
+            return;
+        }
+
+        const geoData = await geoRes.json();
+        dbg(`🌐 Results: ${geoData.length}개`);
+
+        if (!geoData.length) {
+            dbg(`⚠️ Nominatim: no results for "${placeName}"`);
+            if (retry < 2) { setTimeout(() => _geocodePlace(locId, placeName, retry + 1), 3000); return; }
+            wtNotify(`⚠️ "${placeName}" 주소를 찾지 못했어요 — 수동으로 설정해주세요`, 'warn', 5000);
+            return;
+        }
+
+        const lat = parseFloat(geoData[0].lat);
+        const lng = parseFloat(geoData[0].lon);
+        const addr = geoData[0].display_name?.split(',').slice(0, 3).join(',') || placeName;
+
+        await lm.updateLocation(locId, { lat, lng, address: addr });
+        dbg(`🏠 ✅ Anchor set: "${placeName}" → ${lat.toFixed(4)},${lng.toFixed(4)} (${addr})`);
+        wtNotify(`📍 ${placeName} → ${addr}`, 'new', 3000);
+
+        // 기존 좌표 없는 장소들도 이 앵커 주변에 자동 배치
+        const others = lm.locations.filter(l => l.id !== locId && !l.lat && !l.lng);
+        if (others.length > 0) {
+            const angleStep = (2 * Math.PI) / others.length;
+            for (let i = 0; i < others.length; i++) {
+                const dist = 30 + Math.random() * 120;
+                const angle = angleStep * i + (Math.random() * 0.3);
+                const oLat = lat + (dist / 111320) * Math.cos(angle);
+                const oLng = lng + (dist / (111320 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle);
+                await lm.updateLocation(others[i].id, { lat: oLat, lng: oLng });
+            }
+            dbg(`🏠 Auto-placed ${others.length} locations around "${placeName}"`);
+        }
+        pi.inject();
+        if (ui?.panelVisible) ui.refresh();
+    } catch(e) {
+        dbg(`⚠️ Geocode error (attempt ${retry + 1}): ${e.message}`);
+        console.error(`[${EXTENSION_NAME}] Geocode:`, e);
+        if (retry < 2) {
+            dbg(`🔄 Retrying in 3s...`);
+            setTimeout(() => _geocodePlace(locId, placeName, retry + 1), 3000);
+        } else {
+            wtNotify(`⚠️ "${placeName}" 주소 자동 설정 실패 — 수동으로 설정해주세요`, 'warn', 5000);
+        }
+    }
+}
 
 // ========== RP 날짜 추출 (메타데이터에서) ==========
 function _extractRpDate(text) {

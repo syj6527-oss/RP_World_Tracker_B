@@ -628,7 +628,7 @@ Rules:
 If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null}
 
 Respond with ONLY a JSON object, no markdown, no explanation:
-{"mood":"💕","title":"ultra-short hook max 15chars that emphasizes THIS PLACE's emotional meaning. Write like: 'OO한 곳' or 'OO이 시작된 곳'. Do NOT copy dialogue literally — capture the emotional significance. Match the scene's tone: playful scenes can have witty/humorous titles, serious scenes should stay sincere.","summary":"detailed 2-sentence summary"}
+{"mood":"💕","title":"ultra-short hook max 15chars that emphasizes THIS PLACE's emotional meaning. Write like: 'OO한 곳' or 'OO이 시작된 곳'. Do NOT copy dialogue literally — capture the emotional significance. Match the scene's tone: playful scenes can have witty/humorous titles, serious scenes should stay sincere.","summary":"detailed 2-sentence summary","promisePlace":"if mood is 📅 and characters plan to meet at a SPECIFIC named place, write that place name here. Otherwise null."}
 
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
@@ -648,6 +648,24 @@ ${trimmed}${userCtx}`;
                 evTitle = parsed.title || parsed.summary.substring(0, 15) + '...';
                 evMood = parsed.mood;
                 dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
+                // ★ 약속 장소 자동 등록 (LLM이 📅 이벤트에서 장소 추출)
+                if (parsed.promisePlace && parsed.promisePlace !== 'null' && parsed.mood === '📅') {
+                    try {
+                        const pPlace = parsed.promisePlace.trim();
+                        if (pPlace.length >= 2 && pPlace.length <= 25 && !lm.findByName(pPlace)) {
+                            const newLoc = await lm.addLocation(pPlace);
+                            if (newLoc) {
+                                newLoc.tags = ['wantToGo'];
+                                if (!newLoc.events) newLoc.events = [];
+                                newLoc.events.push({ text: `📅 "${evTitle}" — 여기서 만나기로 약속`, title: '약속 장소', mood: '📅', timestamp: Date.now(), source: 'auto' });
+                                await lm.updateLocation(newLoc.id, { tags: newLoc.tags, events: newLoc.events });
+                                dbg(`📅 Promise place registered: "${pPlace}" from LLM`);
+                                if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${pPlace}`, 'new', 3500);
+                                pi.inject(); if (ui?.panelVisible) ui.refresh();
+                            }
+                        }
+                    } catch(e) { dbg('⚠️ Promise place from LLM error:', e.message); }
+                }
             }
         }
     } catch (e) {

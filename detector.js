@@ -452,11 +452,15 @@ export class LocationDetector {
         const clean = this._strip(text);
         const patterns = [
             // 한국어: "내일 ~에서 만나자", "다음에 ~가자", "~에서 보자"
-            /(?:내일|모레|다음에|나중에|주말에|이따가)\s+(.{1,15}?)(?:에서|에)\s*(?:만나|보자|가자|모이자|만날까|볼까|갈까)/,
+            /(?:내일|모레|다음에|나중에|주말에|이따가|다음달에|다음주에|이번\s*주말에?|이번\s*달에?|다음\s*번에?)\s+(.{1,15}?)(?:에서|에)\s*(?:만나|보자|가자|모이자|만날까|볼까|갈까)/,
             /(.{1,15}?)(?:에서|에)\s*(?:만나자|보자|가자|만날래|볼래|갈래|약속)/,
+            // 한국어: "~로 여행가자", "~로 가자", "~에 놀러가자"
+            /(?:내일|모레|다음에|나중에|주말에|다음달|다음주|이번주말?)\s*(.{1,15}?)(?:로|으로)\s*(?:여행|놀러|출발|떠나|가자|갈까|가볼까)/,
+            /(.{1,15}?)(?:로|으로)\s*(?:여행\s*가자|여행\s*갈까|놀러\s*가자|놀러\s*갈까|떠나자|떠날까|출발)/,
             // 영어: "meet at ~", "let's go to ~ tomorrow"
-            /(?:tomorrow|next time|later|weekend|tonight)\s+(?:at|in)\s+(.{2,20})/i,
-            /(?:meet|see you|let'?s go)\s+(?:at|to)\s+(.{2,20}?)(?:\s+(?:tomorrow|next|later|tonight))?/i,
+            /(?:tomorrow|next\s+(?:time|week|month)|later|weekend|tonight|this\s+weekend)\s+(?:at|in|to)\s+(.{2,20})/i,
+            /(?:meet|see you|let'?s go|travel|trip|visit|head)\s+(?:at|to|in)\s+(.{2,20}?)(?:\s+(?:tomorrow|next|later|tonight|this|soon))?/i,
+            /(?:let'?s|we\s+should|we\s+could)\s+(?:go|travel|fly|drive|head)\s+(?:to|for)\s+(.{2,20})/i,
         ];
 
         for (const pat of patterns) {

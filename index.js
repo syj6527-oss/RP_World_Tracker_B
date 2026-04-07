@@ -144,6 +144,7 @@ async function scanMessage(text, source = 'USER') {
         const locPatterns = [
             /[-*•]\s*Location\s*[:：]\s*(.+)/i,
             /Location\s*[:：]\s*(.+)/i,
+            /📍\s*Location\s*[:：]\s*(.+)/i,        // ★ Celia/P&C 이모지 형식
             /[-*•]\s*장소\s*[:：]\s*(.+)/,
             /[-*•]\s*위치\s*[:：]\s*(.+)/,
             /[-*•]\s*Place\s*[:：]\s*(.+)/i,
@@ -741,21 +742,34 @@ async function _geocodePlace(locId, placeName, retry = 0) {
 
 // ========== RP 날짜 추출 (메타데이터에서) ==========
 function _extractRpDate(text) {
-    // HTML 태그 제거 (렌더된 마크다운 대응)
+    // HTML 태그 제거 (렌더된 마크다운 대응) + 이모지 정리
     const clean = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
-    // 패턴 1: - Time: 2025/07/12 또는 Date: 2025.07.12 (- 선택적)
-    const m1 = clean.match(/(?:[-*]\s*)?(?:Time|Date|날짜|시간)[:\s]+(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
+    const months = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+
+    // 패턴 1: - Time: 2025/07/12 또는 Date: 2025.07.12
+    const m1 = clean.match(/(?:[-*]?\s*)?(?:📅\s*)?(?:Time|Date|날짜|시간)[:\s]+(?:\w+,?\s+)?(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
     if (m1) return `${m1[1]}/${parseInt(m1[2])}/${parseInt(m1[3])}`;
-    // 패턴 1b: 2024/12/19 단독 (날짜 형식만으로도 감지)
+
+    // 패턴 1b: 2024/12/19, 09:30 AM (날짜+시간)
     const m1b = clean.match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2}),?\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)/);
     if (m1b) return `${m1b[1]}/${parseInt(m1b[2])}/${parseInt(m1b[3])}`;
-    // 패턴 2: July 12, 2025 또는 12 July 2025
-    const months = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+
+    // 패턴 2: "📅 Date: Thu, 19 Dec" 또는 "Date: Thu, 19 Dec 2024" (Celia/P&C 형식)
+    const mCelia = clean.match(/(?:📅\s*)?Date[:\s]+(?:\w{3},?\s+)?(\d{1,2})\s+(\w{3,9})(?:\s+(\d{4}))?/i);
+    if (mCelia && months[mCelia[2].substring(0,3).toLowerCase()]) {
+        const mon = months[mCelia[2].substring(0,3).toLowerCase()];
+        const day = parseInt(mCelia[1]);
+        const yr = mCelia[3] ? parseInt(mCelia[3]) : new Date().getFullYear();
+        return `${yr}/${mon}/${day}`;
+    }
+
+    // 패턴 2b: "December 19, 2024" 또는 "19 December 2024"
     const m2 = clean.match(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
     if (m2 && months[m2[1].substring(0,3).toLowerCase()]) return `${m2[3]}/${months[m2[1].substring(0,3).toLowerCase()]}/${parseInt(m2[2])}`;
     const m3 = clean.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
     if (m3 && months[m3[2].substring(0,3).toLowerCase()]) return `${m3[3]}/${months[m3[2].substring(0,3).toLowerCase()]}/${parseInt(m3[1])}`;
-    // 패턴 3: 7월 12일 (년도 없으면 빈값)
+
+    // 패턴 3: 7월 12일
     const m4 = clean.match(/(\d{1,2})월\s*(\d{1,2})일/);
     if (m4) {
         const yr = clean.match(/(\d{4})년/);
@@ -796,12 +810,19 @@ function _calcPlanDate(rpDate, whenText) {
                 if (koMonth) { base.setMonth(base.getMonth() + parseInt(koMonth[1])); }
                 else {
                     // 영어: "in N days/weeks/months", "N days later", "tomorrow"
+                    // ★ 영어 단어 숫자 변환
+                    const wordNums = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
+                    let loNum = lo;
+                    for (const [word, num] of Object.entries(wordNums)) {
+                        loNum = loNum.replace(new RegExp('\\b' + word + '\\b', 'gi'), num);
+                    }
                     if (/^tomorrow/i.test(lo)) { base.setDate(base.getDate() + 1); }
-                    else if (/^in\s+two\s+weeks/i.test(lo) || /^two\s+weeks/i.test(lo)) { base.setDate(base.getDate() + 14); }
-                    else if (/^in\s+a\s+week/i.test(lo) || /^a\s+week/i.test(lo)) { base.setDate(base.getDate() + 7); }
-                    else if (/^in\s+a\s+month/i.test(lo) || /^a\s+month/i.test(lo)) { base.setMonth(base.getMonth() + 1); }
+                    else if (/(?:in\s+)?(?:two|2)\s+weeks/i.test(lo)) { base.setDate(base.getDate() + 14); }
+                    else if (/(?:in\s+)?(?:three|3)\s+weeks/i.test(lo)) { base.setDate(base.getDate() + 21); }
+                    else if (/(?:in\s+)?(?:a|one|1)\s+week/i.test(lo)) { base.setDate(base.getDate() + 7); }
+                    else if (/(?:in\s+)?(?:a|one|1)\s+month/i.test(lo)) { base.setMonth(base.getMonth() + 1); }
                     else {
-                        const enNum = lo.match(/(\d+)\s*(?:days?)/i);
+                        const enNum = loNum.match(/(\d+)\s*(?:days?)/i);
                         if (enNum) { base.setDate(base.getDate() + parseInt(enNum[1])); }
                         else {
                             const enWeek = lo.match(/(\d+)\s*(?:weeks?)/i);
@@ -848,7 +869,7 @@ let _lastEventTime = 0;
 let _lastEventLocId = null; // 마지막 이벤트 저장 장소
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
-const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear|계획|작전|일정|schedule|operation|mission|trip|run|shopping|장보기|나들이|쇼핑/i;
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear|계획|작전|일정|schedule|operation|mission|trip|run|shopping|장보기|나들이|쇼핑|appointment|check[- ]?up|검진|재검|진료|예약|clinic|hospital|병원|산부인과|two\s+weeks|next\s+week|next\s+month|다음\s*주|다음\s*달|주\s*뒤|주\s*후|every\s+(?:week|month|time)/i;
 
 async function _tryEvent(text, locId, source) {
     dbg(`📋 _tryEvent (${source}) len=${text.length}`);
@@ -1164,14 +1185,16 @@ function _extractPlansRegex(text) {
     const enPats = [
         // "in two weeks" / "in 14 days" / "in a month"
         /(?:come\s+back|return|visit|go\s+back|be\s+back|see\s+you|check[- ]?up)\s+(?:in|after)\s+([\w\s]{2,20}?)(?:[.,!?]|$)/gi,
-        // "every month" / "every two weeks"
-        /(every\s+(?:\w+\s+)?(?:week|month|day|year)s?)\s*(?:until|till|from)?/gi,
+        // "every month" / "every two weeks" / "every appointment" / "every single time"
+        /(every\s+(?:\w+\s+)?(?:week|month|day|year|appointment|time|visit|check[- ]?up)s?)\b/gi,
         // "next Tuesday" / "next month" / "next week"
         /(next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month|year))\b/gi,
         // "on January 3rd" / "on the 3rd"
         /(?:on\s+(?:the\s+)?)?(\w+\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)\b/gi,
         // "T+14 DAYS" / "14 days from now"
         /(?:T\+)?(\d+)\s*(?:days?|weeks?|months?)\s*(?:from\s+now|later|after)?/gi,
+        // ★ 단독 시간 표현: "Two weeks." / "In two weeks" (대화 문맥에서)
+        /(?:in\s+)?(two|three|four|five|six|seven|eight|nine|ten)\s+(weeks?|months?|days?)\b/gi,
     ];
 
     // 한국어 패턴 실행

@@ -810,9 +810,9 @@ Respond with ONLY a JSON object, no markdown, no explanation:
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
 Examples:
-{"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다. Ghost의 묵언의 압박과 Dex의 으르렁거림이 섞이며, 이 밀폐된 공간에서 아슬아슬한 대화가 이어질 것을 암시한다."}
-{"mood":"💕","title":"금지된 키스가 시작된 곳","summary":"시가 향과 가죽 냄새가 밴 Price의 어두운 방에서 ${userName}과 Soap이 거칠지만 다정한 키스를 나눴다. 대장의 영역을 침범한 이 은밀한 행위가 둘의 관계를 더 위험하고 짜릿하게 만들 것을 예고한다."}
-{"mood":"📅","title":"비밀 약속을 나눈 곳","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로의 떨리는 손끝으로 예감했다."}
+{"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다. Ghost의 묵언의 압박과 Dex의 으르렁거림이 섞이며, 이 밀폐된 공간에서 아슬아슬한 대화가 이어질 것을 암시한다.","promisePlace":null,"plans":[]}
+{"mood":"💕","title":"첫 심장소리를 들은 곳","summary":"${userName}와 TF141이 산부인과 진찰실을 점거하고 초음파 검사를 받았다. 모니터에 작은 심장 박동이 울리자 König의 손이 떨리기 시작했다.","promisePlace":null,"plans":[{"what":"2차 검진 및 초음파","where":"산부인과","when":"2주 뒤"},{"what":"클리닉 전용 예약","where":"산부인과","when":"1월 3일"}]}
+{"mood":"📅","title":"비밀 약속을 나눈 곳","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로의 떨리는 손끝으로 예감했다.","promisePlace":null,"plans":[{"what":"비밀 만남","where":"옥상","when":"내일"}]}
 ${recentChat ? `\n[Recent conversation for tone & context]:\n${recentChat}\n` : ''}
 [Current scene to summarize]:
 ${trimmed}${userCtx}`;
@@ -825,6 +825,7 @@ ${trimmed}${userCtx}`;
                 evTitle = parsed.title || parsed.summary.substring(0, 15) + '...';
                 evMood = parsed.mood;
                 dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
+                dbg(`🗓️ LLM plans: ${JSON.stringify(parsed.plans || 'not present')}, promisePlace: ${parsed.promisePlace || 'null'}`);
                 // ★ 약속 장소 자동 등록 (LLM이 이벤트에서 장소 추출 — 모든 무드)
                 if (parsed.promisePlace && parsed.promisePlace !== 'null' && parsed.promisePlace.toLowerCase() !== 'null') {
                     try {

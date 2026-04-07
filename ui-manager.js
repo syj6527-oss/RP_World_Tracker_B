@@ -1466,14 +1466,13 @@ export class UIManager {
     // ★ 예정 일정 섹션 HTML (개요/이벤트 탭 공용)
     _buildPlanSectionHtml(loc) {
         const plans = (loc.events || []).filter(e => e.isPlan);
-        if (!plans.length) return '';
         return `<div style="margin-top:12px;padding-top:10px;border-top:1.5px dashed #E0DDD5">
             <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px">
                 <span style="font-size:12px">🗓️</span>
                 <span style="font-size:11px;font-weight:700;color:#B0A898">예정된 일정</span>
                 <span style="font-size:9px;color:#C0B8A8;background:#F0EDE5;padding:1px 6px;border-radius:8px">${plans.length}건</span>
             </div>
-            ${plans.map((p, i) => `<div class="wt-plan-card" data-plan-idx="${i}" style="border-radius:7px;padding:8px 10px;margin-bottom:4px;background:#FAFAFA;border:1.5px dashed #D5D0C8;opacity:0.6;cursor:pointer;-webkit-tap-highlight-color:transparent">
+            ${plans.length ? plans.map((p, i) => `<div class="wt-plan-card" data-plan-idx="${i}" style="border-radius:7px;padding:8px 10px;margin-bottom:4px;background:#FAFAFA;border:1.5px dashed #D5D0C8;opacity:0.6;cursor:pointer;-webkit-tap-highlight-color:transparent">
                 <div style="display:flex;align-items:center;gap:5px">
                     <span style="font-size:12px">🗓️</span>
                     <span style="flex:1;font-weight:600;font-size:10.5px;color:#888">${p.text || p.title || ''}</span>
@@ -1481,7 +1480,8 @@ export class UIManager {
                 </div>
                 ${p.planWhen ? `<div style="font-size:9px;color:#B0A898;margin-top:2px;padding-left:17px">📌 ${p.planWhen}</div>` : ''}
                 ${p.planWhere ? `<div style="font-size:9px;color:#B0A898;padding-left:17px">📍 ${p.planWhere}</div>` : ''}
-            </div>`).join('')}
+            </div>`).join('')
+            : '<div style="text-align:center;padding:10px;font-size:11px;color:#C0B8A8;font-style:italic">아직 예정된 일정이 없어요</div>'}
         </div>`;
     }
 

@@ -360,7 +360,6 @@ export class UIManager {
                                 <button id="wt-pop-event-add" class="wt-btn-accent wt-btn-s">+</button>
                             </div>
                         </div>
-                        <input type="text" id="wt-pop-status" class="wt-input" placeholder="상태 (붐빔, 한산...)"/>
                         <div style="font-size:12px;color:#9A8A7A;margin-top:2px">🏷️ 별칭 (쉼표 구분)</div>
                         <input type="text" id="wt-pop-aliases" class="wt-input" placeholder="예: 사격장, Shooting range" style="font-size:12px"/>
                         <div id="wt-pop-sub-section" style="margin-top:6px;display:none">
@@ -1048,7 +1047,7 @@ export class UIManager {
         $('#wt-pop-title').val(l.name); $('#wt-pop-visits').text(l.visitCount||0);
         $('#wt-pop-first').text(l.rpFirstVisited || (l.firstVisited?this._fmt(l.firstVisited):'—'));
         $('#wt-pop-last').text(l.rpLastVisited || (l.lastVisited?this._fmt(l.lastVisited):'—'));
-        $('#wt-pop-memo').val(l.memo||''); $('#wt-pop-status').val(l.status||'');
+        $('#wt-pop-memo').val(l.memo||'');
         $('#wt-pop-ainotes').val(l.aiNotes||'');
         // ★ 터줏대감 목록 렌더
         const npcList = $('#wt-pop-npcs-list');
@@ -1198,6 +1197,8 @@ export class UIManager {
                     <div style="font-size:11px;color:#70757A">방문 ${sub.visitCount || 0}회${isCur ? ' · 현재 🐾' : ''}</div>
                 </div>
             </div>
+            <div style="font-size:12px;color:#9A8A7A">🏷️ 별칭 (쉼표 구분)</div>
+            <input type="text" id="wt-subpop-aliases" class="wt-input" placeholder="예: 리빙룸, Living Room" style="font-size:12px" value="${(sub.aliases||[]).join(', ')}"/>
             <div style="font-size:12px;color:#9A8A7A">💭 메모</div>
             <textarea id="wt-subpop-memo" class="wt-input" placeholder="예: 소파가 편해서 맨날 잠" style="height:45px;resize:none;font-size:12px">${sub.memo || ''}</textarea>
             <div style="font-size:12px;color:#9A8A7A">🤖 특이사항 (AI에게만 전달)</div>
@@ -1227,9 +1228,11 @@ export class UIManager {
         overlay.find('#wt-subpop-close').on('click', () => { overlay.remove(); self.hidePop(); });
         // 💾 저장
         overlay.find('#wt-subpop-save').on('click', async () => {
+            const aliases = overlay.find('#wt-subpop-aliases').val().split(',').map(a=>a.trim()).filter(Boolean);
             await self.lm.updateLocation(subId, {
                 memo: overlay.find('#wt-subpop-memo').val().trim(),
                 aiNotes: overlay.find('#wt-subpop-ainotes').val().trim(),
+                aliases,
             });
             toastSuccess('💾 저장!');
             self.pi?.inject();
@@ -1460,6 +1463,28 @@ export class UIManager {
         </div>`;
     }
 
+    // ★ 예정 일정 섹션 HTML (개요/이벤트 탭 공용)
+    _buildPlanSectionHtml(loc) {
+        const plans = (loc.events || []).filter(e => e.isPlan);
+        if (!plans.length) return '';
+        return `<div style="margin-top:12px;padding-top:10px;border-top:1.5px dashed #E0DDD5">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px">
+                <span style="font-size:12px">🗓️</span>
+                <span style="font-size:11px;font-weight:700;color:#B0A898">예정된 일정</span>
+                <span style="font-size:9px;color:#C0B8A8;background:#F0EDE5;padding:1px 6px;border-radius:8px">${plans.length}건</span>
+            </div>
+            ${plans.map((p, i) => `<div class="wt-plan-card" data-plan-idx="${i}" style="border-radius:7px;padding:8px 10px;margin-bottom:4px;background:#FAFAFA;border:1.5px dashed #D5D0C8;opacity:0.6;cursor:pointer;-webkit-tap-highlight-color:transparent">
+                <div style="display:flex;align-items:center;gap:5px">
+                    <span style="font-size:12px">🗓️</span>
+                    <span style="flex:1;font-weight:600;font-size:10.5px;color:#888">${p.text || p.title || ''}</span>
+                    <span class="wt-plan-del" data-plan-idx="${i}" style="cursor:pointer;color:#D0C0B0;font-size:11px;padding:2px 4px">✕</span>
+                </div>
+                ${p.planWhen ? `<div style="font-size:9px;color:#B0A898;margin-top:2px;padding-left:17px">📌 ${p.planWhen}</div>` : ''}
+                ${p.planWhere ? `<div style="font-size:9px;color:#B0A898;padding-left:17px">📍 ${p.planWhere}</div>` : ''}
+            </div>`).join('')}
+        </div>`;
+    }
+
     // ========== 구글맵 스타일 바텀시트 ==========
     _showBottomSheet(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
@@ -1471,7 +1496,9 @@ export class UIManager {
         const v = loc.visitCount || 0;
         const cur = loc.id === this.lm.currentLocationId;
         const visitLabel = v === 0 ? '새 장소' : `방문 ${v}회`;
-        const events = (loc.events || []).filter(e => e.source !== 'move');
+        const allEvents = (loc.events || []).filter(e => e.source !== 'move');
+        const events = allEvents.filter(e => !e.isPlan);
+        const plans = allEvents.filter(e => e.isPlan);
 
         // 주변 장소
         let nearbyHtml = '';
@@ -1549,6 +1576,7 @@ export class UIManager {
                 ${specialHtml}
                 ${nearbyHtml}
                 ${(loc.npcs?.length) ? `<div style="margin-top:8px;padding:8px 10px;background:#F3EEFA;border-left:3px solid #8B6BB4;border-radius:0 8px 8px 0"><div style="font-size:10px;font-weight:600;color:#6B4F91;margin-bottom:3px">👥 터줏대감</div>${loc.npcs.map(n => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px;color:#5A4070"><span style="font-size:12px">${n.type==='animal'?'🐾':'🧑'}</span>${n.name}${n.role?` <span style="font-size:9px;color:#8B6BB4">(${n.role})</span>`:''}<span style="font-size:9px;color:#B0A898;margin-left:auto">×${n.count||1}</span></div>`).join('')}</div>` : ''}
+                ${this._buildPlanSectionHtml(loc)}
                 <!-- T3: 리뷰 미리보기 (개요 안) -->
                 <div id="wt-bs-rv-preview" style="margin-top:10px;padding-top:8px;border-top:1px solid #F0EDE5">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -1579,6 +1607,7 @@ export class UIManager {
                     <div style="font-size:8px;color:#9AA0A6;text-align:center;margin-top:4px">${events.length ? `이벤트 ${events.length}건 기반` : '데이터 수집 중...'}</div>
                 </div>
                 ${eventsHtml}
+                ${this._buildPlanSectionHtml(loc)}
             </div>
             <div id="wt-bs-tab-review" style="display:none;padding:10px 14px;overflow-y:auto">
                 <div style="text-align:center;padding:8px">
@@ -1644,6 +1673,24 @@ export class UIManager {
             if (det.length) {
                 det.slideToggle(200);
                 arrow.text(det.is(':visible') ? '▼' : '▲');
+            }
+        });
+        // ★ 예정 일정 삭제
+        bs.find('.wt-plan-del').on('click', function(e) {
+            e.stopPropagation();
+            const idx = parseInt($(this).data('plan-idx'));
+            const loc = self.lm.locations.find(l => l.id === locId);
+            if (!loc) return;
+            const planEvents = (loc.events || []).filter(ev => ev.isPlan);
+            if (idx >= 0 && idx < planEvents.length) {
+                const target = planEvents[idx];
+                const realIdx = loc.events.indexOf(target);
+                if (realIdx >= 0) {
+                    loc.events.splice(realIdx, 1);
+                    self.lm.updateLocation(locId, { events: loc.events });
+                    self._showBottomSheet(locId); // 리렌더
+                    toastSuccess('✕ 일정 삭제');
+                }
             }
         });
         bs.find('#wt-bs-gen-review').on('click', (e) => {
@@ -2502,9 +2549,37 @@ export class UIManager {
             timelineHtml += `<div style="padding:16px;text-align:center;color:#9AA0A6;font-size:11px">— ${sorted.length}일간 ${totalPlaces}곳 방문 · 이벤트 ${totalEvents}건 —</div>`;
         }
 
+        // ★ 예정 일정 모아보기
+        const allPlans = [];
+        for (const loc of this.lm.locations) {
+            if (!loc.events) continue;
+            for (const ev of loc.events) {
+                if (ev.isPlan) allPlans.push({ ...ev, locName: loc.name });
+            }
+        }
+        let planHtml = '';
+        if (allPlans.length) {
+            planHtml = `<div style="margin:0 16px;padding-top:10px;border-top:1.5px dashed #E0DDD5">
+                <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px">
+                    <span style="font-size:12px">🗓️</span>
+                    <span style="font-size:11px;font-weight:700;color:#B0A898">예정된 일정</span>
+                    <span style="font-size:9px;color:#C0B8A8;background:#F0EDE5;padding:1px 6px;border-radius:8px">${allPlans.length}건</span>
+                </div>
+                ${allPlans.map(p => `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #F5F5F5;opacity:0.6">
+                    <div style="width:12px;height:12px;border-radius:50%;border:2.5px dashed #B0B0B0;background:#fff;margin-top:3px;flex-shrink:0"></div>
+                    <div>
+                        <div style="font-size:10px;color:#B0B0B0;font-weight:500">${p.planWhen || ''}</div>
+                        <div style="font-size:13px;font-weight:600;color:#888">${p.locName ? '📍 ' + p.locName : ''}</div>
+                        <div style="font-size:10px;color:#AAA;margin-top:1px">${p.text || ''}</div>
+                    </div>
+                </div>`).join('')}
+            </div>`;
+        }
+
         const html = `<div class="wt-bs-handle" style="display:flex;justify-content:center;padding:18px 0 12px;cursor:pointer;min-height:48px;position:sticky;top:0;z-index:10;background:#fff;border-radius:16px 16px 0 0;-webkit-tap-highlight-color:transparent"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
             <div style="padding:2px 0 0"><div style="font-size:16px;font-weight:800;color:#202124;padding:0 16px 6px">타임라인</div></div>
-            ${timelineHtml}`;
+            ${timelineHtml}
+            ${planHtml}`;
 
         bs.html(html).show().css({ background: '#fff' });
         this._applyBsStage(2);
@@ -2533,10 +2608,9 @@ export class UIManager {
         const aliases = $('#wt-pop-aliases').val().split(',').map(a=>a.trim()).filter(Boolean);
         const update = {
             memo:$('#wt-pop-memo').val().trim(),
-            status:$('#wt-pop-status').val().trim(),
             aliases: aliases,
             aiNotes:$('#wt-pop-ainotes').val().trim(),
-            locationType: $('#wt-pop-icon-type').val() || '',  // Task 5: 아이콘 타입
+            locationType: $('#wt-pop-icon-type').val() || '',
         };
         // 이름 변경
         if (newName) update.name = newName;

@@ -676,6 +676,6 @@ export class MapRenderer {
     _zoom(f,e){const r=this.svg.getBoundingClientRect();const mx=(e.clientX-r.left)/r.width,my=(e.clientY-r.top)/r.height;const nw=Math.max(200,Math.min(2000,this.vb.w*f));const nh=nw*(this.vb.h/this.vb.w);this.vb.x+=(this.vb.w-nw)*mx;this.vb.y+=(this.vb.h-nh)*my;this.vb.w=nw;this.vb.h=nh;this._applyVB();}
     _el(tag,attrs,text){const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs||{}))el.setAttribute(k,v);if(text!==undefined)el.textContent=text;return el;}
     _svgPt(e){const r=this.svg.getBoundingClientRect();return{x:this.vb.x+(e.clientX-r.left)/r.width*this.vb.w,y:this.vb.y+(e.clientY-r.top)/r.height*this.vb.h};}
-    _hitTest(pt){for(const l of this.lm.locations){const dx=pt.x-l.x,dy=pt.y-l.y;if(Math.sqrt(dx*dx+dy*dy)<30)return l.id;}return null;}
+    _hitTest(pt){for(const l of this.lm.locations){if(l.parentId)continue;const dx=pt.x-l.x,dy=pt.y-l.y;if(Math.sqrt(dx*dx+dy*dy)<30)return l.id;}return null;}
     _pinchDist(e){const a=e.touches[0],b=e.touches[1];return Math.sqrt((a.clientX-b.clientX)**2+(a.clientY-b.clientY)**2);}
 }

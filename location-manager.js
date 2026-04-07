@@ -35,27 +35,104 @@ export class LocationManager {
     isSubLocation(name) {
         if (!name) return false;
         const lo = name.toLowerCase().trim();
-        return LocationManager.SUB_LOCATIONS.some(s => lo === s.toLowerCase() || lo.endsWith(s.toLowerCase()));
+        // 기본 키워드
+        if (LocationManager.SUB_LOCATIONS.some(s => lo === s.toLowerCase() || lo.endsWith(s.toLowerCase()))) return true;
+        // 별칭 맵
+        for (const [key, aliases] of Object.entries(LocationManager.SUB_ALIASES)) {
+            if (lo === key || aliases.some(a => lo === a.toLowerCase() || lo.endsWith(a.toLowerCase()))) return true;
+        }
+        return false;
     }
 
-    // ★ 서브 장소 찾기/생성
+    // ★ 서브 장소 별칭 맵 (같은 장소의 다른 이름)
+    static SUB_ALIASES = {
+        '거실': ['리빙룸', '리빙 룸', 'living room', 'livingroom', 'lounge', '응접실', '라운지'],
+        '부엌': ['주방', 'kitchen', '키친', '조리실', '요리실'],
+        '침실': ['방', 'bedroom', '안방', '침대방', '자는방', '숙소'],
+        '화장실': ['욕실', 'bathroom', 'restroom', 'toilet', '세면실', '샤워실', 'washroom', 'lavatory'],
+        '서재': ['공부방', 'study', 'study room', '작업실', 'office'],
+        '현관': ['입구', 'entrance', 'hallway', 'foyer', '복도'],
+        '마당': ['정원', 'garden', 'yard', '뜰', 'backyard'],
+        '차고': ['주차장', 'garage', 'parking'],
+        '발코니': ['테라스', 'balcony', 'terrace', '베란다', 'veranda'],
+        '지하실': ['지하', 'basement', '지하층'],
+        '옥상': ['rooftop', '지붕'],
+        '다락': ['다락방', 'attic'],
+    };
+
+    // ★ 서브 장소 이름 정규화 (긴 이름에서 핵심 키워드 추출)
+    _normalizeSubName(raw) {
+        let name = raw.trim();
+        // 콤마/괄호 정리 → 마지막 의미 있는 파트
+        if (name.includes(',')) {
+            const parts = name.split(',').map(p => p.trim()).filter(p => p.length >= 1);
+            name = parts[parts.length - 1];
+        }
+        name = name.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+        // "Honey badger의 침실" → "침실"
+        name = name.replace(/.*(?:의|'s)\s*/i, '');
+        // "1층 라운지 소파 앞" → "라운지" (위치 수식어 제거)
+        name = name.replace(/\d+층\s*/g, '').replace(/\s*(?:앞|뒤|옆|안|밖|위|아래|내부|외부|뒤편|맞은편)\s*$/g, '').trim();
+        // 너무 길면 첫 의미 있는 단어만
+        if (name.length > 15) {
+            const subKws = [...LocationManager.SUB_LOCATIONS, ...Object.keys(LocationManager.SUB_ALIASES), ...Object.values(LocationManager.SUB_ALIASES).flat()];
+            for (const kw of subKws) {
+                if (name.toLowerCase().includes(kw.toLowerCase())) return kw;
+            }
+        }
+        return name || raw.trim();
+    }
+
+    // ★ 서브 장소 찾기/생성 (별칭 매칭 강화)
     async findOrCreateSub(parentId, subName) {
-        const lo = subName.toLowerCase().trim();
-        // 기존 서브 찾기
-        const existing = this.locations.find(l =>
-            l.parentId === parentId && (l.name.toLowerCase() === lo || (l.aliases||[]).some(a => a.toLowerCase() === lo))
-        );
-        if (existing) return existing;
-        // 새로 생성 (좌표 없음, 지도에 안 찍힘)
+        const normalized = this._normalizeSubName(subName);
+        const lo = normalized.toLowerCase().trim();
+
+        // 별칭 그룹 찾기 (입력이 어떤 그룹에 속하는지)
+        let aliasGroup = null;
+        for (const [key, aliases] of Object.entries(LocationManager.SUB_ALIASES)) {
+            if (key === lo || aliases.some(a => a.toLowerCase() === lo)) {
+                aliasGroup = [key, ...aliases].map(a => a.toLowerCase());
+                break;
+            }
+        }
+
+        // 기존 서브 찾기 (이름 + 별칭 + 별칭 그룹)
+        const existing = this.locations.find(l => {
+            if (l.parentId !== parentId) return false;
+            const n = l.name.toLowerCase();
+            // 정확 매칭
+            if (n === lo) return true;
+            // 별칭 매칭
+            if ((l.aliases||[]).some(a => a.toLowerCase() === lo)) return true;
+            // 별칭 그룹 매칭 (거실 = 리빙룸 = living room)
+            if (aliasGroup) {
+                if (aliasGroup.includes(n)) return true;
+                if ((l.aliases||[]).some(a => aliasGroup.includes(a.toLowerCase()))) return true;
+            }
+            // 부분 포함 매칭 (침실 ⊂ "NCO Barracks 2층 침실")
+            if (lo.length >= 2 && (n.includes(lo) || lo.includes(n))) return true;
+            return false;
+        });
+        if (existing) {
+            // 별칭 추가 (normalized 이름이 다르면)
+            if (existing.name.toLowerCase() !== lo && !(existing.aliases||[]).some(a => a.toLowerCase() === lo)) {
+                const aliases = [...new Set([...(existing.aliases || []), normalized])];
+                await this.db.putLocation({ ...existing, aliases });
+                existing.aliases = aliases;
+            }
+            return existing;
+        }
+        // 새로 생성
         const loc = {
             id: this.generateId(), chatId: this.currentChatId,
-            name: subName.trim(), aliases: [], parentId: parentId,
+            name: normalized, aliases: normalized !== subName.trim() ? [subName.trim()] : [], parentId: parentId,
             x: 0, y: 0, lat: null, lng: null,
             visitCount: 0, firstVisited: null, lastVisited: null,
             memo: '', status: '', color: this._rndColor(), createdAt: Date.now(),
         };
         await this.db.putLocation(loc); this.locations.push(loc);
-        console.log(`[${EXTENSION_NAME}] 🔧 sub-loc created: "${subName}" under "${this.locations.find(l=>l.id===parentId)?.name}"`);
+        console.log(`[${EXTENSION_NAME}] 🔧 sub-loc created: "${normalized}" under "${this.locations.find(l=>l.id===parentId)?.name}"`);
         return loc;
     }
 
@@ -198,6 +275,16 @@ export class LocationManager {
             l.name.toLowerCase() === lo || (l.aliases || []).some(a => a.toLowerCase() === lo)
         );
         if (direct) return direct;
+        // ★ 부분 포함 매칭 (3글자 이상일 때: "Barracks" ⊂ "NCO Barracks")
+        if (lo.length >= 3) {
+            const partial = this.locations.find(l => {
+                const n = l.name.toLowerCase();
+                if (n.includes(lo) || lo.includes(n)) return true;
+                if ((l.aliases || []).some(a => { const al = a.toLowerCase(); return al.includes(lo) || lo.includes(al); })) return true;
+                return false;
+            });
+            if (partial) return partial;
+        }
         // 한영 사전 매칭
         for (const group of LocationManager.PLACE_DICT) {
             const glo = group.map(w => w.toLowerCase());

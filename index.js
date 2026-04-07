@@ -117,20 +117,70 @@ async function scanMessage(text, source = 'USER') {
         const mode = source === 'AI' ? 'ai' : 'user';
         const rpDate = _extractRpDate(text);
 
+        // ★ 약속 장소 감지 — 메타 Location 처리와 독립적으로 항상 실행
+        if (lm.currentLocationId) {
+            try {
+                const promisePlace = det.detectPromisePlace(text);
+                if (promisePlace && !lm.findByName(promisePlace)) {
+                    const loc = await lm.addLocation(promisePlace);
+                    if (loc) {
+                        loc.tags = ['wantToGo'];
+                        loc._tempAddress = true;
+                        loc.memo = '📅 약속 장소 (주소 미확정)';
+                        if (!loc.events) loc.events = [];
+                        loc.events.push({ text: `📅 약속 장소로 등록됨`, title: '약속 장소', mood: '📅', timestamp: Date.now(), rpDate, source: 'auto' });
+                        await lm.updateLocation(loc.id, { tags: loc.tags, events: loc.events, _tempAddress: true, memo: loc.memo });
+                        dbg(`📅 Promise place (early): "${promisePlace}" (temp address)`);
+                        if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${promisePlace} (주소 미확정)`, 'new', 3500);
+                        pi.inject(); if (ui?.panelVisible) ui.refresh();
+                    }
+                }
+            } catch(e) { dbg('⚠️ Promise detect error:', e.message); }
+        }
+
         // ★ 메타데이터에서 Location 직접 추출 (memo/yaml 블록)
         const locMatch = text.match(/[-*]\s*Location[:\s]+(.+)/i);
         if (locMatch) {
             let metaLoc = locMatch[1].trim().replace(/[`*_]/g, '');
             if (metaLoc.length >= 2 && metaLoc.length <= 80) {
+                // ★ 영어만 2글자 이하 → 스킵 (th, am, pm 등 오탐 방지)
+                if (/^[a-zA-Z\s]+$/.test(metaLoc) && metaLoc.trim().length <= 2) {
+                    dbg(`⏭️ Meta location too short (EN): "${metaLoc}"`);
+                    return false;
+                }
                 dbg(`📌 Meta location raw: "${metaLoc}"`);
 
-                // ★ 이동 중/차량 내부 → 장소 등록 건너뛰기 (현재 위치 유지)
-                const transitSkip = /이동\s*중|향으로\s*이동|밴\s*내부|차량\s*내부|차\s*안|버스\s*안|택시\s*안|en\s*route|in\s*transit|on\s+the\s+way|driving|riding|heading\s+to|moving\s+to/i;
+                // ★ 이동 중/차량/탈것 내부 → 장소 등록 건너뛰기
+                const transitSkip = /이동\s*중|향으로\s*이동|밴\s*내부|차량\s*내부|차\s*안|버스\s*안|택시\s*안|SUV|뒷좌석|앞좌석|조수석|운전석|트렁크|차\s*안|차\s*속|차\s*밖|차량|자동차|승합차|지프|트럭|밴|탱크|헬기|헬리콥터|비행기|기차|열차|지하철|전철|보트|배\s*위|선박|en\s*route|in\s*transit|on\s+the\s+way|driving|riding|heading\s+to|moving\s+to|backseat|front\s*seat|passenger|driver.*seat|trunk|SUV|van|truck|jeep|car\s+interior|vehicle|helicopter|chopper|aircraft|humvee|convoy/i;
                 if (transitSkip.test(metaLoc)) {
                     dbg(`🚗 Transit location skipped: "${metaLoc}"`);
-                    if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
+                    await _tryEvent(text, lm.currentLocationId, source);
                     return true;
                 }
+
+                // ★★★ 핵심 방어: 30자 초과 서술형 Location → 무조건 현재 장소 별칭
+                if (metaLoc.length > 30 && lm.currentLocationId) {
+                    const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
+                    if (curLoc) {
+                        dbg(`🔀 Long meta loc (${metaLoc.length}c) "${metaLoc}" → alias to "${curLoc.name}"`);
+                        const aliases = [...new Set([...(curLoc.aliases || []), metaLoc])];
+                        await lm.updateLocation(curLoc.id, { aliases });
+                        await _tryEvent(text, curLoc.id, source);
+                        return true;
+                    }
+                }
+
+                // ★ 콤마 구분자 정리: "영국 헤리퍼드, NCO Barracks 1층" → 마지막 파트만 사용
+                if (metaLoc.includes(',')) {
+                    const parts = metaLoc.split(',').map(p => p.trim()).filter(p => p.length >= 2);
+                    if (parts.length >= 2) {
+                        // 마지막 파트가 장소명일 가능성 높음
+                        const lastPart = parts[parts.length - 1];
+                        dbg(`📌 Comma split: "${metaLoc}" → last part: "${lastPart}"`);
+                        metaLoc = lastPart;
+                    }
+                }
+
                 // ★ "Parent - Sub" 또는 "Parent — Sub" 형태 분리
                 let metaParent = null, metaSub = null;
                 const sepMatch = metaLoc.match(/^(.+?)\s*[-–—]\s*([\uAC00-\uD7A3A-Za-z].+)$/);
@@ -345,26 +395,7 @@ async function scanMessage(text, source = 'USER') {
             } catch(e) { dbg('⚠️ NPC detect error:', e.message); }
         }
 
-        // ★ 약속 장소 감지 ("내일 ~에서 만나자")
-        if (lm.currentLocationId) {
-            try {
-                const promisePlace = det.detectPromisePlace(text);
-                if (promisePlace && !lm.findByName(promisePlace)) {
-                    const loc = await lm.addLocation(promisePlace);
-                    if (loc) {
-                        loc.tags = ['wantToGo'];
-                        loc._tempAddress = true;
-                        loc.memo = '📅 약속 장소 (주소 미확정)';
-                        if (!loc.events) loc.events = [];
-                        loc.events.push({ text: `📅 약속 장소로 등록됨`, title: '약속 장소', mood: '📅', timestamp: Date.now(), source: 'auto' });
-                        await lm.updateLocation(loc.id, { tags: loc.tags, events: loc.events, _tempAddress: true, memo: loc.memo });
-                        dbg(`📅 Promise place: "${promisePlace}" (temp address)`);
-                        if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`📅 약속 장소: ${promisePlace} (주소 미확정)`, 'new', 3500);
-                        pi.inject(); if (ui?.panelVisible) ui.refresh();
-                    }
-                }
-            } catch(e) { dbg('⚠️ Promise detect error:', e.message); }
-        }
+        // (약속 장소 감지는 메타 Location 처리 전에 이미 실행됨)
 
         return false;
     } catch(e) { console.error(`[${EXTENSION_NAME}] Scan:`, e); return false; }
@@ -774,7 +805,7 @@ Rules:
 If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null}
 
 Respond with ONLY a JSON object, no markdown, no explanation:
-{"mood":"💕","title":"ultra-short hook max 15chars that emphasizes THIS PLACE's emotional meaning. Write like: 'OO한 곳' or 'OO이 시작된 곳'. Do NOT copy dialogue literally — capture the emotional significance. Match the scene's tone: playful scenes can have witty/humorous titles, serious scenes should stay sincere.","summary":"detailed 2-sentence summary","promisePlace":"Extract ANY named store, city, building, or location that characters mention wanting to go to, discuss going to, plan to visit, or even joke about visiting. Be AGGRESSIVE — if a place name appears alongside words like 'go', 'run', 'trip', 'visit', 'let\\'s', 'we should', 'we could', 'discuss', 'plan', or shopping/travel context, extract it. Write ONLY the place name. If truly no future place, write null."}
+{"mood":"💕","title":"ultra-short hook max 15chars that emphasizes THIS PLACE's emotional meaning. Write like: 'OO한 곳' or 'OO이 시작된 곳'. Do NOT copy dialogue literally — capture the emotional significance. Match the scene's tone: playful scenes can have witty/humorous titles, serious scenes should stay sincere.","summary":"detailed 2-sentence summary","promisePlace":"Extract ANY named store, city, building, or location that characters mention wanting to go to, discuss going to, plan to visit, or even joke about visiting. Be AGGRESSIVE — if a place name appears alongside words like 'go', 'run', 'trip', 'visit', 'let\\'s', 'we should', 'we could', 'discuss', 'plan', or shopping/travel context, extract it. Write ONLY the place name. If truly no future place, write null.","plans":"Extract ALL future appointments, schedules, or plans mentioned in the scene. Return as array: [{\"what\":\"brief description\",\"where\":\"place name or null\",\"when\":\"time expression as-is (2주 뒤, tomorrow, 오늘 저녁, next week, etc.)\"}]. If no future plans mentioned, return empty array []."}
 
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 
@@ -813,6 +844,45 @@ ${trimmed}${userCtx}`;
                             }
                         }
                     } catch(e) { dbg('⚠️ Promise place from LLM error:', e.message); }
+                }
+                // ★ 예정 일정 자동 등록 (plans 배열)
+                if (Array.isArray(parsed.plans) && parsed.plans.length > 0) {
+                    for (const plan of parsed.plans) {
+                        if (!plan.what) continue;
+                        const planWhere = plan.where && plan.where !== 'null' ? plan.where.trim() : null;
+                        const planWhen = plan.when && plan.when !== 'null' ? plan.when.trim() : '';
+                        // 장소가 지정된 경우 → 해당 장소에 예정 이벤트 추가
+                        let targetLocId = locId;
+                        if (planWhere) {
+                            let targetLoc = lm.findByName(planWhere);
+                            if (!targetLoc && planWhere.length >= 2 && planWhere.length <= 25) {
+                                targetLoc = await lm.addLocation(planWhere);
+                                if (targetLoc) {
+                                    targetLoc.tags = ['wantToGo'];
+                                    targetLoc._tempAddress = true;
+                                    targetLoc.memo = '📅 약속 장소 (주소 미확정)';
+                                    await lm.updateLocation(targetLoc.id, { tags: targetLoc.tags, _tempAddress: true, memo: targetLoc.memo });
+                                    if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`🗓️ 예정: ${plan.what} (${planWhere})`, 'new', 3500);
+                                }
+                            }
+                            if (targetLoc) targetLocId = targetLoc.id;
+                        }
+                        const tLoc = lm.locations.find(l => l.id === targetLocId);
+                        if (tLoc) {
+                            if (!tLoc.events) tLoc.events = [];
+                            const isDup = tLoc.events.some(e => e.isPlan && e.text === plan.what);
+                            if (!isDup) {
+                                tLoc.events.push({
+                                    text: plan.what, title: plan.what.substring(0, 20),
+                                    mood: '🗓️', isPlan: true, planWhen: planWhen, planWhere: planWhere,
+                                    timestamp: Date.now(), rpDate, source: 'auto'
+                                });
+                                await lm.updateLocation(targetLocId, { events: tLoc.events });
+                                dbg(`🗓️ Plan: "${plan.what}" when="${planWhen}" where="${planWhere || 'current'}"`)
+                            }
+                        }
+                    }
+                    pi.inject(); if (ui?.panelVisible) ui.refresh();
                 }
             }
         }

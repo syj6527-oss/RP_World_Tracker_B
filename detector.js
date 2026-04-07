@@ -417,10 +417,27 @@ export class LocationDetector {
         const lower = place.toLowerCase();
         if (this.skipKo.includes(place)) return true;
         if (this.skipKo.includes(lower)) return true;
-        // 영어 일반 명사 필터
+        // 영어 2글자 이하 → 무조건 스킵 (장소명은 최소 3글자)
+        if (/^[a-zA-Z]+$/.test(place) && place.length <= 2) return true;
+        // 영어 일반 명사/대명사/관사/접미사 필터
         const skipEn = ['the','a','an','this','that','here','there','where','my','your','his','her',
             'place','somewhere','anywhere','nowhere','outside','inside','back','front','home',
-            'way','side','thing','stuff','part','end','top','bottom','left','right','it','me'];
+            'way','side','thing','stuff','part','end','top','bottom','left','right','it','me',
+            'th','st','nd','rd','am','pm','vs','mr','ms','dr','etc','aka',
+            'and','but','for','not','with','from','into','over','under','between',
+            'very','just','also','only','even','still','already','never','always',
+            'said','told','asked','went','came','got','had','was','were','been',
+            'can','will','shall','may','might','could','would','should',
+            'them','they','their','its','our','him','she','who','what','how','why','when',
+            'family','supply','tactical','quick','little','big','small','great','good','bad',
+            'nice','proper','simple','easy','hard','long','short','new','old','real',
+            'whole','entire','full','half','daily','weekly','morning','evening','night',
+            'emergency','routine','regular','special','secret','final','last','first','next',
+            'immediate','absolute','terrible','beautiful','brilliant','bloody','fucking',
+            'civilian','military','tactical','strategic','operational','critical','vital',
+            'another','other','same','such','much','many','some','any','every','each',
+            'after','before','during','since','until','while','about','around','through',
+            'again','away','down','off','out','up','near','far','above','below'];
         if (skipEn.includes(lower)) return true;
         if (place.length <= 1) return true;
         return false;

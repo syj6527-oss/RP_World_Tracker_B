@@ -152,15 +152,19 @@ export class UIManager {
             $('#wt-s-llm-status').text('🔄 테스트 중...').css('color', '#5E84E2');
             try {
                 const { callLLM } = await import('./llm-helper.js');
-                const result = await callLLM('Respond with ONLY this JSON: {"test":"ok"}');
+                // 15초 타임아웃
+                const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('15초 타임아웃 — API 키/모델 확인')), 15000));
+                const result = await Promise.race([callLLM('Respond with ONLY this JSON: {"test":"ok"}'), timeout]);
                 if (result && result.includes('ok')) {
                     $('#wt-s-llm-status').text('✅ 연결 성공!').css('color', '#2B8A6E');
                     toastSuccess('🔑 LLM 연결 성공!');
+                } else if (result) {
+                    $('#wt-s-llm-status').text('⚠️ 응답은 왔지만 JSON 아님: ' + result.substring(0, 80)).css('color', '#E07C3A');
                 } else {
-                    $('#wt-s-llm-status').text('⚠️ 응답 이상: ' + (result?.substring(0, 50) || 'empty')).css('color', '#F5A8A8');
+                    $('#wt-s-llm-status').text('⚠️ 빈 응답 — 모델 변경 권장').css('color', '#F5A8A8');
                 }
             } catch(e) {
-                $('#wt-s-llm-status').text('❌ 실패: ' + e.message).css('color', '#F5A8A8');
+                $('#wt-s-llm-status').text('❌ ' + e.message).css('color', '#F5A8A8');
             }
         });
         // 🌍 세계관 이어가기

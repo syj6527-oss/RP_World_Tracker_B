@@ -89,17 +89,18 @@ function _getApiConfig() {
 // ========== Google Gemini 직접 호출 ==========
 async function _callGoogle(key, model, prompt) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+    const _fetch = (body) => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 20000); // 20초 타임아웃
+        return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal }).finally(() => clearTimeout(timer));
+    };
 
     // ★ 1차 시도: JSON 강제 모드
     try {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                systemInstruction: { parts: [{ text: 'You are a JSON-only assistant. Respond with valid JSON only.' }] },
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.7, maxOutputTokens: 2000, responseMimeType: 'application/json' },
-            }),
+        const res = await _fetch({
+            systemInstruction: { parts: [{ text: 'You are a JSON-only assistant. Respond with valid JSON only.' }] },
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2000, responseMimeType: 'application/json' },
         });
         if (res.ok) {
             const data = await res.json();
@@ -122,13 +123,9 @@ async function _callGoogle(key, model, prompt) {
 
     // ★ 2차 시도: JSON 강제 없이
     try {
-        const res2 = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt + '\n\nCRITICAL: Respond with ONLY valid JSON. Start with { and end with }. No markdown, no explanation.' }] }],
-                generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
-            }),
+        const res2 = await _fetch({
+            contents: [{ parts: [{ text: prompt + '\n\nCRITICAL: Respond with ONLY valid JSON. Start with { and end with }. No markdown, no explanation.' }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
         });
         if (!res2.ok) throw new Error(`Google API ${res2.status}: ${res2.statusText}`);
         const data2 = await res2.json();

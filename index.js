@@ -899,6 +899,43 @@ ${trimmed}${userCtx}`;
         evTitle = ev.text.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text;
         evMood = ev.mood;
         dbg(`📝 Regex Event: "${evTitle}" | "${evText}" (${evMood})`);
+
+        // ★ LLM 실패 시에도 regex로 plans 추출!
+        const regexPlans = _extractPlansRegex(text);
+        if (regexPlans.length > 0) {
+            for (const plan of regexPlans) {
+                let targetLocId = locId;
+                if (plan.where) {
+                    let targetLoc = lm.findByName(plan.where);
+                    if (!targetLoc && plan.where.length >= 2 && plan.where.length <= 25) {
+                        targetLoc = await lm.addLocation(plan.where);
+                        if (targetLoc) {
+                            targetLoc.tags = ['wantToGo'];
+                            targetLoc._tempAddress = true;
+                            targetLoc.memo = '📅 약속 장소 (주소 미확정)';
+                            await lm.updateLocation(targetLoc.id, { tags: targetLoc.tags, _tempAddress: true, memo: targetLoc.memo });
+                        }
+                    }
+                    if (targetLoc) targetLocId = targetLoc.id;
+                }
+                const tLoc = lm.locations.find(l => l.id === targetLocId);
+                if (tLoc) {
+                    if (!tLoc.events) tLoc.events = [];
+                    const isDup = tLoc.events.some(e => e.isPlan && e.planWhen === plan.when);
+                    if (!isDup) {
+                        tLoc.events.push({
+                            text: plan.what, title: plan.what.substring(0, 20),
+                            mood: '🗓️', isPlan: true, planWhen: plan.when, planWhere: plan.where,
+                            timestamp: Date.now(), rpDate: _extractRpDate(text), source: 'regex'
+                        });
+                        await lm.updateLocation(targetLocId, { events: tLoc.events });
+                        dbg(`🗓️ Regex Plan: "${plan.what}" when="${plan.when}" where="${plan.where || 'current'}"`)
+                        if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`🗓️ 일정 감지: ${plan.what}`, 'new', 3000);
+                    }
+                }
+            }
+            pi.inject(); if (ui?.panelVisible) ui.refresh();
+        }
     }
 
     // ★ RP 날짜 추출 (메타데이터에서)
@@ -950,6 +987,78 @@ ${trimmed}${userCtx}`;
         }
     } catch(e) {}
     dbg(`${evMood} Event: "${evText}" @ ${loc.name} (${source})`);
+}
+
+// ========== 예정 일정 regex 추출 (LLM 없이도 작동) ==========
+function _extractPlansRegex(text) {
+    const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
+    const plans = [];
+
+    // 한국어 패턴
+    const koPats = [
+        // "2주 뒤에 산부인과" / "다음달에 검진"
+        /(?:(\d+)\s*(?:주|달|개월|일)\s*(?:뒤|후|뒤에|후에))\s*(?:에?\s*)?(.{1,15}?)(?:에서|에|으로|로)?\s*(?:가자|가기|오자|오기|만나|검진|진료|방문|재검|예약)/g,
+        // "내일/모레/다음주에 ~"
+        /(?:내일|모레|다음\s*주|다음\s*달|이번\s*주말)\s*(?:에?\s*)?(.{1,15}?)(?:에서|에|으로|로)?\s*(?:가자|가기|오자|만나|검진|방문|약속|예약|장보기|쇼핑)/g,
+        // "~월 ~일에 클리닉"
+        /(\d{1,2}월\s*\d{1,2}일)\s*(?:에?\s*)?(.{1,15}?)(?:에서|에)?\s*(?:가자|오자|만나|예약|방문|검진)/g,
+    ];
+
+    // 영어 패턴
+    const enPats = [
+        // "in two weeks" / "in 14 days" / "in a month"
+        /(?:come\s+back|return|visit|go\s+back|be\s+back|see\s+you|check[- ]?up)\s+(?:in|after)\s+([\w\s]{2,20}?)(?:[.,!?]|$)/gi,
+        // "every month" / "every two weeks"
+        /(every\s+(?:\w+\s+)?(?:week|month|day|year)s?)\s*(?:until|till|from)?/gi,
+        // "next Tuesday" / "next month" / "next week"
+        /(next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month|year))\b/gi,
+        // "on January 3rd" / "on the 3rd"
+        /(?:on\s+(?:the\s+)?)?(\w+\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)\b/gi,
+        // "T+14 DAYS" / "14 days from now"
+        /(?:T\+)?(\d+)\s*(?:days?|weeks?|months?)\s*(?:from\s+now|later|after)?/gi,
+    ];
+
+    // 한국어 패턴 실행
+    for (const pat of koPats) {
+        let m;
+        pat.lastIndex = 0;
+        while ((m = pat.exec(clean)) !== null) {
+            const groups = m.slice(1).filter(Boolean);
+            if (groups.length >= 2) {
+                const when = groups[0].trim();
+                const where = groups[1].trim();
+                if (where.length >= 2 && where.length <= 15) {
+                    plans.push({ what: `${where} 방문 예정`, where, when });
+                }
+            } else if (groups.length === 1) {
+                plans.push({ what: `예정된 일정`, where: null, when: groups[0].trim() });
+            }
+        }
+    }
+
+    // 영어 패턴 실행
+    for (const pat of enPats) {
+        let m;
+        pat.lastIndex = 0;
+        while ((m = pat.exec(clean)) !== null) {
+            const when = m[1]?.trim();
+            if (when && when.length >= 2 && when.length <= 30) {
+                // 숫자+기간이면 "N days/weeks" 형태
+                const numMatch = when.match(/^(\d+)\s*(days?|weeks?|months?)/i);
+                const whenText = numMatch ? `${numMatch[1]} ${numMatch[2]} later` : when;
+                plans.push({ what: `Scheduled appointment`, where: null, when: whenText });
+            }
+        }
+    }
+
+    // 중복 제거
+    const unique = [];
+    const seen = new Set();
+    for (const p of plans) {
+        const key = `${p.when}|${p.where || ''}`;
+        if (!seen.has(key)) { seen.add(key); unique.push(p); }
+    }
+    return unique;
 }
 
 // ========== 이벤트 요약 추출 (감정/사건 키워드 + 타입 분류) ==========

@@ -453,7 +453,13 @@ export class LocationDetector {
             // ★ RP 캐릭터 이름 오탐 방지
             'price','soap','ghost','gaz','alejandro','horangi','könig','konig','valeria',
             'captain','lieutenant','sergeant','corporal','private','commander','general',
-            'doctor','nurse','professor','teacher','master','boss','chief','sir','madam'];
+            'doctor','nurse','professor','teacher','master','boss','chief','sir','madam',
+            // ★ 사물/도구 오탐 방지
+            'tablet','phone','laptop','computer','screen','monitor','keyboard','radio',
+            'weapon','rifle','pistol','gun','knife','sword','grenade','bullet','magazine',
+            'chair','table','desk','bed','sofa','couch','door','window','wall','floor',
+            'plate','cup','mug','glass','bottle','bowl','spoon','fork','paper','card',
+            'bag','box','case','pack','kit','vest','mask','hood','helmet','boot','glove'];
         if (skipEn.includes(lower)) return true;
         if (place.length <= 1) return true;
         return false;

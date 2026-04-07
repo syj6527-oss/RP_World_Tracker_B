@@ -805,17 +805,22 @@ Rules:
 - Each sentence should be detailed and descriptive (60~120 characters each). Do NOT be too brief.
 - Write like a novel's diary entry — immersive, specific, atmospheric.
 
-If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null}
+If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null,"future_plan":{"has_plan":false}}
+
+Pay SPECIAL ATTENTION to any future promises, appointments, or plans mentioned in the dialogue (e.g., "Let's go to X tomorrow", "Come back in two weeks", "내일 마트 가자", "2주 뒤에 재검").
 
 Respond with ONLY a JSON object, no markdown, no explanation:
-{"mood":"💕","title":"ultra-short hook max 15chars that emphasizes THIS PLACE's emotional meaning. Write like: 'OO한 곳' or 'OO이 시작된 곳'. Do NOT copy dialogue literally — capture the emotional significance. Match the scene's tone: playful scenes can have witty/humorous titles, serious scenes should stay sincere.","summary":"detailed 2-sentence summary","promisePlace":"Extract ANY named store, city, building, or location that characters mention wanting to go to, discuss going to, plan to visit, or even joke about visiting. Be AGGRESSIVE — if a place name appears alongside words like 'go', 'run', 'trip', 'visit', 'let\\'s', 'we should', 'we could', 'discuss', 'plan', or shopping/travel context, extract it. Write ONLY the place name. If truly no future place, write null.","plans":"Extract ALL future appointments, schedules, or plans mentioned in the scene. Return as array: [{\"what\":\"brief description\",\"where\":\"place name or null\",\"when\":\"time expression as-is (2주 뒤, tomorrow, 오늘 저녁, next week, etc.)\"}]. If no future plans mentioned, return empty array []."}
+{"mood":"💕","title":"ultra-short hook max 15chars","summary":"detailed 2-sentence summary","promisePlace":"named location characters plan to visit (or null)","future_plan":{"has_plan":true,"what":"what they plan to do","where":"destination name or null","when":"time expression as-is: 2주 뒤, tomorrow, 오늘 저녁, next week, 1월 3일, every month, etc."}}
 
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
+title: Write like 'OO한 곳' or 'OO이 시작된 곳'. Capture emotional significance, not literal dialogue.
+promisePlace: ANY named store/city/building characters discuss visiting. Be AGGRESSIVE. Write ONLY the place name, or null.
+future_plan: ALWAYS check for this. If ANY character mentions going somewhere, doing something later, making an appointment, scheduling a visit, or promising to return — set has_plan: true and fill what/where/when.
 
 Examples:
-{"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다. Ghost의 묵언의 압박과 Dex의 으르렁거림이 섞이며, 이 밀폐된 공간에서 아슬아슬한 대화가 이어질 것을 암시한다.","promisePlace":null,"plans":[]}
-{"mood":"💕","title":"첫 심장소리를 들은 곳","summary":"${userName}와 TF141이 산부인과 진찰실을 점거하고 초음파 검사를 받았다. 모니터에 작은 심장 박동이 울리자 König의 손이 떨리기 시작했다.","promisePlace":null,"plans":[{"what":"2차 검진 및 초음파","where":"산부인과","when":"2주 뒤"},{"what":"클리닉 전용 예약","where":"산부인과","when":"1월 3일"}]}
-{"mood":"📅","title":"비밀 약속을 나눈 곳","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다. 이 장소가 둘만의 비밀스러운 거점이 될 것을 서로의 떨리는 손끝으로 예감했다.","promisePlace":null,"plans":[{"what":"비밀 만남","where":"옥상","when":"내일"}]}
+{"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다.","promisePlace":null,"future_plan":{"has_plan":false}}
+{"mood":"💕","title":"첫 심장소리를 들은 곳","summary":"${userName}와 TF141이 산부인과 진찰실을 점거하고 초음파 검사를 받았다. 모니터에 작은 심장 박동이 울리자 König의 손이 떨리기 시작했다.","promisePlace":"산부인과","future_plan":{"has_plan":true,"what":"2차 검진 및 초음파","where":"산부인과","when":"2주 뒤"}}
+{"mood":"📅","title":"비밀 약속을 나눈 곳","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다.","promisePlace":null,"future_plan":{"has_plan":true,"what":"비밀 만남","where":"옥상","when":"내일"}}
 ${recentChat ? `\n[Recent conversation for tone & context]:\n${recentChat}\n` : ''}
 [Current scene to summarize]:
 ${trimmed}${userCtx}`;
@@ -828,7 +833,7 @@ ${trimmed}${userCtx}`;
                 evTitle = parsed.title || parsed.summary.substring(0, 15) + '...';
                 evMood = parsed.mood;
                 dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
-                dbg(`🗓️ LLM plans: ${JSON.stringify(parsed.plans || 'not present')}, promisePlace: ${parsed.promisePlace || 'null'}`);
+                dbg(`🗓️ LLM future_plan: ${JSON.stringify(parsed.future_plan || 'not present')}, promisePlace: ${parsed.promisePlace || 'null'}`);
                 // ★ 약속 장소 자동 등록 (LLM이 이벤트에서 장소 추출 — 모든 무드)
                 if (parsed.promisePlace && parsed.promisePlace !== 'null' && parsed.promisePlace.toLowerCase() !== 'null') {
                     try {
@@ -849,40 +854,59 @@ ${trimmed}${userCtx}`;
                         }
                     } catch(e) { dbg('⚠️ Promise place from LLM error:', e.message); }
                 }
-                // ★ 예정 일정 자동 등록 (plans 배열)
-                if (Array.isArray(parsed.plans) && parsed.plans.length > 0) {
+                // ★ 예정 일정 자동 등록 (future_plan 객체 — 분리된 구조)
+                const fp = parsed.future_plan;
+                if (fp?.has_plan && fp.what) {
+                    const planWhere = fp.where && fp.where !== 'null' ? fp.where.trim() : null;
+                    const planWhen = fp.when && fp.when !== 'null' ? fp.when.trim() : '';
+                    let targetLocId = locId;
+                    if (planWhere) {
+                        let targetLoc = lm.findByName(planWhere);
+                        if (!targetLoc && planWhere.length >= 2 && planWhere.length <= 25) {
+                            targetLoc = await lm.addLocation(planWhere);
+                            if (targetLoc) {
+                                targetLoc.tags = ['wantToGo'];
+                                targetLoc._tempAddress = true;
+                                targetLoc.memo = '📅 약속 장소 (주소 미확정)';
+                                await lm.updateLocation(targetLoc.id, { tags: targetLoc.tags, _tempAddress: true, memo: targetLoc.memo });
+                                if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`🗓️ 일정: ${fp.what}`, 'new', 3500);
+                            }
+                        }
+                        if (targetLoc) targetLocId = targetLoc.id;
+                    }
+                    const tLoc = lm.locations.find(l => l.id === targetLocId);
+                    if (tLoc) {
+                        if (!tLoc.events) tLoc.events = [];
+                        const isDup = tLoc.events.some(e => e.isPlan && e.text === fp.what);
+                        if (!isDup) {
+                            tLoc.events.push({
+                                text: fp.what, title: fp.what.substring(0, 20),
+                                mood: '🗓️', isPlan: true, planWhen: planWhen,
+                                timestamp: Date.now(), rpDate, source: 'auto'
+                            });
+                            await lm.updateLocation(targetLocId, { events: tLoc.events });
+                            dbg(`🗓️ Future plan: "${fp.what}" when="${planWhen}" where="${planWhere || 'current'}"`)
+                        }
+                    }
+                    pi.inject(); if (ui?.panelVisible) ui.refresh();
+                }
+                // ★ fallback: plans 배열도 호환 (기존 응답 지원)
+                else if (Array.isArray(parsed.plans) && parsed.plans.length > 0) {
                     for (const plan of parsed.plans) {
                         if (!plan.what) continue;
-                        const planWhere = plan.where && plan.where !== 'null' ? plan.where.trim() : null;
                         const planWhen = plan.when && plan.when !== 'null' ? plan.when.trim() : '';
-                        // 장소가 지정된 경우 → 해당 장소에 예정 이벤트 추가
-                        let targetLocId = locId;
-                        if (planWhere) {
-                            let targetLoc = lm.findByName(planWhere);
-                            if (!targetLoc && planWhere.length >= 2 && planWhere.length <= 25) {
-                                targetLoc = await lm.addLocation(planWhere);
-                                if (targetLoc) {
-                                    targetLoc.tags = ['wantToGo'];
-                                    targetLoc._tempAddress = true;
-                                    targetLoc.memo = '📅 약속 장소 (주소 미확정)';
-                                    await lm.updateLocation(targetLoc.id, { tags: targetLoc.tags, _tempAddress: true, memo: targetLoc.memo });
-                                    if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`🗓️ 예정: ${plan.what} (${planWhere})`, 'new', 3500);
-                                }
-                            }
-                            if (targetLoc) targetLocId = targetLoc.id;
-                        }
-                        const tLoc = lm.locations.find(l => l.id === targetLocId);
+                        const tLoc = lm.locations.find(l => l.id === locId);
                         if (tLoc) {
                             if (!tLoc.events) tLoc.events = [];
                             const isDup = tLoc.events.some(e => e.isPlan && e.text === plan.what);
                             if (!isDup) {
                                 tLoc.events.push({
                                     text: plan.what, title: plan.what.substring(0, 20),
-                                    mood: '🗓️', isPlan: true, planWhen: planWhen, planWhere: planWhere,
+                                    mood: '🗓️', isPlan: true, planWhen: planWhen,
                                     timestamp: Date.now(), rpDate, source: 'auto'
                                 });
-                                await lm.updateLocation(targetLocId, { events: tLoc.events });
-                                dbg(`🗓️ Plan: "${plan.what}" when="${planWhen}" where="${planWhere || 'current'}"`)
+                                await lm.updateLocation(locId, { events: tLoc.events });
+                                dbg(`🗓️ Plan (legacy): "${plan.what}" when="${planWhen}"`)
                             }
                         }
                     }

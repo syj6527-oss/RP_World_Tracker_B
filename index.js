@@ -767,6 +767,9 @@ async function _tryEvent(text, locId, source) {
 
     let evText = null, evTitle = null, evMood = '💕';
 
+    // ★ RP 날짜 추출 (먼저! plans에서도 사용)
+    const rpDate = _extractRpDate(text);
+
     // ★ Phase 2: LLM 요약 시도 (직접 API 호출)
     try {
         const ctx = getContext();
@@ -937,9 +940,6 @@ ${trimmed}${userCtx}`;
             pi.inject(); if (ui?.panelVisible) ui.refresh();
         }
     }
-
-    // ★ RP 날짜 추출 (메타데이터에서)
-    const rpDate = _extractRpDate(text);
 
     if (!loc.events) loc.events = [];
 

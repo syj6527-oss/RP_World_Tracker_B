@@ -1482,7 +1482,7 @@ export class UIManager {
                     <span style="flex:1;font-weight:600;font-size:10.5px;color:#888">${p.text || p.title || ''}</span>
                     <span class="wt-plan-del" data-plan-idx="${i}" style="cursor:pointer;color:#D0C0B0;font-size:11px;padding:2px 4px">✕</span>
                 </div>
-                ${p.planWhen ? `<div style="font-size:9px;color:#B0A898;margin-top:2px;padding-left:17px">📌 ${p.planWhen}</div>` : ''}
+                ${p.planWhen ? `<div style="font-size:9px;color:#B0A898;margin-top:2px;padding-left:17px">📌 ${p.planDate ? p.planDate + ' (' + p.planWhen + ')' : p.planWhen}</div>` : ''}
             </div>`).join('')
             : '<div style="text-align:center;padding:10px;font-size:11px;color:#C0B8A8;font-style:italic">아직 예정된 일정이 없어요</div>'}
         </div>`;
@@ -2571,7 +2571,7 @@ export class UIManager {
                 ${allPlans.map(p => `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #F5F5F5;opacity:0.6">
                     <div style="width:12px;height:12px;border-radius:50%;border:2.5px dashed #B0B0B0;background:#fff;margin-top:3px;flex-shrink:0"></div>
                     <div>
-                        <div style="font-size:10px;color:#B0B0B0;font-weight:500">${p.planWhen || ''}</div>
+                        <div style="font-size:10px;color:#B0B0B0;font-weight:500">${p.planDate ? p.planDate + ' (' + (p.planWhen || '') + ')' : (p.planWhen || '')}</div>
                         <div style="font-size:13px;font-weight:600;color:#888">${p.locName ? '📍 ' + p.locName : ''}</div>
                         <div style="font-size:10px;color:#AAA;margin-top:1px">${p.text || ''}</div>
                     </div>

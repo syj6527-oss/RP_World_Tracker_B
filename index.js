@@ -764,6 +764,84 @@ function _extractRpDate(text) {
     return '';
 }
 
+// ========== RP 날짜 기반 일정 날짜 계산 ==========
+function _calcPlanDate(rpDate, whenText) {
+    if (!rpDate || !whenText) return '';
+    // rpDate 파싱: "2024/12/19" → Date
+    const parts = rpDate.split('/').map(Number);
+    if (parts.length < 2) return '';
+    let base;
+    if (parts.length === 3) base = new Date(parts[0], parts[1] - 1, parts[2]);
+    else if (parts.length === 2) base = new Date(2024, parts[0] - 1, parts[1]); // 년도 없으면 기본값
+    if (!base || isNaN(base.getTime())) return '';
+
+    const lo = whenText.toLowerCase().trim();
+
+    // 한국어 패턴
+    if (/^내일$/.test(lo)) { base.setDate(base.getDate() + 1); }
+    else if (/^모레$/.test(lo)) { base.setDate(base.getDate() + 2); }
+    else if (/^글피$/.test(lo)) { base.setDate(base.getDate() + 3); }
+    else if (/^다음\s*주/.test(lo) || /^next\s*week/i.test(lo)) { base.setDate(base.getDate() + 7); }
+    else if (/^이번\s*주말/.test(lo)) { const dow = base.getDay(); base.setDate(base.getDate() + (6 - dow)); }
+    else if (/^다음\s*달/.test(lo) || /^next\s*month/i.test(lo)) { base.setMonth(base.getMonth() + 1); }
+    else {
+        // "N주 뒤/후" or "N달/개월 뒤/후" or "N일 뒤/후"
+        const koNum = lo.match(/(\d+)\s*(?:주)\s*(?:뒤|후)/);
+        if (koNum) { base.setDate(base.getDate() + parseInt(koNum[1]) * 7); }
+        else {
+            const koDay = lo.match(/(\d+)\s*(?:일)\s*(?:뒤|후)/);
+            if (koDay) { base.setDate(base.getDate() + parseInt(koDay[1])); }
+            else {
+                const koMonth = lo.match(/(\d+)\s*(?:달|개월)\s*(?:뒤|후)/);
+                if (koMonth) { base.setMonth(base.getMonth() + parseInt(koMonth[1])); }
+                else {
+                    // 영어: "in N days/weeks/months", "N days later", "tomorrow"
+                    if (/^tomorrow/i.test(lo)) { base.setDate(base.getDate() + 1); }
+                    else if (/^in\s+two\s+weeks/i.test(lo) || /^two\s+weeks/i.test(lo)) { base.setDate(base.getDate() + 14); }
+                    else if (/^in\s+a\s+week/i.test(lo) || /^a\s+week/i.test(lo)) { base.setDate(base.getDate() + 7); }
+                    else if (/^in\s+a\s+month/i.test(lo) || /^a\s+month/i.test(lo)) { base.setMonth(base.getMonth() + 1); }
+                    else {
+                        const enNum = lo.match(/(\d+)\s*(?:days?)/i);
+                        if (enNum) { base.setDate(base.getDate() + parseInt(enNum[1])); }
+                        else {
+                            const enWeek = lo.match(/(\d+)\s*(?:weeks?)/i);
+                            if (enWeek) { base.setDate(base.getDate() + parseInt(enWeek[1]) * 7); }
+                            else {
+                                const enMonth = lo.match(/(\d+)\s*(?:months?)/i);
+                                if (enMonth) { base.setMonth(base.getMonth() + parseInt(enMonth[1])); }
+                                else {
+                                    // "T+14 DAYS" 패턴
+                                    const tPlus = lo.match(/t\+(\d+)\s*(?:days?)/i);
+                                    if (tPlus) { base.setDate(base.getDate() + parseInt(tPlus[1])); }
+                                    else {
+                                        // N월 N일
+                                        const koDate = lo.match(/(\d{1,2})월\s*(\d{1,2})일/);
+                                        if (koDate) return `${base.getFullYear()}/${parseInt(koDate[1])}/${parseInt(koDate[2])}`;
+                                        // next + 요일
+                                        const days = { monday:1,tuesday:2,wednesday:3,thursday:4,friday:5,saturday:6,sunday:0,월요일:1,화요일:2,수요일:3,목요일:4,금요일:5,토요일:6,일요일:0 };
+                                        for (const [name, dow] of Object.entries(days)) {
+                                            if (lo.includes(name)) {
+                                                let diff = dow - base.getDay();
+                                                if (diff <= 0) diff += 7;
+                                                base.setDate(base.getDate() + diff);
+                                                break;
+                                            }
+                                        }
+                                        // 매칭 안 되면 빈 값
+                                        if (base.getTime() === new Date(parts[0], parts[1] - 1, parts[2] || 1).getTime()) return '';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return `${base.getFullYear()}/${base.getMonth() + 1}/${base.getDate()}`;
+}
+
 // ========== 이벤트 추출 + 저장 헬퍼 ==========
 const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up|훔[쳤치]|stole|steal|snuck|sneak|침입|broke in|farewell|작별|맹세|swear|vow|재회|reunion|잃어버|잃[은었을]|lost|missing/i;
 let _lastEventTime = 0;
@@ -908,13 +986,14 @@ ${trimmed}${userCtx}`;
                         if (!tLoc.events) tLoc.events = [];
                         const isDup = tLoc.events.some(e => e.isPlan && e.text === fp.what);
                         if (!isDup) {
+                            const planDate = _calcPlanDate(rpDate, planWhen);
                             tLoc.events.push({
                                 text: fp.what, title: fp.what.substring(0, 20),
-                                mood: '🗓️', isPlan: true, planWhen: planWhen,
+                                mood: '🗓️', isPlan: true, planWhen: planWhen, planDate,
                                 timestamp: Date.now(), rpDate, source: 'auto'
                             });
                             await lm.updateLocation(targetLocId, { events: tLoc.events });
-                            dbg(`🗓️ Future plan: "${fp.what}" when="${planWhen}" where="${planWhere || 'current'}"`)
+                            dbg(`🗓️ Future plan: "${fp.what}" when="${planWhen}" date="${planDate}" where="${planWhere || 'current'}"`)
                         }
                     }
                     pi.inject(); if (ui?.panelVisible) ui.refresh();
@@ -929,9 +1008,10 @@ ${trimmed}${userCtx}`;
                             if (!tLoc.events) tLoc.events = [];
                             const isDup = tLoc.events.some(e => e.isPlan && e.text === plan.what);
                             if (!isDup) {
+                                const planDate = _calcPlanDate(rpDate, planWhen);
                                 tLoc.events.push({
                                     text: plan.what, title: plan.what.substring(0, 20),
-                                    mood: '🗓️', isPlan: true, planWhen: planWhen,
+                                    mood: '🗓️', isPlan: true, planWhen: planWhen, planDate,
                                     timestamp: Date.now(), rpDate, source: 'auto'
                                 });
                                 await lm.updateLocation(locId, { events: tLoc.events });
@@ -1000,10 +1080,12 @@ ${trimmed}${userCtx}`;
                     if (!tLoc.events) tLoc.events = [];
                     const isDup = tLoc.events.some(e => e.isPlan && e.planWhen === plan.when);
                     if (!isDup) {
+                        const regexRpDate = _extractRpDate(text);
+                        const planDate = _calcPlanDate(regexRpDate, plan.when);
                         tLoc.events.push({
                             text: plan.what, title: plan.what.substring(0, 20),
-                            mood: '🗓️', isPlan: true, planWhen: plan.when, planWhere: plan.where,
-                            timestamp: Date.now(), rpDate: _extractRpDate(text), source: 'regex'
+                            mood: '🗓️', isPlan: true, planWhen: plan.when, planDate,
+                            timestamp: Date.now(), rpDate: regexRpDate, source: 'regex'
                         });
                         await lm.updateLocation(targetLocId, { events: tLoc.events });
                         dbg(`🗓️ Regex Plan: "${plan.what}" when="${plan.when}" where="${plan.where || 'current'}"`)

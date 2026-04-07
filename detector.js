@@ -357,6 +357,8 @@ export class LocationDetector {
             let name = m[0].trim();
             const words = name.split(/\s+/);
             if (words.length > 1 && this.skipMods.includes(words[0].toLowerCase())) name = words.slice(1).join(' ');
+            // ★ 선행 관사/접속사 제거 ("And gynecology clinic" → "gynecology clinic")
+            name = name.replace(/^(?:And|The|A|An|Or|But|In|On|At|Of|For|By|To)\s+/i, '');
             name = name.charAt(0).toUpperCase() + name.slice(1);
             if (name.length >= 3 && name.length <= 30 && !this.lm.findByName(name)) {
                 console.log(`[${EXTENSION_NAME}] 📋 desc place: "${name}"`);
@@ -447,7 +449,11 @@ export class LocationDetector {
             'civilian','military','tactical','strategic','operational','critical','vital',
             'another','other','same','such','much','many','some','any','every','each',
             'after','before','during','since','until','while','about','around','through',
-            'again','away','down','off','out','up','near','far','above','below'];
+            'again','away','down','off','out','up','near','far','above','below',
+            // ★ RP 캐릭터 이름 오탐 방지
+            'price','soap','ghost','gaz','alejandro','horangi','könig','konig','valeria',
+            'captain','lieutenant','sergeant','corporal','private','commander','general',
+            'doctor','nurse','professor','teacher','master','boss','chief','sir','madam'];
         if (skipEn.includes(lower)) return true;
         if (place.length <= 1) return true;
         return false;

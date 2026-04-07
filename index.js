@@ -857,7 +857,10 @@ ${trimmed}${userCtx}`;
                 // ★ 예정 일정 자동 등록 (future_plan 객체 — 분리된 구조)
                 const fp = parsed.future_plan;
                 if (fp?.has_plan && fp.what) {
-                    const planWhere = fp.where && fp.where !== 'null' ? fp.where.trim() : null;
+                    // ★ where가 null이면 promisePlace를 대신 사용!
+                    const rawWhere = fp.where && fp.where !== 'null' ? fp.where.trim() : null;
+                    const pp = parsed.promisePlace && parsed.promisePlace !== 'null' ? parsed.promisePlace.trim() : null;
+                    const planWhere = rawWhere || pp;
                     const planWhen = fp.when && fp.when !== 'null' ? fp.when.trim() : '';
                     let targetLocId = locId;
                     if (planWhere) {

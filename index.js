@@ -139,9 +139,35 @@ async function scanMessage(text, source = 'USER') {
         }
 
         // ★ 메타데이터에서 Location 직접 추출 (memo/yaml 블록)
-        const locMatch = text.match(/[-*]\s*Location[:\s]+(.+)/i);
+        // HTML 태그 제거 후 다양한 포맷 매칭
+        const cleanForMeta = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+        const locPatterns = [
+            /[-*•]\s*Location\s*[:：]\s*(.+)/i,
+            /Location\s*[:：]\s*(.+)/i,
+            /[-*•]\s*장소\s*[:：]\s*(.+)/,
+            /[-*•]\s*위치\s*[:：]\s*(.+)/,
+            /[-*•]\s*Place\s*[:：]\s*(.+)/i,
+            /[-*•]\s*Scene\s*[:：]\s*(.+)/i,
+            /[-*•]\s*Current\s+Location\s*[:：]\s*(.+)/i,
+        ];
+        let locMatch = null;
+        for (const pat of locPatterns) {
+            const m = cleanForMeta.match(pat);
+            if (m) { locMatch = m; break; }
+        }
+        // 원본 텍스트에서도 시도 (HTML 태그 안에 있을 수 있음)
+        if (!locMatch) {
+            const m2 = text.match(/[-*•]\s*Location\s*[:：]\s*(.+)/i);
+            if (m2) locMatch = m2;
+        }
         if (locMatch) {
-            let metaLoc = locMatch[1].trim().replace(/[`*_]/g, '');
+            let metaLoc = locMatch[1].trim()
+                .replace(/[`*_]/g, '')           // 마크다운 제거
+                .replace(/<[^>]*>/g, '')          // 잔여 HTML 제거
+                .replace(/\s+/g, ' ')             // 공백 정리
+                .replace(/[\r\n]+/g, '')          // 줄바꿈 제거
+                .split(/[-–—]\s*(?:Time|Date|Characters|Outfit|Items|Condition|시간|캐릭터|복장)/i)[0]  // 다음 필드 시작 전까지만
+                .trim();
             if (metaLoc.length >= 2 && metaLoc.length <= 80) {
                 // ★ 영어만 2글자 이하 → 스킵 (th, am, pm 등 오탐 방지)
                 if (/^[a-zA-Z\s]+$/.test(metaLoc) && metaLoc.trim().length <= 2) {

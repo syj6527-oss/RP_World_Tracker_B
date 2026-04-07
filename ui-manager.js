@@ -1483,7 +1483,6 @@ export class UIManager {
                     <span class="wt-plan-del" data-plan-idx="${i}" style="cursor:pointer;color:#D0C0B0;font-size:11px;padding:2px 4px">✕</span>
                 </div>
                 ${p.planWhen ? `<div style="font-size:9px;color:#B0A898;margin-top:2px;padding-left:17px">📌 ${p.planWhen}</div>` : ''}
-                ${p.planWhere ? `<div style="font-size:9px;color:#B0A898;padding-left:17px">📍 ${p.planWhere}</div>` : ''}
             </div>`).join('')
             : '<div style="text-align:center;padding:10px;font-size:11px;color:#C0B8A8;font-style:italic">아직 예정된 일정이 없어요</div>'}
         </div>`;

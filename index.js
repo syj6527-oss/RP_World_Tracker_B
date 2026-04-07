@@ -888,6 +888,27 @@ ${trimmed}${userCtx}`;
                     }
                     pi.inject(); if (ui?.panelVisible) ui.refresh();
                 }
+                // ★ promisePlace 잡혔는데 plans 비어있으면 → 자동 plan 생성
+                if (parsed.promisePlace && parsed.promisePlace !== 'null' && parsed.promisePlace.toLowerCase() !== 'null') {
+                    const pp = parsed.promisePlace.trim();
+                    const hasPlansForPlace = Array.isArray(parsed.plans) && parsed.plans.some(p => p.where && p.where.toLowerCase() === pp.toLowerCase());
+                    if (!hasPlansForPlace) {
+                        const ppLoc = lm.findByName(pp);
+                        if (ppLoc) {
+                            if (!ppLoc.events) ppLoc.events = [];
+                            const isDup = ppLoc.events.some(e => e.isPlan && e.text?.includes(pp));
+                            if (!isDup) {
+                                ppLoc.events.push({
+                                    text: `${pp} 방문 예정`, title: `${pp} 방문`,
+                                    mood: '🗓️', isPlan: true, planWhen: '', planWhere: null,
+                                    timestamp: Date.now(), rpDate, source: 'auto'
+                                });
+                                await lm.updateLocation(ppLoc.id, { events: ppLoc.events });
+                                dbg(`🗓️ Auto-plan from promisePlace: "${pp}"`);
+                            }
+                        }
+                    }
+                }
             }
         }
     } catch (e) {

@@ -1518,6 +1518,60 @@ export class UIManager {
             `<div style="margin-top:6px;margin-bottom:8px"><button class="wt-photo-add" data-locid="${locId}" style="width:100%;padding:6px;background:#F5F4ED;border:1.5px dashed #D8D4C8;border-radius:8px;font-size:11px;color:#9A8A7A;cursor:pointer;font-family:inherit">📷 사진 추가</button></div>`;
     }
 
+    // ★ 풀스크린 사진 뷰어 (좌우 넘기기 + 개별 삭제)
+    _showPhotoViewer(locId, startIdx = 0) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc?.photos?.length) return;
+        const self = this;
+        let idx = startIdx;
+
+        const render = () => {
+            const total = loc.photos.length;
+            if (total === 0) { $('#wt-photo-viewer').remove(); return; }
+            if (idx >= total) idx = total - 1;
+            if (idx < 0) idx = 0;
+
+            const html = `<div id="wt-photo-viewer" style="position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent">
+                <div style="position:absolute;top:12px;right:12px;display:flex;gap:8px;z-index:2">
+                    <button id="wt-pv-del" style="padding:6px 12px;background:rgba(255,80,80,.8);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer">🗑 삭제</button>
+                    <button id="wt-pv-close" style="padding:6px 12px;background:rgba(255,255,255,.2);border:none;border-radius:8px;color:#fff;font-size:16px;cursor:pointer">✕</button>
+                </div>
+                <div style="position:absolute;top:50%;left:8px;transform:translateY(-50%)">
+                    ${idx > 0 ? '<button id="wt-pv-prev" style="background:rgba(255,255,255,.15);border:none;border-radius:50%;width:36px;height:36px;font-size:18px;color:#fff;cursor:pointer">◀</button>' : ''}
+                </div>
+                <div style="position:absolute;top:50%;right:8px;transform:translateY(-50%)">
+                    ${idx < total - 1 ? '<button id="wt-pv-next" style="background:rgba(255,255,255,.15);border:none;border-radius:50%;width:36px;height:36px;font-size:18px;color:#fff;cursor:pointer">▶</button>' : ''}
+                </div>
+                <img src="${loc.photos[idx]}" style="max-width:90vw;max-height:75vh;object-fit:contain;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.5)">
+                <div style="margin-top:12px;color:#fff;font-size:13px;font-weight:600">${idx + 1} / ${total}</div>
+            </div>`;
+
+            $('#wt-photo-viewer').remove();
+            $('body').append(html);
+
+            $('#wt-pv-close').on('click', () => $('#wt-photo-viewer').remove());
+            $('#wt-pv-prev').on('click', (e) => { e.stopPropagation(); idx--; render(); });
+            $('#wt-pv-next').on('click', (e) => { e.stopPropagation(); idx++; render(); });
+            $('#wt-pv-del').on('click', async (e) => {
+                e.stopPropagation();
+                loc.photos.splice(idx, 1);
+                await self.lm.updateLocation(locId, { photos: loc.photos });
+                if (loc.photos.length === 0) {
+                    $('#wt-photo-viewer').remove();
+                } else {
+                    render();
+                }
+                const savedStage = self._bsStage;
+                self._showBottomSheet(locId);
+                setTimeout(() => self._applyBsStage(savedStage), 50);
+                toastSuccess('🗑 사진 삭제');
+            });
+            // 배경 클릭으로 닫기
+            $('#wt-photo-viewer').on('click', (e) => { if (e.target.id === 'wt-photo-viewer') $('#wt-photo-viewer').remove(); });
+        };
+        render();
+    }
+
     // ★ 사진 압축 + base64 변환
     _compressPhoto(file) {
         return new Promise((resolve, reject) => {
@@ -1803,6 +1857,14 @@ export class UIManager {
             self._showBottomSheet(lid);
             setTimeout(() => self._applyBsStage(savedStage), 50);
             toastSuccess('🗑 사진 삭제');
+        });
+        // ★ 사진 풀스크린 뷰어
+        bs.find('.wt-photo-view').on('click', function(e) {
+            e.stopPropagation();
+            const idx = parseInt($(this).data('idx')) || 0;
+            const loc = self.lm.locations.find(l => l.id === locId);
+            if (!loc?.photos?.length) return;
+            self._showPhotoViewer(locId, idx);
         });
         bs.find('#wt-bs-gen-review').on('click', (e) => {
             e.preventDefault();

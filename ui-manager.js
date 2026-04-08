@@ -1488,6 +1488,63 @@ export class UIManager {
         </div>`;
     }
 
+    // ★ 사진 갤러리 / 분위기 카드 (사진 있으면 사진, 없으면 이모지)
+    _buildGalleryHtml(loc, style) {
+        const photos = loc.photos || [];
+        const locId = loc.id;
+
+        if (photos.length > 0) {
+            // 사진 그리드
+            const main = photos[0];
+            const side = photos.slice(1, 3);
+            return `<div style="position:relative;margin-bottom:10px">
+                <div style="display:flex;gap:4px;height:140px;border-radius:12px;overflow:hidden">
+                    <div style="flex:2;background:url('${main}') center/cover;border-radius:12px 0 0 12px;cursor:pointer" class="wt-photo-view" data-idx="0"></div>
+                    ${side.length ? `<div style="flex:1;display:flex;flex-direction:column;gap:4px">
+                        ${side.map((p, i) => `<div style="flex:1;background:url('${p}') center/cover;${i === 0 && side.length === 1 ? 'border-radius:0 12px 12px 0' : i === 0 ? 'border-radius:0 12px 0 0' : 'border-radius:0 0 12px 0'};cursor:pointer;position:relative" class="wt-photo-view" data-idx="${i+1}">
+                            ${i === side.length - 1 && photos.length > 3 ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;border-radius:inherit">+${photos.length - 3}</div>` : ''}
+                        </div>`).join('')}
+                    </div>` : ''}
+                </div>
+                <div style="display:flex;gap:6px;margin-top:6px">
+                    <button class="wt-photo-add" data-locid="${locId}" style="flex:1;padding:6px;background:#F5F4ED;border:1.5px dashed #D8D4C8;border-radius:8px;font-size:11px;color:#9A8A7A;cursor:pointer;font-family:inherit">📷 사진 추가 (${photos.length}/5)</button>
+                    ${photos.length > 0 ? `<button class="wt-photo-del-last" data-locid="${locId}" style="padding:6px 10px;background:#FFF5F5;border:1px solid #F0C0C0;border-radius:8px;font-size:11px;color:#C07070;cursor:pointer;font-family:inherit">🗑</button>` : ''}
+                </div>
+            </div>`;
+        }
+
+        // 사진 없으면 기존 분위기 카드 + 사진 추가 버튼
+        return this._buildMoodCardHtml(loc, style) +
+            `<div style="margin-top:6px;margin-bottom:8px"><button class="wt-photo-add" data-locid="${locId}" style="width:100%;padding:6px;background:#F5F4ED;border:1.5px dashed #D8D4C8;border-radius:8px;font-size:11px;color:#9A8A7A;cursor:pointer;font-family:inherit">📷 사진 추가</button></div>`;
+    }
+
+    // ★ 사진 압축 + base64 변환
+    _compressPhoto(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const MAX = 800;
+                    let w = img.width, h = img.height;
+                    if (w > MAX || h > MAX) {
+                        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+                        else { w = Math.round(w * MAX / h); h = MAX; }
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                };
+                img.onerror = reject;
+                img.src = e.target.result;
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
     // ========== 구글맵 스타일 바텀시트 ==========
     _showBottomSheet(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
@@ -1572,8 +1629,8 @@ export class UIManager {
                 <div class="wt-bs-tab" data-tab="rooms" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">내부</div>
             </div>
             <div id="wt-bs-tab-overview" style="padding:10px 14px;overflow-y:auto">
-                <!-- 분위기 카드 갤러리 -->
-                ${this._buildMoodCardHtml(loc, style)}
+                <!-- 분위기 카드 / 사진 갤러리 -->
+                ${this._buildGalleryHtml(loc, style)}
                 ${loc.address ? `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📍</span><div>${loc.address}</div></div>` : ''}
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
@@ -1695,6 +1752,49 @@ export class UIManager {
                     toastSuccess('✕ 일정 삭제');
                 }
             }
+        });
+        // ★ 사진 추가
+        bs.find('.wt-photo-add').on('click', function(e) {
+            e.stopPropagation();
+            const lid = $(this).data('locid');
+            const loc = self.lm.locations.find(l => l.id === lid);
+            if (!loc) return;
+            if ((loc.photos || []).length >= 5) { toastWarn('📷 최대 5장까지!'); return; }
+            // 파일 선택 input 동적 생성
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.display = 'none';
+            input.onchange = async (ev) => {
+                const file = ev.target.files?.[0];
+                if (!file) return;
+                try {
+                    toastSuccess('📷 사진 처리 중...');
+                    const base64 = await self._compressPhoto(file);
+                    if (!loc.photos) loc.photos = [];
+                    loc.photos.push(base64);
+                    await self.lm.updateLocation(lid, { photos: loc.photos });
+                    self._showBottomSheet(lid); // 리렌더
+                    toastSuccess(`📷 사진 추가! (${loc.photos.length}/5)`);
+                } catch(err) {
+                    toastWarn('📷 사진 처리 실패');
+                    console.error('[wt] photo error:', err);
+                }
+                input.remove();
+            };
+            document.body.appendChild(input);
+            input.click();
+        });
+        // ★ 사진 삭제 (마지막 사진)
+        bs.find('.wt-photo-del-last').on('click', function(e) {
+            e.stopPropagation();
+            const lid = $(this).data('locid');
+            const loc = self.lm.locations.find(l => l.id === lid);
+            if (!loc?.photos?.length) return;
+            loc.photos.pop();
+            self.lm.updateLocation(lid, { photos: loc.photos });
+            self._showBottomSheet(lid);
+            toastSuccess('🗑 사진 삭제');
         });
         bs.find('#wt-bs-gen-review').on('click', (e) => {
             e.preventDefault();

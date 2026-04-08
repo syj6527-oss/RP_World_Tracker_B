@@ -1753,37 +1753,40 @@ export class UIManager {
                 }
             }
         });
-        // ★ 사진 추가
-        bs.find('.wt-photo-add').on('click', function(e) {
-            e.stopPropagation();
-            const lid = $(this).data('locid');
-            const loc = self.lm.locations.find(l => l.id === lid);
-            if (!loc) return;
-            if ((loc.photos || []).length >= 5) { toastWarn('📷 최대 5장까지!'); return; }
-            // 파일 선택 input 동적 생성
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.style.display = 'none';
-            input.onchange = async (ev) => {
-                const file = ev.target.files?.[0];
+        // ★ 사진 추가 — 숨겨진 file input 사용 (모바일 호환)
+        bs.find('.wt-photo-add').each(function() {
+            const btn = $(this);
+            const lid = btn.data('locid');
+            // 숨김 input 바로 옆에 삽입
+            const inputId = 'wt-photo-input-' + lid;
+            if (!$('#' + inputId).length) {
+                btn.after(`<input type="file" id="${inputId}" accept="image/*" style="display:none">`);
+            }
+            btn.off('click').on('click', (e) => {
+                e.stopPropagation();
+                const loc = self.lm.locations.find(l => l.id === lid);
+                if ((loc?.photos || []).length >= 5) { toastWarn('📷 최대 5장까지!'); return; }
+                $('#' + inputId).trigger('click');
+            });
+            $('#' + inputId).off('change').on('change', async function(ev) {
+                const file = this.files?.[0];
                 if (!file) return;
                 try {
                     toastSuccess('📷 사진 처리 중...');
                     const base64 = await self._compressPhoto(file);
+                    const loc = self.lm.locations.find(l => l.id === lid);
+                    if (!loc) return;
                     if (!loc.photos) loc.photos = [];
                     loc.photos.push(base64);
                     await self.lm.updateLocation(lid, { photos: loc.photos });
-                    self._showBottomSheet(lid); // 리렌더
+                    self._showBottomSheet(lid);
                     toastSuccess(`📷 사진 추가! (${loc.photos.length}/5)`);
                 } catch(err) {
                     toastWarn('📷 사진 처리 실패');
                     console.error('[wt] photo error:', err);
                 }
-                input.remove();
-            };
-            document.body.appendChild(input);
-            input.click();
+                $(this).val(''); // 리셋
+            });
         });
         // ★ 사진 삭제 (마지막 사진)
         bs.find('.wt-photo-del-last').on('click', function(e) {

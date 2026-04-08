@@ -1779,13 +1779,16 @@ export class UIManager {
                     if (!loc.photos) loc.photos = [];
                     loc.photos.push(base64);
                     await self.lm.updateLocation(lid, { photos: loc.photos });
+                    // ★ 바텀시트 전체 리렌더 대신 stage 유지하며 리렌더
+                    const savedStage = self._bsStage;
                     self._showBottomSheet(lid);
+                    setTimeout(() => self._applyBsStage(savedStage), 50);
                     toastSuccess(`📷 사진 추가! (${loc.photos.length}/5)`);
                 } catch(err) {
                     toastWarn('📷 사진 처리 실패');
                     console.error('[wt] photo error:', err);
                 }
-                $(this).val(''); // 리셋
+                $(this).val('');
             });
         });
         // ★ 사진 삭제 (마지막 사진)
@@ -1796,7 +1799,9 @@ export class UIManager {
             if (!loc?.photos?.length) return;
             loc.photos.pop();
             self.lm.updateLocation(lid, { photos: loc.photos });
+            const savedStage = self._bsStage;
             self._showBottomSheet(lid);
+            setTimeout(() => self._applyBsStage(savedStage), 50);
             toastSuccess('🗑 사진 삭제');
         });
         bs.find('#wt-bs-gen-review').on('click', (e) => {

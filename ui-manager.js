@@ -1527,47 +1527,46 @@ export class UIManager {
 
         const render = () => {
             const total = loc.photos.length;
-            if (total === 0) { $('#wt-photo-viewer').remove(); return; }
+            if (total === 0) { document.getElementById('wt-photo-viewer')?.remove(); return; }
             if (idx >= total) idx = total - 1;
             if (idx < 0) idx = 0;
 
-            const html = `<div id="wt-photo-viewer" style="position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent">
-                <div style="position:absolute;top:12px;right:12px;display:flex;gap:8px;z-index:2">
-                    <button id="wt-pv-del" style="padding:6px 12px;background:rgba(255,80,80,.8);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer">🗑 삭제</button>
-                    <button id="wt-pv-close" style="padding:6px 12px;background:rgba(255,255,255,.2);border:none;border-radius:8px;color:#fff;font-size:16px;cursor:pointer">✕</button>
-                </div>
-                <div style="position:absolute;top:50%;left:8px;transform:translateY(-50%)">
-                    ${idx > 0 ? '<button id="wt-pv-prev" style="background:rgba(255,255,255,.15);border:none;border-radius:50%;width:36px;height:36px;font-size:18px;color:#fff;cursor:pointer">◀</button>' : ''}
-                </div>
-                <div style="position:absolute;top:50%;right:8px;transform:translateY(-50%)">
-                    ${idx < total - 1 ? '<button id="wt-pv-next" style="background:rgba(255,255,255,.15);border:none;border-radius:50%;width:36px;height:36px;font-size:18px;color:#fff;cursor:pointer">▶</button>' : ''}
-                </div>
-                <img src="${loc.photos[idx]}" style="max-width:90vw;max-height:75vh;object-fit:contain;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.5)">
-                <div style="margin-top:12px;color:#fff;font-size:13px;font-weight:600">${idx + 1} / ${total}</div>
-            </div>`;
+            // ★ 기존 뷰어 제거
+            document.getElementById('wt-photo-viewer')?.remove();
 
-            $('#wt-photo-viewer').remove();
-            $('body').append(html);
+            // ★ 독립 DOM 요소로 생성 (ST 컨테이너 밖!)
+            const overlay = document.createElement('div');
+            overlay.id = 'wt-photo-viewer';
+            overlay.style.cssText = 'position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:2147483647!important;background:rgba(0,0,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;touch-action:none';
 
-            $('#wt-pv-close').on('click', () => $('#wt-photo-viewer').remove());
-            $('#wt-pv-prev').on('click', (e) => { e.stopPropagation(); idx--; render(); });
-            $('#wt-pv-next').on('click', (e) => { e.stopPropagation(); idx++; render(); });
-            $('#wt-pv-del').on('click', async (e) => {
+            overlay.innerHTML = `
+                <div style="position:absolute;top:16px;right:16px;display:flex;gap:8px;z-index:2">
+                    <button id="wt-pv-del" style="padding:8px 14px;background:rgba(255,60,60,.85);border:none;border-radius:10px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">🗑 삭제</button>
+                    <button id="wt-pv-close" style="padding:8px 14px;background:rgba(255,255,255,.2);border:none;border-radius:10px;color:#fff;font-size:18px;cursor:pointer;font-weight:700">✕</button>
+                </div>
+                ${idx > 0 ? '<button id="wt-pv-prev" style="position:absolute;top:50%;left:10px;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:40px;height:40px;font-size:20px;color:#fff;cursor:pointer;z-index:2">◀</button>' : ''}
+                ${idx < total - 1 ? '<button id="wt-pv-next" style="position:absolute;top:50%;right:10px;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:40px;height:40px;font-size:20px;color:#fff;cursor:pointer;z-index:2">▶</button>' : ''}
+                <img src="${loc.photos[idx]}" style="max-width:90vw;max-height:70vh;object-fit:contain;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.5)">
+                <div style="margin-top:14px;color:#fff;font-size:14px;font-weight:600;letter-spacing:1px">${idx + 1} / ${total}</div>
+            `;
+
+            document.documentElement.appendChild(overlay); // ★ <html> 직접 자식으로!
+
+            document.getElementById('wt-pv-close')?.addEventListener('click', () => overlay.remove());
+            document.getElementById('wt-pv-prev')?.addEventListener('click', (e) => { e.stopPropagation(); idx--; render(); });
+            document.getElementById('wt-pv-next')?.addEventListener('click', (e) => { e.stopPropagation(); idx++; render(); });
+            document.getElementById('wt-pv-del')?.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 loc.photos.splice(idx, 1);
                 await self.lm.updateLocation(locId, { photos: loc.photos });
-                if (loc.photos.length === 0) {
-                    $('#wt-photo-viewer').remove();
-                } else {
-                    render();
-                }
+                if (loc.photos.length === 0) { overlay.remove(); }
+                else { render(); }
                 const savedStage = self._bsStage;
                 self._showBottomSheet(locId);
                 setTimeout(() => self._applyBsStage(savedStage), 50);
                 toastSuccess('🗑 사진 삭제');
             });
-            // 배경 클릭으로 닫기
-            $('#wt-photo-viewer').on('click', (e) => { if (e.target.id === 'wt-photo-viewer') $('#wt-photo-viewer').remove(); });
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
         };
         render();
     }

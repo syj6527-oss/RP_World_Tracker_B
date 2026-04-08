@@ -1592,7 +1592,7 @@ export class UIManager {
                 <!-- T4: 최근 방문 기록 + 기억 링크 -->
                 <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid #F0EDE5;margin-top:8px;cursor:pointer;font-size:12px;color:#3C4043;font-weight:500" class="wt-bs-mem-link" data-action="visits">
                     <span>🕐</span>
-                    <div style="flex:1">최근 방문 기록<div style="font-size:10px;color:#9AA0A6;font-weight:400;margin-top:1px">${loc.lastVisited ? this._fmt(loc.lastVisited) : '—'}</div></div>
+                    <div style="flex:1">최근 방문 기록<div style="font-size:10px;color:#9AA0A6;font-weight:400;margin-top:1px">${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div>
                     <span style="color:#9AA0A6;font-size:14px">›</span>
                 </div>
                 ${events.length ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid #F0EDE5;cursor:pointer;font-size:12px;color:#3C4043;font-weight:500" class="wt-bs-mem-link" data-action="memories">
@@ -2433,32 +2433,47 @@ export class UIManager {
         const dists = this.lm.distances || [];
         const curLocId = this.lm.currentLocationId;
 
-        // 날짜별 그룹핑 (키: 정렬용 timestamp, 값: { label, items })
+        // 날짜별 그룹핑 — ★ rpDate 우선, 없으면 실제 날짜
         const groups = new Map();
-        const _dayKey = (ts) => {
-            const d = new Date(ts);
+        const _dayKey = (mov) => {
+            if (mov.rpDate) {
+                // rpDate: "2024/12/19" → "2024.12.19"
+                return mov.rpDate.replace(/\//g, '.');
+            }
+            const d = new Date(mov.timestamp);
             return `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}`;
         };
-        const _dayLabel = (ts) => {
-            const d = new Date(ts);
+        const _dayLabel = (mov) => {
+            if (mov.rpDate) {
+                const parts = mov.rpDate.split('/').map(Number);
+                if (parts.length >= 3) {
+                    const d = new Date(parts[0], parts[1]-1, parts[2]);
+                    const wk = ['일','월','화','수','목','금','토'][d.getDay()];
+                    return `${parts[0]}.${parts[1]}.${parts[2]} (${wk})`;
+                }
+                return mov.rpDate;
+            }
+            const d = new Date(mov.timestamp);
             const wk = ['일','월','화','수','목','금','토'][d.getDay()];
             return `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} (${wk})`;
         };
 
         for (const mov of movements) {
-            const key = _dayKey(mov.timestamp);
-            if (!groups.has(key)) groups.set(key, { label: _dayLabel(mov.timestamp), items: [], ts: mov.timestamp });
+            const key = _dayKey(mov);
+            if (!groups.has(key)) groups.set(key, { label: _dayLabel(mov), items: [], ts: mov.timestamp, rpDate: mov.rpDate || '' });
             groups.get(key).items.push(mov);
         }
 
-        // 현재 위치도 타임라인에 추가
+        // 현재 위치도 타임라인에 추가 — 최신 rpDate 사용
         const curLoc = locs.find(l => l.id === curLocId);
-        const todayKey = _dayKey(Date.now());
+        const latestRpDate = movements.length ? (movements[0].rpDate || '') : '';
+        const curMov = { toId: curLocId, timestamp: Date.now(), rpDate: latestRpDate, _isCurrent: true };
+        const todayKey = _dayKey(curMov);
         if (curLoc) {
-            if (!groups.has(todayKey)) groups.set(todayKey, { label: _dayLabel(Date.now()), items: [], ts: Date.now() });
+            if (!groups.has(todayKey)) groups.set(todayKey, { label: _dayLabel(curMov), items: [], ts: Date.now(), rpDate: latestRpDate });
             const g = groups.get(todayKey);
             if (!g.items.some(m => m._isCurrent)) {
-                g.items.unshift({ toId: curLocId, timestamp: Date.now(), _isCurrent: true });
+                g.items.unshift(curMov);
             }
         }
 
@@ -2472,7 +2487,8 @@ export class UIManager {
         let timelineHtml = '';
         let dayIdx = 0;
         for (const [dayKey, group] of sorted) {
-            const isToday = dayKey === todayKey;
+            const isToday = dayIdx === 0; // ★ 가장 최근 날짜 = "오늘"
+            const isRpDate = group.rpDate ? true : false;
             const items = group.items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
             // 이 날의 통계
@@ -3598,92 +3614,7 @@ CRITICAL: Start your response with { and end with }. Nothing else.`;
         }
     }
 
-    // ========== 이벤트 전체 보기 (패널 뷰 전환) ==========
-    _showEventPanel(locId) {
-        const loc = this.lm.locations.find(l => l.id === locId);
-        if (!loc) return;
-        const events = loc.events || [];
-        const ps = this._pinStyle ? this._pinStyle(loc.name) : { emoji: '📍', color: '#5E84E2' };
-
-        // 현재 패널 내용 저장
-        const body = $('#wt-panel-body');
-        if (!this._savedPanelHTML) this._savedPanelHTML = body.html();
-
-        // 이벤트 패널 HTML
-        let evHTML = `
-        <div id="wt-event-panel" style="padding:8px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                <button id="wt-ev-back" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px">←</button>
-                <div style="flex:1">
-                    <div style="font-size:16px;font-weight:800;color:var(--wt-brown,#775537)">${loc.name}</div>
-                    <div style="font-size:11px;color:#9A8A7A">📖 기억 ${events.length}건</div>
-                </div>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;padding-right:4px">`;
-
-        if (!events.length) {
-            evHTML += `<div style="text-align:center;padding:24px;color:#B0A898;font-style:italic">아직 기억이 없어요</div>`;
-        } else {
-            [...events].reverse().forEach((ev, i) => {
-                const realIdx = events.length - 1 - i;
-                const mood = ev.mood || '📝';
-                const title = ev.title || (ev.text?.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text || '');
-                const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
-                const cardId = `wt-ev-${realIdx}`;
-
-                evHTML += `
-                <div class="wt-ev-card" style="background:var(--wt-surface,#FAFAF5);border-radius:10px;border:1px solid #EAE6DC;overflow:hidden">
-                    <div class="wt-ev-header" data-card="${cardId}" style="display:flex;align-items:center;gap:6px;padding:10px 12px;cursor:pointer">
-                        <span style="font-size:14px">${mood}</span>
-                        <span style="flex:1;font-size:13px;font-weight:600;color:var(--wt-text,#5A4030)">${title}</span>
-                        <span style="font-size:10px;color:#B0A898;white-space:nowrap">${dateStr}</span>
-                        <span class="wt-ev-arrow" style="font-size:10px;color:#B0A898;transition:transform 0.2s">▼</span>
-                        <button class="wt-ev-del" data-eidx="${realIdx}" style="background:none;border:none;font-size:14px;color:#D4A0A0;cursor:pointer;padding:4px 6px;min-width:28px;min-height:28px;display:flex;align-items:center;justify-content:center">✕</button>
-                    </div>
-                    <div id="${cardId}" style="display:none;padding:0 12px 10px;font-size:12px;line-height:1.6;color:#7A7060;white-space:pre-wrap;border-top:1px dashed #EAE6DC">${ev.text || ''}</div>
-                </div>`;
-            });
-        }
-
-        evHTML += `</div></div>`;
-
-        body.html(evHTML);
-
-        // 뒤로가기
-        const self = this;
-        $('#wt-ev-back').on('click', () => {
-            if (self._savedPanelHTML) {
-                body.html(self._savedPanelHTML);
-                self._savedPanelHTML = null;
-                self._rebindPanel();
-                self.refresh();
-            }
-        });
-
-        // 아코디언 토글
-        $('.wt-ev-header').on('click', function(e) {
-            if ($(e.target).hasClass('wt-ev-del')) return; // 삭제 버튼 제외
-            const cardId = $(this).attr('data-card');
-            const content = $(`#${cardId}`);
-            const arrow = $(this).find('.wt-ev-arrow');
-            if (content.is(':visible')) {
-                content.slideUp(200);
-                arrow.css('transform', 'rotate(0deg)');
-            } else {
-                content.slideDown(200);
-                arrow.css('transform', 'rotate(180deg)');
-            }
-        });
-
-        // 삭제 버튼
-        $('.wt-ev-del').on('click', async function(e) {
-            e.stopPropagation();
-            const idx = parseInt($(this).attr('data-eidx'));
-            events.splice(idx, 1);
-            await self.lm.updateLocation(locId, { events });
-            self._showEventPanel(locId); // 새로고침
-        });
-    }
+    // (첫 번째 _showEventPanel 제거됨 — 아래 두 번째만 사용)
 
     // 패널 복귀 시 이벤트 리바인드
     _rebindPanel() {
@@ -3765,6 +3696,7 @@ CRITICAL: Start your response with { and end with }. Nothing else.`;
         if (this._savedPanelHTML) {
             $('#wt-panel-body').html(this._savedPanelHTML);
             this._savedPanelHTML = null;
+            this._rebindPanel();
             this.refresh();
         }
     }

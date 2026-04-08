@@ -310,7 +310,7 @@ export class LocationManager {
         await this.db.putLocation(loc);
         if (prevId && prevId !== locationId) {
             const d = this.getDistanceBetween(prevId, locationId);
-            const mov = { chatId: this.currentChatId, fromId: prevId, toId: locationId, timestamp: Date.now(), distance: d?.distanceText || null };
+            const mov = { chatId: this.currentChatId, fromId: prevId, toId: locationId, timestamp: Date.now(), rpDate: rpDate || '', distance: d?.distanceText || null };
             await this.db.addMovement(mov); this.movements.push(mov);
         }
         this.currentLocationId = locationId;

@@ -110,6 +110,11 @@ export class LocationDetector {
             '극적','극적인','비극적','희극적','낭만적','현실적','이상적','합리적','비합리적',
             '효과적','실질적','구체적','추상적','일방적','상호적','전략적','전술적',
             '일반','보통','평범','특별','특수','정상','비정상','자연스','부자연',
+            // ★ 성인 RP 오탐 방지 (야한 씬에서 장소로 잡히는 단어들)
+            '정액','절정','쾌감','오르가즘','흥분','자극','쾌락','욕정','정욕','욕망',
+            '사정','삽입','애무','전희','후희','관계','체위','속도','강도','리듬',
+            '신음','숨결','호흡','땀','열기','온기','체온','떨림','경련','수축',
+            '엉덩이','골반','허벅지','사타구니','가랑이','겨드랑이','젖꼭지',
         ];
         this.singleKo = ['집','방','숲','강','산','역','관','점','원','장'];
 
@@ -459,7 +464,11 @@ export class LocationDetector {
             'weapon','rifle','pistol','gun','knife','sword','grenade','bullet','magazine',
             'chair','table','desk','bed','sofa','couch','door','window','wall','floor',
             'plate','cup','mug','glass','bottle','bowl','spoon','fork','paper','card',
-            'bag','box','case','pack','kit','vest','mask','hood','helmet','boot','glove'];
+            'bag','box','case','pack','kit','vest','mask','hood','helmet','boot','glove',
+            // ★ 성인 RP 오탐 방지
+            'cum','climax','orgasm','thrust','moan','groan','pant','gasp','shudder',
+            'breast','chest','thigh','hip','groin','crotch','nipple','cock','dick',
+            'arousal','erection','penetration','rhythm','pace','intensity','friction'];
         if (skipEn.includes(lower)) return true;
         if (place.length <= 1) return true;
         return false;

@@ -210,16 +210,57 @@ async function scanMessage(text, source = 'USER') {
 
                 // ★ "Parent - Sub" 또는 "Parent — Sub" 형태 분리
                 let metaParent = null, metaSub = null;
+                const subKw = /kitchen|living\s*room|bed\s*room|bath\s*room|room|거실|부엌|주방|침실|화장실|방|마당|차고|서재|발코니|테라스|현관|복도|다락|지하|옥상|lobby|hall|office|studio|garage|balcony|terrace|rooftop|basement|armory|무기고|식당|mess\s*hall/i;
+
+                // 방법1: 대시 구분자
                 const sepMatch = metaLoc.match(/^(.+?)\s*[-–—]\s*([\uAC00-\uD7A3A-Za-z].+)$/);
                 if (sepMatch) {
                     const part1 = sepMatch[1].trim();
                     const part2 = sepMatch[2].trim();
-                    // part2가 서브장소 키워드 포함하면 분리
-                    const subKw = /kitchen|living|bed|bath|room|거실|부엌|주방|침실|화장실|방|마당|차고|서재|발코니|테라스|현관|복도|다락|지하|옥상|lobby|hall|office|studio|garage|balcony|terrace|rooftop|basement/i;
                     if (subKw.test(part2)) {
                         metaParent = part1;
                         metaSub = part2;
-                        dbg(`📌 Split: parent="${metaParent}", sub="${metaSub}"`);
+                        dbg(`📌 Dash split: parent="${metaParent}", sub="${metaSub}"`);
+                    }
+                }
+
+                // 방법2: 공백 기반 — "NCO Barracks Kitchen" → parent="NCO Barracks", sub="Kitchen"
+                if (!metaParent && !metaSub) {
+                    const subMatch = metaLoc.match(new RegExp('(.+?)\\s+(' + subKw.source + '(?:\\s+\\S+)?)$', 'i'));
+                    if (subMatch) {
+                        const candidateParent = subMatch[1].trim();
+                        const candidateSub = subMatch[2].trim();
+                        // 부모 후보가 기존 장소와 매칭되는지 확인
+                        const parentCheck = lm.locations.find(l => {
+                            const n = l.name.toLowerCase();
+                            const cp = candidateParent.toLowerCase();
+                            return n === cp || n.includes(cp) || cp.includes(n) ||
+                                (l.aliases || []).some(a => a.toLowerCase().includes(cp) || cp.includes(a.toLowerCase()));
+                        });
+                        if (parentCheck) {
+                            metaParent = candidateParent;
+                            metaSub = candidateSub;
+                            dbg(`📌 Space split: parent="${metaParent}", sub="${metaSub}"`);
+                        }
+                    }
+                }
+
+                // 방법3: 숫자층 분리 — "Base 1층 주방" → parent="Base", sub="1층 주방"
+                if (!metaParent && !metaSub) {
+                    const floorMatch = metaLoc.match(/^(.+?)\s+(\d+층.*)$/);
+                    if (floorMatch) {
+                        const candidateParent = floorMatch[1].trim();
+                        const parentCheck = lm.locations.find(l => {
+                            const n = l.name.toLowerCase();
+                            const cp = candidateParent.toLowerCase();
+                            return n === cp || n.includes(cp) || cp.includes(n) ||
+                                (l.aliases || []).some(a => a.toLowerCase().includes(cp) || cp.includes(a.toLowerCase()));
+                        });
+                        if (parentCheck) {
+                            metaParent = candidateParent;
+                            metaSub = floorMatch[2].trim();
+                            dbg(`📌 Floor split: parent="${metaParent}", sub="${metaSub}"`);
+                        }
                     }
                 }
 
@@ -1077,44 +1118,34 @@ ${trimmed}${userCtx}`;
         evTitle = ev.text.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text;
         evMood = ev.mood;
         dbg(`📝 Regex Event: "${evTitle}" | "${evText}" (${evMood})`);
-
-        // ★ LLM 실패 시에도 regex로 plans 추출!
-        const regexPlans = _extractPlansRegex(text);
-        if (regexPlans.length > 0) {
-            for (const plan of regexPlans) {
-                let targetLocId = locId;
-                if (plan.where) {
-                    let targetLoc = lm.findByName(plan.where);
-                    if (!targetLoc && plan.where.length >= 2 && plan.where.length <= 25) {
-                        targetLoc = await lm.addLocation(plan.where);
-                        if (targetLoc) {
-                            targetLoc.tags = ['wantToGo'];
-                            targetLoc._tempAddress = true;
-                            targetLoc.memo = '📅 약속 장소 (주소 미확정)';
-                            await lm.updateLocation(targetLoc.id, { tags: targetLoc.tags, _tempAddress: true, memo: targetLoc.memo });
-                        }
-                    }
-                    if (targetLoc) targetLocId = targetLoc.id;
-                }
-                const tLoc = lm.locations.find(l => l.id === targetLocId);
+        // ★ LLM 실패 시 엄격한 regex로 plans 추출 (시간표현 + 행동동사 동시 필요)
+        const planSentences = text.replace(/<[^>]*>/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').split(/[.!?。]+/).filter(s => s.trim().length > 10);
+        const timeRx = /(?:내일|모레|다음\s*주|다음\s*달|(\d+)\s*(?:주|달|개월|일)\s*(?:뒤|후)|이번\s*주말|tomorrow|next\s+(?:week|month)|in\s+(?:two|three|\d+)\s+(?:weeks?|months?|days?)|come\s+back|T\+\d+)/i;
+        const actionRx = /(?:가자|가기로|오자|만나|검진|재검|진료|예약|방문|장보기|go\s+(?:to|back)|visit|return|come\s+back|check[- ]?up|appointment|see\s+(?:you|the\s+doctor))/i;
+        let regexPlanAdded = false;
+        for (const sent of planSentences) {
+            if (regexPlanAdded) break; // 최대 1건만
+            const hasTime = timeRx.exec(sent);
+            const hasAction = actionRx.test(sent);
+            if (hasTime && hasAction) {
+                const when = hasTime[0].trim();
+                const tLoc = lm.locations.find(l => l.id === locId);
                 if (tLoc) {
                     if (!tLoc.events) tLoc.events = [];
-                    const isDup = tLoc.events.some(e => e.isPlan && e.planWhen === plan.when);
+                    const isDup = tLoc.events.some(e => e.isPlan && e.planWhen === when);
                     if (!isDup) {
-                        const regexRpDate = _extractRpDate(text);
-                        const planDate = _calcPlanDate(regexRpDate, plan.when);
+                        const planDate = _calcPlanDate(rpDate, when);
                         tLoc.events.push({
-                            text: plan.what, title: plan.what.substring(0, 20),
-                            mood: '🗓️', isPlan: true, planWhen: plan.when, planDate,
-                            timestamp: Date.now(), rpDate: regexRpDate, source: 'regex'
+                            text: `예정된 방문`, title: '예정된 방문',
+                            mood: '🗓️', isPlan: true, planWhen: when, planDate,
+                            timestamp: Date.now(), rpDate, source: 'regex'
                         });
-                        await lm.updateLocation(targetLocId, { events: tLoc.events });
-                        dbg(`🗓️ Regex Plan: "${plan.what}" when="${plan.when}" where="${plan.where || 'current'}"`)
-                        if (extension_settings[EXTENSION_NAME]?.showDetectToast) wtNotify(`🗓️ 일정 감지: ${plan.what}`, 'new', 3000);
+                        await lm.updateLocation(locId, { events: tLoc.events });
+                        dbg(`🗓️ Strict Regex Plan: when="${when}" date="${planDate}"`);
+                        regexPlanAdded = true;
                     }
                 }
             }
-            pi.inject(); if (ui?.panelVisible) ui.refresh();
         }
     }
 

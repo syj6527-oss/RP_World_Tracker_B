@@ -115,6 +115,11 @@ export class LocationDetector {
             '사정','삽입','애무','전희','후희','관계','체위','속도','강도','리듬',
             '신음','숨결','호흡','땀','열기','온기','체온','떨림','경련','수축',
             '엉덩이','골반','허벅지','사타구니','가랑이','겨드랑이','젖꼭지',
+            // ★ 조사 붙은 형태 + 캐릭터 한국어명 오탐 방지
+            '통을','것을','곳을','때를','말을','날을','밤을','손을','눈을','입을',
+            '알레한드','알레한드로','호랑이','프라이스','고스트','솝','쾨니히','쾨니그',
+            '맥태비시','가즈','라스웰','셰퍼드','니콜라이','파라','로즈','발레리아',
+            '홍진','예린','지훈','민수','서연','하은','수빈','도윤','지우','시우',
         ];
         this.singleKo = ['집','방','숲','강','산','역','관','점','원','장'];
 
@@ -148,6 +153,7 @@ export class LocationDetector {
         this.skipMods = [
             'the','a','an','this','that','its','his','her','their','my','our',
             'old','new','big','small','dark','bright','lit','large','little',
+            'very','quite','really','pretty','rather','fairly','super','ultra',
             'metal','wooden','stone','steel','stainless','plastic','heavy',
             'entered','reached','left','to','at','into','from','of','in','on',
             'toward','towards','inside','through','open',
@@ -324,7 +330,7 @@ export class LocationDetector {
                 const before = sent.substring(0, idx).trim().split(/\s+/).filter(Boolean);
                 const actual = sent.substring(idx, idx + m[0].length).trim();
                 let name = actual;
-                const mods = before.slice(-2).filter(w => !this.skipMods.includes(w.toLowerCase()) && !w.includes('-') && w.length > 1);
+                const mods = before.slice(-2).filter(w => !this.skipMods.includes(w.toLowerCase()) && !this._isSkip(w) && !w.includes('-') && w.length > 1);
                 if (mods.length) name = mods.join(' ') + ' ' + actual;
                 name = name.charAt(0).toUpperCase() + name.slice(1);
                 if (name.length >= 3 && name.length <= 30 && !this.lm.findByName(name)) {
@@ -343,8 +349,11 @@ export class LocationDetector {
         const lo = clean.toLowerCase();
 
         // 1) 도시명 매칭 (Bug F: 영어는 단어 경계 체크)
+        const foodCtx = /chocolate|coffee|tea|cake|cookie|pizza|burger|steak|food|cuisine|restaurant|dish|recipe|flavor|taste|spice/i;
         for (const city of this.cityNames) {
             if (this.lm.findByName(city)) continue;
+            // ★ 음식/브랜드 맥락이면 도시명 스킵 ("Dubai chocolate" → 스킵)
+            if (foodCtx.test(clean)) continue;
             if (/[a-zA-Z]/.test(city)) {
                 const rx = new RegExp('\\b' + city.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
                 if (rx.test(clean)) { console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`); return city; }
@@ -362,9 +371,14 @@ export class LocationDetector {
             let name = m[0].trim();
             const words = name.split(/\s+/);
             if (words.length > 1 && this.skipMods.includes(words[0].toLowerCase())) name = words.slice(1).join(' ');
+            // ★ 음식/사물 + placeWord 조합 스킵 ("Chocolate bar", "Iron bar", "Towel rack")
+            if (words.length > 1 && this._isSkip(words[0])) continue;
             // ★ 선행 관사/접속사 제거 ("And gynecology clinic" → "gynecology clinic")
             name = name.replace(/^(?:And|The|A|An|Or|But|In|On|At|Of|For|By|To)\s+/i, '');
             name = name.charAt(0).toUpperCase() + name.slice(1);
+            // ★ 서브장소 키워드 단독이면 독립 장소 등록 안 함 (#11)
+            const bareSubKw = /^(?:room|kitchen|bathroom|bedroom|living\s*room|hall|lobby|office|garage|basement|attic|balcony|거실|부엌|주방|침실|화장실|방|복도|현관)s?$/i;
+            if (bareSubKw.test(name)) continue;
             if (name.length >= 3 && name.length <= 30 && !this.lm.findByName(name)) {
                 console.log(`[${EXTENSION_NAME}] 📋 desc place: "${name}"`);
                 return name;
@@ -436,6 +450,10 @@ export class LocationDetector {
         if (this.skipKo.includes(lower)) return true;
         // 영어 2글자 이하 → 무조건 스킵 (장소명은 최소 3글자)
         if (/^[a-zA-Z]+$/.test(place) && place.length <= 2) return true;
+        // ★ 영어 -ly 부사 → 무조건 스킵 (terribly, quickly, slowly...)
+        // 단, 실제 지명은 제외 (Sicily, Beverly, Holly, Bali...)
+        const lyExceptions = new Set(['sicily','beverly','holly','bali','italy','family','rally','alley','valley','assembly','embassy']);
+        if (/^[a-zA-Z]+ly$/i.test(place) && place.length >= 5 && !lyExceptions.has(lower)) return true;
         // 영어 일반 명사/대명사/관사/접미사 필터
         const skipEn = ['the','a','an','this','that','here','there','where','my','your','his','her',
             'place','somewhere','anywhere','nowhere','outside','inside','back','front','home',
@@ -468,7 +486,15 @@ export class LocationDetector {
             // ★ 성인 RP 오탐 방지
             'cum','climax','orgasm','thrust','moan','groan','pant','gasp','shudder',
             'breast','chest','thigh','hip','groin','crotch','nipple','cock','dick',
-            'arousal','erection','penetration','rhythm','pace','intensity','friction'];
+            'arousal','erection','penetration','rhythm','pace','intensity','friction',
+            // ★ 음식/물건 + placeWord 조합 오탐 방지
+            'chocolate','coffee','protein','candy','snack','energy','cereal','granola',
+            'iron','steel','crow','towel','mini','wet','dry','cold','hot','raw',
+            'sleep','asleep','awake','rest','nap','dream','wake','eat','drink','cook',
+            'walk','talk','watch','wait','sit','stand','run','hide','fight','work',
+            'fix','fixed','fixing','break','broken','clean','open','close','lock','pull','push',
+            'terribly','horribly','incredibly','absolutely','completely','entirely','perfectly',
+            'slowly','quickly','quietly','loudly','gently','roughly','softly','hardly','barely'];
         if (skipEn.includes(lower)) return true;
         if (place.length <= 1) return true;
         return false;

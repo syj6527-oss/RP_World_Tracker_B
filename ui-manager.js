@@ -1165,7 +1165,7 @@ export class UIManager {
         const events = sub.events || [];
 
         const eventsHtml = events.length ? events.map((ev, i) => {
-            const date = ev.timestamp ? this._fmt(ev.timestamp) : '—';
+            const date = ev.isPlan ? (ev.planDate ? `📌 ${ev.planDate}` : '📌 예정') : (ev.timestamp ? this._fmt(ev.timestamp) : '—');
             const title = ev.title || ev.text?.substring(0, 20) + '...' || '—';
             const fullText = ev.text || '';
             const hasDetail = fullText.length > 0 && fullText !== title;
@@ -1832,10 +1832,12 @@ export class UIManager {
                     if (!loc.photos) loc.photos = [];
                     loc.photos.push(base64);
                     await self.lm.updateLocation(lid, { photos: loc.photos });
-                    // ★ 바텀시트 전체 리렌더 대신 stage 유지하며 리렌더
+                    // ★ 깜빡임 최소화: 갤러리만 교체
                     const savedStage = self._bsStage;
+                    const bs = $('#wt-bottomsheet');
+                    bs.css('opacity', '0.7');
                     self._showBottomSheet(lid);
-                    setTimeout(() => self._applyBsStage(savedStage), 50);
+                    setTimeout(() => { self._applyBsStage(savedStage); bs.css('opacity', '1'); }, 80);
                     toastSuccess(`📷 사진 추가! (${loc.photos.length}/5)`);
                 } catch(err) {
                     toastWarn('📷 사진 처리 실패');
@@ -1853,8 +1855,10 @@ export class UIManager {
             loc.photos.pop();
             self.lm.updateLocation(lid, { photos: loc.photos });
             const savedStage = self._bsStage;
+            const bs = $('#wt-bottomsheet');
+            bs.css('opacity', '0.7');
             self._showBottomSheet(lid);
-            setTimeout(() => self._applyBsStage(savedStage), 50);
+            setTimeout(() => { self._applyBsStage(savedStage); bs.css('opacity', '1'); }, 80);
             toastSuccess('🗑 사진 삭제');
         });
         // ★ 사진 풀스크린 뷰어
@@ -3001,7 +3005,16 @@ export class UIManager {
         });
 
         const list = $('#wt-search-results').empty();
-        if (!matches.length) { list.html('<div class="wt-search-empty">일치하는 장소 없음</div>').show(); return; }
+        if (!matches.length) {
+            // ★ 로컬 결과 없으면 → Leaflet 모드에서 자동 주소 검색!
+            if (this.leafletRenderer?.map) {
+                list.html('<div class="wt-search-empty">등록된 장소 없음 — 주소 검색 중...</div>').show();
+                this._doAddrSearch(q);
+                return;
+            }
+            list.html('<div class="wt-search-empty">일치하는 장소 없음</div>').show();
+            return;
+        }
 
         for (const loc of matches) {
             const isCur = loc.id === this.lm.currentLocationId;
@@ -3382,7 +3395,7 @@ export class UIManager {
             const realIdx = events.length - 1 - i;
             const mood = ev.mood || '📝';
             const title = ev.title || (ev.text?.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text || '');
-            const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
+            const dateStr = ev.isPlan ? (ev.planDate ? `📌 ${ev.planDate}` : '📌 예정') : (ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : ''));
             const hasDetail = ev.text && ev.text !== title && ev.text.length > 15;
 
             // occurredAt 뱃지 (다른 장소에서 회상된 이벤트)
@@ -3593,26 +3606,24 @@ export class UIManager {
             // ★ 최근 채팅 맥락 (리뷰 품질 향상 — 톤/말투/관계 흡수)
             const recentChat = getRecentChatContext(2500);
 
-            // 방문횟수 보정 리뷰 수 (최소 2개 보장, 확률 상향)
+            // 방문횟수 보정 리뷰 수 (최소 3개 보장, 3~5개 중심)
             const visits = loc.visitCount || 0;
-            let maxReviews, weights;
+            let weights;
             if (visits <= 2) {
-                maxReviews = 4;
-                weights = [0.15, 0.55, 0.85, 1.0]; // 2~3개 주력
+                // 3~5개: [3]=50%, [4]=30%, [5]=20%
+                weights = [0.50, 0.80, 1.0];
             } else if (visits <= 5) {
-                maxReviews = 6;
-                weights = [0.05, 0.25, 0.55, 0.78, 0.92, 1.0]; // 3~4개 주력
-            } else if (visits <= 9) {
-                maxReviews = 8;
-                weights = [0.03, 0.12, 0.30, 0.55, 0.75, 0.88, 0.95, 1.0]; // 4~5개 주력
+                // 3~6개: [3]=25%, [4]=35%, [5]=25%, [6]=15%
+                weights = [0.25, 0.60, 0.85, 1.0];
             } else {
-                maxReviews = 10;
-                weights = [0.02, 0.08, 0.20, 0.40, 0.60, 0.76, 0.88, 0.94, 0.98, 1.0]; // 5~6개 주력
+                // 4~7개: [4]=30%, [5]=35%, [6]=20%, [7]=15%
+                weights = [0.30, 0.65, 0.85, 1.0];
             }
             const rnd = Math.random();
-            let reviewCount = 1;
+            const baseCount = visits <= 5 ? 3 : 4;
+            let reviewCount = baseCount;
             for (let i = 0; i < weights.length; i++) {
-                if (rnd < weights[i]) { reviewCount = i + 1; break; }
+                if (rnd < weights[i]) { reviewCount = baseCount + i; break; }
             }
             // ★ 터줏대감 목록 (리뷰어로 활용)
             const npcList = (loc.npcs || []).map(n => `"${n.name}"(${n.role || n.type})`).join(', ');
@@ -3644,12 +3655,23 @@ OUTPUT THIS EXACT FORMAT (valid JSON, no markdown, no explanation):
 
 CRITICAL: Start your response with { and end with }. Nothing else.`;
 
-            const result = await callLLM(prompt);
+            let result = await callLLM(prompt);
             console.log(`[${EXTENSION_NAME}] 🔧 Review LLM result: ${result ? result.substring(0, 100) + '...' : 'null'}`);
+            // ★ 실패 시 1회 재시도
+            if (!result) {
+                dbg('🔄 Review LLM retry (1st was null)...');
+                result = await callLLM(prompt);
+            }
             if (!result) { list.html('<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ LLM 응답 없음 — API 키를 확인하거나 다시 시도해주세요</div>'); return; }
 
-            const parsed = parseLLMJson(result);
-            if (!parsed) { list.html(`<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ JSON 파싱 실패<div style="font-size:9px;margin-top:4px;color:#B0A898;word-break:break-all">${result.substring(0, 150)}...</div></div>`); return; }
+            let parsed = parseLLMJson(result);
+            // ★ 파싱 실패 시 1회 재시도
+            if (!parsed) {
+                dbg('🔄 Review JSON retry (1st parse failed)...');
+                result = await callLLM(prompt);
+                if (result) parsed = parseLLMJson(result);
+            }
+            if (!parsed) { list.html(`<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ JSON 파싱 실패<div style="font-size:9px;margin-top:4px;color:#B0A898;word-break:break-all">${(result||'').substring(0, 150)}...</div></div>`); return; }
             const reviews = parsed.reviews || parsed;
             const aiSummary = parsed.summary || '';
             if (!Array.isArray(reviews) || !reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
@@ -3827,7 +3849,7 @@ CRITICAL: Start your response with { and end with }. Nothing else.`;
             [...events].reverse().forEach((ev, i) => {
                 const realIdx = events.length - 1 - i;
                 const mood = ev.mood || '📝';
-                const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { year:'numeric', month:'short', day:'numeric' }) : (ev.date || ''));
+                const dateStr = ev.isPlan ? (ev.planDate ? `📌 ${ev.planDate}` : '📌 예정') : (ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { year:'numeric', month:'short', day:'numeric' }) : (ev.date || '')));
                 const timeStr = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }) : '';
                 const src = ev.source === 'USER' ? '✍️' : '🤖';
 

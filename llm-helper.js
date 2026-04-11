@@ -269,9 +269,24 @@ export function parseLLMJson(raw) {
     text = text.replace(/,\s*([}\]])/g, '$1');
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
-    try { return JSON.parse(match[0]); }
-    catch(e) {
-        dbg('⚠️ JSON parse fail:', e.message, '\nRaw:', match[0].substring(0, 200));
-        return null;
+    let json = match[0];
+    // 1차 시도
+    try { return JSON.parse(json); }
+    catch(e1) {
+        // ★ 잘린 JSON 복구: 닫히지 않은 brackets 추가
+        let repaired = json
+            .replace(/,\s*$/, '')           // 끝 콤마 제거
+            .replace(/"[^"]*$/g, '"')       // 잘린 문자열 닫기
+            .replace(/:\s*$/, ': null');     // 잘린 값 → null
+        // 열린 괄호 수만큼 닫기
+        const opens = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
+        const braces = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
+        for (let i = 0; i < opens; i++) repaired += ']';
+        for (let i = 0; i < braces; i++) repaired += '}';
+        try { return JSON.parse(repaired); }
+        catch(e2) {
+            dbg('⚠️ JSON parse fail (repair also failed):', e2.message, '\nRaw:', json.substring(0, 200));
+            return null;
+        }
     }
 }

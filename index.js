@@ -36,19 +36,54 @@ export const EXTENSION_PATH = new URL('.', import.meta.url).pathname;
 export function wtMascot() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🐺' : '🐶'; }
 export function wtTreat() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🍖' : '🦴'; }
 
-// ========== 커스텀 알림 (번역기 스타일) ==========
-let _notiEl = null, _notiTimer = null;
+// ========== 커스텀 알림 (Shadow DOM 격리 — ST transform 영향 차단) ==========
+let _notiEl = null, _notiTimer = null, _notiQueue = [], _notiShadow = null;
 export function wtNotify(msg, type = 'move', duration = 3000) {
     if (!_notiEl) {
+        const host = document.createElement('div');
+        host.id = 'wt-noti-host';
+        host.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:0;z-index:2147483647;pointer-events:none';
+        (document.documentElement || document.body).appendChild(host);
+        _notiShadow = host.attachShadow({ mode: 'open' });
+        const style = document.createElement('style');
+        style.textContent = `
+            .wt-notification{position:fixed;top:-100px;left:0;right:0;margin:0 auto;width:fit-content;padding:10px 22px;border-radius:30px;font-weight:bold;font-size:13px;z-index:2147483647;box-shadow:0 4px 20px rgba(0,0,0,.25);transition:top .4s cubic-bezier(.175,.885,.32,1.275);pointer-events:none;white-space:normal;max-width:85vw;overflow:hidden;text-overflow:ellipsis;text-align:center;font-family:-apple-system,'Noto Sans KR','Segoe UI',Roboto,sans-serif;line-height:1.3;display:none}
+            .wt-noti-move{background:rgba(120,210,170,.95);color:#1A4030}
+            .wt-noti-new{background:rgba(252,222,120,.95);color:#5A4030}
+            .wt-noti-warn{background:rgba(245,168,168,.95);color:#501313}
+            .wt-noti-info{background:rgba(168,216,234,.95);color:#0C447C}
+            @media(max-width:768px){.wt-notification{font-size:12px;padding:8px 16px;max-width:90vw}}
+        `;
+        _notiShadow.appendChild(style);
         _notiEl = document.createElement('div');
         _notiEl.className = 'wt-notification';
-        document.body.appendChild(_notiEl);
+        _notiShadow.appendChild(_notiEl);
     }
+    // ★ 현재 표시 중이면 큐에 넣기
+    if (_notiEl.style.display === 'block' && _notiEl.style.top === '12px') {
+        _notiQueue.push({ msg, type, duration });
+        if (_notiQueue.length > 3) _notiQueue.shift(); // 최대 3개 대기
+        return;
+    }
+    _showNoti(msg, type, duration);
+}
+function _showNoti(msg, type, duration) {
     clearTimeout(_notiTimer);
     _notiEl.className = `wt-notification wt-noti-${type}`;
     _notiEl.textContent = msg;
+    _notiEl.style.display = 'block';
     _notiEl.style.top = '12px';
-    _notiTimer = setTimeout(() => { _notiEl.style.top = '-60px'; }, duration);
+    _notiTimer = setTimeout(() => {
+        _notiEl.style.top = '-100px';
+        // ★ transition 끝난 후 완전 숨김 + 큐 처리
+        setTimeout(() => {
+            _notiEl.style.display = 'none';
+            if (_notiQueue.length > 0) {
+                const next = _notiQueue.shift();
+                _showNoti(next.msg, next.type, next.duration);
+            }
+        }, 450);
+    }, duration);
 }
 export function toastWarn(msg) { wtNotify(msg, 'warn', 3000); }
 export function toastSuccess(msg) { wtNotify(msg, 'move', 2000); }
@@ -185,16 +220,11 @@ async function scanMessage(text, source = 'USER') {
                     return true;
                 }
 
-                // ★★★ 핵심 방어: 30자 초과 서술형 Location → 무조건 현재 장소 별칭
+                // ★★★ 핵심 방어: 30자 초과 서술형 Location → 현재 장소 유지 (별칭 등록 안 함!)
                 if (metaLoc.length > 30 && lm.currentLocationId) {
-                    const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
-                    if (curLoc) {
-                        dbg(`🔀 Long meta loc (${metaLoc.length}c) "${metaLoc}" → alias to "${curLoc.name}"`);
-                        const aliases = [...new Set([...(curLoc.aliases || []), metaLoc])];
-                        await lm.updateLocation(curLoc.id, { aliases });
-                        await _tryEvent(text, curLoc.id, source);
-                        return true;
-                    }
+                    dbg(`🔀 Long meta loc (${metaLoc.length}c) "${metaLoc}" → staying at current (no alias)`);
+                    await _tryEvent(text, lm.currentLocationId, source);
+                    return true;
                 }
 
                 // ★ 콤마 구분자 정리: "영국 헤리퍼드, NCO Barracks 1층" → 마지막 파트만 사용
@@ -208,8 +238,28 @@ async function scanMessage(text, source = 'USER') {
                     }
                 }
 
+                // ★★★ 별칭 키워드 매칭 (서브 분리 전에 먼저!) — "SAS 북부 무기고" → 별칭 "무기고" 히트
+                const metaLower_pre = metaLoc.toLowerCase();
+                const aliasHit = lm.locations.find(l => {
+                    return (l.aliases || []).some(a => {
+                        const al = a.toLowerCase();
+                        return al.length >= 2 && metaLower_pre.includes(al);
+                    });
+                });
+                if (aliasHit) {
+                    if (lm.currentLocationId !== aliasHit.id) {
+                        await lm.moveTo(aliasHit.id, rpDate);
+                        if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${aliasHit.name}`, 'move');
+                        pi.inject(); if (ui.panelVisible) ui.refresh();
+                    }
+                    dbg(`🔗 Alias keyword hit: "${metaLoc}" → "${aliasHit.name}"`);
+                    await _tryEvent(text, aliasHit.id, source);
+                    return true;
+                }
+
                 // ★ "Parent - Sub" 또는 "Parent — Sub" 형태 분리
                 let metaParent = null, metaSub = null;
+                const origMetaLoc = metaLoc; // ★ 원본 보존 (서브 분리 실패 시 복원용)
                 const subKw = /kitchen|living\s*room|bed\s*room|bath\s*room|room|거실|부엌|주방|침실|화장실|방|마당|차고|서재|발코니|테라스|현관|복도|다락|지하|옥상|lobby|hall|office|studio|garage|balcony|terrace|rooftop|basement|armory|무기고|식당|mess\s*hall/i;
 
                 // 방법1: 대시 구분자
@@ -279,12 +329,13 @@ async function scanMessage(text, source = 'USER') {
                         if (lm.currentLocationId !== parentLoc.id) await lm.moveTo(parentLoc.id, rpDate);
                         await lm.moveToSub(sub.id);
                         dbg(`🏠 Meta sub-location: "${parentLoc.name} > ${subName}"`);
+                        if (s.showDetectToast) wtNotify(`🏠 ${parentLoc.name} > ${subName}`, 'move', 2500);
                         pi.inject(); if (ui.panelVisible) ui.refresh();
                         await _tryEvent(text, sub.id, source);
                         return true;
                     }
-                    // 부모 못 찾으면 전체를 일반 처리
-                    metaLoc = metaParent;
+                    // 부모 못 찾으면 원본 복원 (무기고 등 핵심 키워드 유지!)
+                    metaLoc = origMetaLoc;
                 }
 
                 dbg(`📌 Meta location: "${metaLoc}"`);
@@ -298,6 +349,7 @@ async function scanMessage(text, source = 'USER') {
                     await lm.moveToSub(sub.id);
                     const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
                     dbg(`🏠 Sub-location: "${curLoc?.name} > ${metaClean}"`);
+                    if (s.showDetectToast) wtNotify(`🏠 ${curLoc?.name} > ${metaClean}`, 'move', 2500);
                     pi.inject();
                     await _tryEvent(text, sub.id, source);
                     return true;
@@ -407,6 +459,7 @@ async function scanMessage(text, source = 'USER') {
                 await lm.moveToSub(sub.id);
                 const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
                 dbg(`🏠 Sub-location: "${curLoc?.name} > ${np}"`);
+                if (s.showDetectToast) wtNotify(`🏠 ${curLoc?.name} > ${np}`, 'move', 2500);
                 pi.inject();
                 await _tryEvent(text, sub.id, source); // ★ 이벤트는 서브에 저장!
                 return true;
@@ -836,9 +889,11 @@ function _calcPlanDate(rpDate, whenText) {
     if (/^내일$/.test(lo)) { base.setDate(base.getDate() + 1); }
     else if (/^모레$/.test(lo)) { base.setDate(base.getDate() + 2); }
     else if (/^글피$/.test(lo)) { base.setDate(base.getDate() + 3); }
+    else if (/일주일\s*(?:뒤|후)?/.test(lo)) { base.setDate(base.getDate() + 7); }
     else if (/^다음\s*주/.test(lo) || /^next\s*week/i.test(lo)) { base.setDate(base.getDate() + 7); }
     else if (/^이번\s*주말/.test(lo)) { const dow = base.getDay(); base.setDate(base.getDate() + (6 - dow)); }
     else if (/^다음\s*달/.test(lo) || /^next\s*month/i.test(lo)) { base.setMonth(base.getMonth() + 1); }
+    else if (/보름\s*(?:뒤|후)?/.test(lo)) { base.setDate(base.getDate() + 15); }
     else {
         // "N주 뒤/후" or "N달/개월 뒤/후" or "N일 뒤/후"
         const koNum = lo.match(/(\d+)\s*(?:주)\s*(?:뒤|후)/);
@@ -910,7 +965,7 @@ let _lastEventTime = 0;
 let _lastEventLocId = null; // 마지막 이벤트 저장 장소
 
 // 전체 패턴 (AI용 — 가벼운 트리거)
-const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear|계획|작전|일정|schedule|operation|mission|trip|run|shopping|장보기|나들이|쇼핑|appointment|check[- ]?up|검진|재검|진료|예약|clinic|hospital|병원|산부인과|two\s+weeks|next\s+week|next\s+month|다음\s*주|다음\s*달|주\s*뒤|주\s*후|every\s+(?:week|month|time)/i;
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear|계획|작전|일정|schedule|operation|mission|trip|run|shopping|장보기|나들이|쇼핑|appointment|check[- ]?up|검진|재검|진료|예약|clinic|hospital|병원|산부인과|two\s+weeks|next\s+week|next\s+month|다음\s*주|다음\s*달|주\s*뒤|주\s*후|every\s+(?:week|month|time)|영화|cinema|movie|데이트|date|일주일|마트|mart|tesco|가자|가기로|만나자|오기로|ticket|티켓|초대|invite|여행|travel|vacation|휴가|놀러|이사|짐.*싸|옮기|transfer|pack|moving\s+(?:in|out|to)|wheels\s+up|gear\s+up|새\s*집|new\s+(?:place|house|room|gaff|building)/i;
 
 async function _tryEvent(text, locId, source) {
     dbg(`📋 _tryEvent (${source}) len=${text.length}`);
@@ -961,12 +1016,19 @@ async function _tryEvent(text, locId, source) {
 
 Character info: The user/protagonist is named "${userName}". The main character is "${charName}".
 ${charContext ? `Character context: ${charContext}` : ''}
-IMPORTANT: You MUST use "${userName}" by name in the summary. Always write like: "${userName}이/가 [character]와..."
+
+SPEAKER IDENTIFICATION (CRITICAL — read carefully):
+- In this RP, the scene text mostly describes "${charName}"'s actions and dialogue in third-person or first-person.
+- "${userName}"'s actions/dialogue appear SEPARATELY (often after a delimiter or in a different style).
+- When you see dialogue like "I love you" or actions like *she smiled*, identify WHO is performing that action by looking at the surrounding context and narrative voice.
+- NEVER swap speakers. If "${charName}" said something, attribute it to "${charName}". If "${userName}" did something, attribute it to "${userName}".
+- ALWAYS write "${userName}" as the SUBJECT of the summary: "${userName}이/가..."
 
 Rules:
 - ${langInst}
 - ALWAYS include character names as subjects (WHO did what with WHOM).
-- Sentence 1: Describe WHERE it happened (place + atmosphere), WHAT ${userName} was doing, and the KEY EVENT that occurred. Be specific with details from the scene (objects, smells, actions). Include a key dialogue quote if impactful.
+- When quoting dialogue, ALWAYS verify the correct speaker by checking the sentences IMMEDIATELY before the quote.
+- Sentence 1: Describe WHERE it happened (place + atmosphere), WHAT ${userName} was doing, and the KEY EVENT that occurred. Be specific with details from the scene (objects, smells, actions). Include a key dialogue quote with the CORRECT speaker's name.
 - Sentence 2: Describe the emotional consequence, tension shift, or what this event foreshadows for the future. Be vivid and narrative.
 - Each sentence should be detailed and descriptive (60~120 characters each). Do NOT be too brief.
 - Write like a novel's diary entry — immersive, specific, atmospheric.
@@ -1120,8 +1182,8 @@ ${trimmed}${userCtx}`;
         dbg(`📝 Regex Event: "${evTitle}" | "${evText}" (${evMood})`);
         // ★ LLM 실패 시 엄격한 regex로 plans 추출 (시간표현 + 행동동사 동시 필요)
         const planSentences = text.replace(/<[^>]*>/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').split(/[.!?。]+/).filter(s => s.trim().length > 10);
-        const timeRx = /(?:내일|모레|다음\s*주|다음\s*달|(\d+)\s*(?:주|달|개월|일)\s*(?:뒤|후)|이번\s*주말|tomorrow|next\s+(?:week|month)|in\s+(?:two|three|\d+)\s+(?:weeks?|months?|days?)|come\s+back|T\+\d+)/i;
-        const actionRx = /(?:가자|가기로|오자|만나|검진|재검|진료|예약|방문|장보기|go\s+(?:to|back)|visit|return|come\s+back|check[- ]?up|appointment|see\s+(?:you|the\s+doctor))/i;
+        const timeRx = /(?:내일|모레|일주일|보름|다음\s*주|다음\s*달|(\d+)\s*(?:주|달|개월|일)\s*(?:뒤|후)|이번\s*주말|tomorrow|next\s+(?:week|month)|in\s+(?:two|three|\d+)\s+(?:weeks?|months?|days?)|come\s+back|T\+\d+|at\s+\d{4}\b|by\s+\d{4}\b|\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)|오전|오후|저녁|아침)/i;
+        const actionRx = /(?:가자|가기로|오자|만나|검진|재검|진료|예약|방문|장보기|이사|옮기|go\s+(?:to|back)|visit|return|come\s+back|check[- ]?up|appointment|see\s+(?:you|the\s+doctor)|move\s+(?:the|our|to)|transfer|pack|wheels\s+up|gear\s+up|이동|출발|떠나)/i;
         let regexPlanAdded = false;
         for (const sent of planSentences) {
             if (regexPlanAdded) break; // 최대 1건만

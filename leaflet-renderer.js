@@ -344,10 +344,18 @@ export class LeafletRenderer {
             .addTo(this.map)
             .bindPopup(`<b>${name}</b><br><small>여기에 배치?</small>`)
             .openPopup();
+        // ★ 팝업 닫히면 마커도 자동 제거
+        this._searchMarker.on('popupclose', () => {
+            this.clearSearchMarker();
+        });
+        // ★ 10초 후 자동 제거 (잊어버려도 사라짐)
+        clearTimeout(this._searchMarkerTimer);
+        this._searchMarkerTimer = setTimeout(() => this.clearSearchMarker(), 10000);
         this.map.setView([lat, lng], 15);
     }
 
     clearSearchMarker() {
+        clearTimeout(this._searchMarkerTimer);
         if (this._searchMarker) { this.map.removeLayer(this._searchMarker); this._searchMarker = null; }
     }
 

@@ -36,28 +36,13 @@ export const EXTENSION_PATH = new URL('.', import.meta.url).pathname;
 export function wtMascot() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🐺' : '🐶'; }
 export function wtTreat() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🍖' : '🦴'; }
 
-// ========== 커스텀 알림 (Shadow DOM 격리 — ST transform 영향 차단) ==========
-let _notiEl = null, _notiTimer = null, _notiQueue = [], _notiShadow = null;
+// ========== 커스텀 알림 (번역기 스타일) ==========
+let _notiEl = null, _notiTimer = null, _notiQueue = [];
 export function wtNotify(msg, type = 'move', duration = 3000) {
     if (!_notiEl) {
-        const host = document.createElement('div');
-        host.id = 'wt-noti-host';
-        host.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:0;z-index:2147483647;pointer-events:none';
-        (document.documentElement || document.body).appendChild(host);
-        _notiShadow = host.attachShadow({ mode: 'open' });
-        const style = document.createElement('style');
-        style.textContent = `
-            .wt-notification{position:fixed;top:-100px;left:0;right:0;margin:0 auto;width:fit-content;padding:10px 22px;border-radius:30px;font-weight:bold;font-size:13px;z-index:2147483647;box-shadow:0 4px 20px rgba(0,0,0,.25);transition:top .4s cubic-bezier(.175,.885,.32,1.275);pointer-events:none;white-space:normal;max-width:85vw;overflow:hidden;text-overflow:ellipsis;text-align:center;font-family:-apple-system,'Noto Sans KR','Segoe UI',Roboto,sans-serif;line-height:1.3;display:none;opacity:1!important;filter:none!important}
-            .wt-noti-move{background:#78d2aa;color:#1A4030}
-            .wt-noti-new{background:#fcde78;color:#5A4030}
-            .wt-noti-warn{background:#f5a8a8;color:#501313}
-            .wt-noti-info{background:#a8d8ea;color:#0C447C}
-            @media(max-width:768px){.wt-notification{font-size:12px;padding:8px 16px;max-width:90vw}}
-        `;
-        _notiShadow.appendChild(style);
         _notiEl = document.createElement('div');
         _notiEl.className = 'wt-notification';
-        _notiShadow.appendChild(_notiEl);
+        document.body.appendChild(_notiEl);
     }
     // ★ 현재 표시 중이면 큐에 넣기
     if (_notiEl.style.display === 'block' && _notiEl.style.top === '12px') {

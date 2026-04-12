@@ -3961,9 +3961,10 @@ CRITICAL: Start your response with { and end with }. Nothing else.`;
                 if (result) parsed = parseLLMJson(result);
             }
             if (!parsed) { list.html(`<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ JSON 파싱 실패<div style="font-size:9px;margin-top:4px;color:#B0A898;word-break:break-all">${(result||'').substring(0, 150)}...</div></div>`); return; }
-            const reviews = parsed.reviews || parsed;
+            const rawReviews = Array.isArray(parsed.reviews) ? parsed.reviews : Array.isArray(parsed) ? parsed : [];
+            const reviews = rawReviews.filter(r => r && r.text);
             const aiSummary = parsed.summary || '';
-            if (!Array.isArray(reviews) || !reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
+            if (!reviews.length) { list.html('<div style="font-size:11px;color:#9A8A7A;padding:8px">리뷰 없음</div>'); return; }
 
             this._reviewCache.set(locId, { reviews, summary: aiSummary });
             await this.lm.updateLocation(locId, {

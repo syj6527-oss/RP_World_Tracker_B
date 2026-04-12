@@ -100,7 +100,7 @@ async function _callGoogle(key, model, prompt) {
         const res = await _fetch({
             systemInstruction: { parts: [{ text: 'You are a JSON-only assistant. Respond with valid JSON only.' }] },
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2000, responseMimeType: 'application/json' },
+            generationConfig: { temperature: 0.7, maxOutputTokens: 4096, responseMimeType: 'application/json' },
         });
         if (res.ok) {
             const data = await res.json();
@@ -125,7 +125,7 @@ async function _callGoogle(key, model, prompt) {
     try {
         const res2 = await _fetch({
             contents: [{ parts: [{ text: prompt + '\n\nCRITICAL: Respond with ONLY valid JSON. Start with { and end with }. No markdown, no explanation.' }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
+            generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
         });
         if (!res2.ok) throw new Error(`Google API ${res2.status}: ${res2.statusText}`);
         const data2 = await res2.json();
@@ -153,7 +153,7 @@ async function _callOpenAI(key, model, prompt, url) {
             model,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.7,
-            max_tokens: 2000,
+            max_tokens: 4096,
         }),
     });
     if (!res.ok) throw new Error(`OpenAI API ${res.status}: ${res.statusText}`);
@@ -174,7 +174,7 @@ async function _callClaude(key, model, prompt, url) {
         body: JSON.stringify({
             model,
             messages: [{ role: 'user', content: prompt }],
-            max_tokens: 2000,
+            max_tokens: 4096,
         }),
     });
     if (!res.ok) throw new Error(`Claude API ${res.status}: ${res.statusText}`);
@@ -267,26 +267,39 @@ export function parseLLMJson(raw) {
     text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
     // 트레일링 콤마 제거
     text = text.replace(/,\s*([}\]])/g, '$1');
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    let json = match[0];
-    // 1차 시도
-    try { return JSON.parse(json); }
-    catch(e1) {
-        // ★ 잘린 JSON 복구: 닫히지 않은 brackets 추가
-        let repaired = json
-            .replace(/,\s*$/, '')           // 끝 콤마 제거
-            .replace(/"[^"]*$/g, '"')       // 잘린 문자열 닫기
-            .replace(/:\s*$/, ': null');     // 잘린 값 → null
-        // 열린 괄호 수만큼 닫기
-        const opens = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
-        const braces = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
-        for (let i = 0; i < opens; i++) repaired += ']';
-        for (let i = 0; i < braces; i++) repaired += '}';
-        try { return JSON.parse(repaired); }
-        catch(e2) {
-            dbg('⚠️ JSON parse fail (repair also failed):', e2.message, '\nRaw:', json.substring(0, 200));
-            return null;
-        }
+
+    // ★ 1차: 완전한 JSON 매칭
+    let match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+        try { return JSON.parse(match[0]); } catch(e) { /* fall through to repair */ }
+    }
+
+    // ★ 2차: 잘린 JSON 복구 (닫는 } 없는 경우 포함)
+    const startIdx = text.indexOf('{');
+    if (startIdx < 0) return null;
+    let json = text.substring(startIdx);
+
+    // 잘린 문자열/값 정리
+    json = json
+        .replace(/,\s*$/, '')           // 끝 콤마 제거
+        .replace(/"[^"]*$/g, '"')       // 잘린 문자열 닫기
+        .replace(/:\s*$/, ': null');     // 잘린 값 → null
+
+    // 열린 괄호 수만큼 닫기
+    const opens = (json.match(/\[/g) || []).length - (json.match(/\]/g) || []).length;
+    const braces = (json.match(/\{/g) || []).length - (json.match(/\}/g) || []).length;
+    for (let i = 0; i < opens; i++) json += ']';
+    for (let i = 0; i < braces; i++) json += '}';
+
+    // 닫기 전 마지막 쉼표 정리
+    json = json.replace(/,\s*([}\]])/g, '$1');
+
+    try {
+        const parsed = JSON.parse(json);
+        dbg('🔧 JSON repaired successfully');
+        return parsed;
+    } catch(e) {
+        dbg('⚠️ JSON parse fail (repair failed):', e.message, '\nRaw:', json.substring(0, 200));
+        return null;
     }
 }

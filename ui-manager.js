@@ -9,6 +9,8 @@ import { callLLM, parseLLMJson, getRecentChatContext } from './llm-helper.js';
 import { MapRenderer } from './map-renderer.js';
 import { LeafletRenderer } from './leaflet-renderer.js';
 
+const dbg = (...a) => console.log(`[${EXTENSION_NAME}]`, ...a);
+
 const catGroups = [
     ['hall','room','chamber','lounge'],['dining','mess','cafeteria','restaurant','kitchen','cafe','canteen'],
     ['office','study','workshop','lab'],['bedroom','quarters','dorm','bunk','dormitory'],

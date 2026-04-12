@@ -114,13 +114,16 @@ export class PromptInjector {
             L.push(`🏠 Rooms: ${subList}`);
         }
 
-        // 8.6. 터줏대감 — 이 장소의 NPC/동물
+        // 8.6. 터줏대감 — 이 장소의 NPC/동물 (풀 프로필)
         if (cur.npcs?.length) {
             const npcList = cur.npcs.map(n => {
                 const icon = n.type === 'animal' ? '🐾' : '🧑';
                 const role = n.role ? `(${n.role})` : '';
-                return `${icon}${n.name}${role}`;
-            }).join(', ');
+                const aff = n.affinity ? ` ❤️${n.affinity}/5` : '';
+                const bio = n.bio ? ` — ${n.bio}` : '';
+                const rel = n.relationship ? ` [${n.relationship}]` : '';
+                return `${icon}${n.name}${role}${aff}${bio}${rel}`;
+            }).join(' | ');
             L.push(`👥 People here: ${npcList}`);
         }
 

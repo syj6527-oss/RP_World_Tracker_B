@@ -164,6 +164,7 @@ export class LocationDetector {
             'back','just','then','still','already','finally','eventually',
             'nearby','near','around','along','across','over','under','behind',
             'quickly','slowly','suddenly','further','closer',
+            'damn','goddamn','fucking','fuckin','freaking','bloody','stupid','holy',
         ];
 
         // 인명 호칭 (bug 21)
@@ -483,6 +484,8 @@ export class LocationDetector {
             'chair','table','desk','bed','sofa','couch','door','window','wall','floor',
             'plate','cup','mug','glass','bottle','bowl','spoon','fork','paper','card',
             'bag','box','case','pack','kit','vest','mask','hood','helmet','boot','glove',
+            'toe','finger','hand','arm','leg','foot','head','face','eye','ear','nose','mouth','lip','neck','shoulder','knee','chest','chin',
+            'clear','clean','dark','bright','warm','cold','hot','cool','wet','dry','loud','quiet','soft','rough','sharp','dull','tight','loose',
             // ★ 성인 RP 오탐 방지
             'cum','climax','orgasm','thrust','moan','groan','pant','gasp','shudder',
             'breast','chest','thigh','hip','groin','crotch','nipple','cock','dick',

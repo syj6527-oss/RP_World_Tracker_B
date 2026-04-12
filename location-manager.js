@@ -443,7 +443,7 @@ export class LocationManager {
         if (added) console.log(`[${EXTENSION_NAME}] 🔧 autoDist: ${added} new distances added`);
     }
 
-    // ========== 터줏대감 (NPC/동물) 관리 ==========
+    // ========== 터줏대감 (NPC/동물) 관리 — 풀 버전 ==========
     async addNpcToLocation(locId, npc) {
         const loc = this.locations.find(l => l.id === locId);
         if (!loc) return false;
@@ -460,6 +460,11 @@ export class LocationManager {
             name: npc.name,
             type: npc.type || 'npc', // 'npc' | 'animal'
             role: npc.role || '',
+            avatar: npc.avatar || (npc.type === 'animal' ? '🐾' : '👤'),
+            bio: npc.bio || '',
+            personality: npc.personality || [], // ['과묵함','충성심']
+            relationship: npc.relationship || '',
+            affinity: npc.affinity ?? 3, // 1~5 (기본 3: 보통)
             firstSeen: Date.now(),
             lastSeen: Date.now(),
             count: 1,
@@ -467,6 +472,27 @@ export class LocationManager {
         await this.db.saveLocation(loc);
         console.log(`[${EXTENSION_NAME}] 🧑 NPC added: "${npc.name}" (${npc.type}) → ${loc.name}`);
         return true; // 새 NPC
+    }
+
+    async updateNpc(locId, npcName, updates) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc?.npcs) return false;
+        const npc = loc.npcs.find(n => n.name.toLowerCase() === npcName.toLowerCase());
+        if (!npc) return false;
+        Object.assign(npc, updates);
+        await this.db.saveLocation(loc);
+        return true;
+    }
+
+    async updateNpcAffinity(locId, npcName, delta) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc?.npcs) return;
+        const npc = loc.npcs.find(n => n.name.toLowerCase() === npcName.toLowerCase());
+        if (!npc) return;
+        npc.affinity = Math.max(1, Math.min(5, (npc.affinity || 3) + delta));
+        npc.lastSeen = Date.now();
+        await this.db.saveLocation(loc);
+        console.log(`[${EXTENSION_NAME}] 💗 NPC affinity: "${npc.name}" ${delta > 0 ? '+' : ''}${delta} → ${npc.affinity}`);
     }
 
     async removeNpcFromLocation(locId, npcName) {

@@ -1196,8 +1196,8 @@ export class UIManager {
             </div>
             <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:22px">${emoji}</span>
-                <div>
-                    <div style="font-size:17px;font-weight:800;color:#3C3028">${sub.name}</div>
+                <div style="flex:1">
+                    <input type="text" id="wt-subpop-name" class="wt-input" value="${sub.name}" style="font-size:15px;font-weight:800;color:#3C3028;border:1.5px solid transparent;padding:2px 6px;border-radius:6px;background:transparent;width:100%;box-sizing:border-box" onfocus="this.style.borderColor='#8B6BB4';this.style.background='#FAFAF5'" onblur="this.style.borderColor='transparent';this.style.background='transparent'"/>
                     <div style="font-size:11px;color:#70757A">방문 ${sub.visitCount || 0}회${isCur ? ' · 현재 🐾' : ''}</div>
                 </div>
             </div>
@@ -1232,12 +1232,15 @@ export class UIManager {
         overlay.find('#wt-subpop-close').on('click', () => { overlay.remove(); self.hidePop(); });
         // 💾 저장
         overlay.find('#wt-subpop-save').on('click', async () => {
+            const newName = overlay.find('#wt-subpop-name').val().trim();
             const aliases = overlay.find('#wt-subpop-aliases').val().split(',').map(a=>a.trim()).filter(Boolean);
-            await self.lm.updateLocation(subId, {
+            const updates = {
                 memo: overlay.find('#wt-subpop-memo').val().trim(),
                 aiNotes: overlay.find('#wt-subpop-ainotes').val().trim(),
                 aliases,
-            });
+            };
+            if (newName && newName !== sub.name) updates.name = newName;
+            await self.lm.updateLocation(subId, updates);
             toastSuccess('💾 저장!');
             self.pi?.inject();
         });
@@ -1679,6 +1682,7 @@ export class UIManager {
                 <div class="wt-bs-tab" data-tab="overview" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#2B8A6E;cursor:pointer;border-bottom:2.5px solid #2B8A6E;margin-bottom:-2px">개요</div>
                 <div class="wt-bs-tab" data-tab="events" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">이벤트</div>
                 <div class="wt-bs-tab" data-tab="review" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">리뷰</div>
+                <div class="wt-bs-tab" data-tab="npcs" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">터줏대감</div>
                 <div class="wt-bs-tab" data-tab="rooms" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">내부</div>
             </div>
             <div id="wt-bs-tab-overview" style="padding:10px 14px;overflow-y:auto">
@@ -1688,7 +1692,7 @@ export class UIManager {
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
                 ${nearbyHtml}
-                ${(loc.npcs?.length) ? `<div style="margin-top:8px;padding:8px 10px;background:#F3EEFA;border-left:3px solid #8B6BB4;border-radius:0 8px 8px 0"><div style="font-size:10px;font-weight:600;color:#6B4F91;margin-bottom:3px">👥 터줏대감</div>${loc.npcs.map(n => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px;color:#5A4070"><span style="font-size:12px">${n.type==='animal'?'🐾':'🧑'}</span>${n.name}${n.role?` <span style="font-size:9px;color:#8B6BB4">(${n.role})</span>`:''}<span style="font-size:9px;color:#B0A898;margin-left:auto">×${n.count||1}</span></div>`).join('')}</div>` : ''}
+                ${(loc.npcs?.length) ? `<div style="margin-top:8px;padding:8px 10px;background:#F3EEFA;border-left:3px solid #8B6BB4;border-radius:0 8px 8px 0"><div style="font-size:10px;font-weight:600;color:#6B4F91;margin-bottom:3px">👥 터줏대감 (${loc.npcs.length})</div>${loc.npcs.slice(0,3).map(n => `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;color:#5A4070"><span style="font-size:12px">${n.avatar||(n.type==='animal'?'🐾':'👤')}</span><span style="font-weight:600">${n.name}</span>${n.role?` <span style="font-size:9px;color:#8B6BB4">(${n.role})</span>`:''}<span style="margin-left:auto;font-size:10px">${Array.from({length:5},(_,i)=>i<(n.affinity||3)?'❤️':'🤍').join('')}</span></div>`).join('')}${loc.npcs.length > 3 ? `<div style="font-size:10px;color:#8B6BB4;text-align:center;margin-top:4px">+${loc.npcs.length-3}명 더...</div>` : ''}<button class="wt-bs-npc-more" style="margin-top:6px;padding:8px;background:#FAFAF5;border:1px solid #E0D8F0;border-radius:20px;font-size:11px;font-weight:500;color:#6B4F91;text-align:center;cursor:pointer;width:100%;font-family:inherit">모든 터줏대감 보기 ›</button></div>` : ''}
                 ${this._buildPlanSectionHtml(loc)}
                 <!-- T3: 리뷰 미리보기 (개요 안) -->
                 <div id="wt-bs-rv-preview" style="margin-top:10px;padding-top:8px;border-top:1px solid #F0EDE5">
@@ -1727,6 +1731,9 @@ export class UIManager {
                     <button id="wt-bs-gen-review" style="padding:8px 16px;background:#E8F0FE;border:1.5px solid #1A73E8;border-radius:18px;font-size:11px;font-weight:600;color:#1A73E8;cursor:pointer;font-family:inherit">🔄 랜덤 리뷰 생성</button>
                 </div>
                 <div id="wt-bs-review-list"></div>
+            </div>
+            <div id="wt-bs-tab-npcs" style="display:none;padding:10px 14px;overflow-y:auto">
+                <div id="wt-bs-npc-list"></div>
             </div>
             <div id="wt-bs-tab-rooms" style="display:none;padding:10px 14px;overflow-y:auto">
                 ${(() => {
@@ -1770,7 +1777,7 @@ export class UIManager {
         bs.find('.wt-bs-tab').on('click', function(e) {
             e.stopPropagation();
             const tab = $(this).data('tab');
-            const tabColors = { overview: '#2B8A6E', events: '#CF6E2E', review: '#5E84E2', rooms: '#8B6B4A' };
+            const tabColors = { overview: '#2B8A6E', events: '#CF6E2E', review: '#5E84E2', npcs: '#8B6BB4', rooms: '#8B6B4A' };
             const color = tabColors[tab] || '#2B8A6E';
             bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
             $(this).css({ color, borderBottomColor: color });
@@ -1877,6 +1884,8 @@ export class UIManager {
         this._renderCachedReviews(locId, '#wt-bs-review-list');
         // T3: 개요 탭 리뷰 미리보기 렌더 + "모든 리뷰 보기" 클릭
         this._renderReviewPreview(locId);
+        // ★ 터줏대감 탭 렌더
+        this._renderNpcTab(locId);
         bs.find('#wt-bs-rv-more').on('click', (e) => {
             e.stopPropagation();
             // 리뷰 탭으로 전환
@@ -1884,6 +1893,15 @@ export class UIManager {
             bs.find('.wt-bs-tab[data-tab="review"]').css({ color: '#5E84E2', borderBottomColor: '#5E84E2' });
             bs.find('[id^="wt-bs-tab-"]').hide();
             bs.find('#wt-bs-tab-review').show();
+            if (self._bsStage < 3) self._applyBsStage(3);
+        });
+        // ★ 터줏대감 탭 전환
+        bs.find('.wt-bs-npc-more').on('click', (e) => {
+            e.stopPropagation();
+            bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
+            bs.find('.wt-bs-tab[data-tab="npcs"]').css({ color: '#8B6BB4', borderBottomColor: '#8B6BB4' });
+            bs.find('[id^="wt-bs-tab-"]').hide();
+            bs.find('#wt-bs-tab-npcs').show();
             if (self._bsStage < 3) self._applyBsStage(3);
         });
         // T4: 기억 링크 클릭 → 이벤트 탭으로 전환
@@ -3507,6 +3525,275 @@ export class UIManager {
         $('#wt-pop-event-input').val('');
         this._updEventsList(locId);
         toastSuccess('📝 이벤트 추가!');
+    }
+
+    // ========== 👥 터줏대감 풀 시스템 ==========
+    _renderNpcTab(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        const list = $('#wt-bs-npc-list');
+        list.empty();
+        if (!loc?.npcs?.length) {
+            list.html('<div style="text-align:center;padding:24px 10px;color:#9AA0A6;font-size:12px">아직 감지된 인물이 없어요<br><span style="font-size:11px;color:#B0A898">RP 중 등장하는 NPC가 자동 등록돼요!</span></div>');
+            return;
+        }
+        const npcs = loc.npcs.filter(n => n.type !== 'animal');
+        const animals = loc.npcs.filter(n => n.type === 'animal');
+        const self = this;
+
+        const renderCards = (arr) => arr.map(n => {
+            const hearts = Array.from({length: 5}, (_, i) =>
+                `<span style="font-size:11px;${i >= (n.affinity || 3) ? 'filter:grayscale(1) opacity(.3)' : ''}">❤️</span>`
+            ).join('');
+            const ago = n.lastSeen ? this._timeAgo(n.lastSeen) : '';
+            return `<div class="wt-bs-npc-card" data-npc="${n.name}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:#FAFAF5;border:1px solid #E8E4D8;border-radius:14px;margin-bottom:8px;cursor:pointer;position:relative;-webkit-tap-highlight-color:transparent">
+                <div style="width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;background:${n.type==='animal'?'#FFF8E1':'#F3EAFA'}">${n.avatar || (n.type==='animal'?'🐾':'👤')}</div>
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:700;color:#5A4030">${n.name}</div>
+                    <div style="font-size:10px;color:#9A8A7A;margin-top:1px">${n.role || n.type}</div>
+                    <div style="display:flex;gap:2px;margin-top:4px">${hearts}</div>
+                </div>
+                <div style="position:absolute;top:8px;right:10px;font-size:9px;color:#9A8A7A;background:#F5F4ED;padding:2px 6px;border-radius:10px">×${n.count||1}</div>
+                ${ago ? `<div style="font-size:9px;color:#B0A898;position:absolute;bottom:8px;right:10px">${ago}</div>` : ''}
+            </div>`;
+        }).join('');
+
+        let html = '';
+        if (npcs.length) {
+            html += `<div style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#6B4F91;margin:4px 0 8px;padding-bottom:4px;border-bottom:1px dashed #E0D8F0"><span>🧑</span> 인물 (${npcs.length})</div>`;
+            html += renderCards(npcs);
+        }
+        if (animals.length) {
+            html += `<div style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#6B4F91;margin:14px 0 8px;padding-bottom:4px;border-bottom:1px dashed #E0D8F0"><span>🐾</span> 동물 (${animals.length})</div>`;
+            html += renderCards(animals);
+        }
+        list.html(html);
+
+        list.find('.wt-bs-npc-card').on('click', function(e) {
+            e.stopPropagation();
+            self._showNpcProfile(locId, $(this).data('npc'));
+        });
+    }
+
+    _timeAgo(ts) {
+        const d = Date.now() - ts;
+        if (d < 60000) return '방금';
+        if (d < 3600000) return Math.floor(d / 60000) + '분 전';
+        if (d < 86400000) return Math.floor(d / 3600000) + '시간 전';
+        return Math.floor(d / 86400000) + '일 전';
+    }
+
+    _affinityDesc(level) {
+        const descs = {
+            1: '경계 — 아직 마음을 열지 않은 사이',
+            2: '어색함 — 서로 조심스러운 사이',
+            3: '보통 — 알고 지내는 사이',
+            4: '신뢰 — 믿을 수 있는 사이',
+            5: '깊은 유대 — 특별한 사이',
+        };
+        return descs[Math.round(level)] || descs[3];
+    }
+
+    _showNpcProfile(locId, npcName) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        const npc = loc?.npcs?.find(n => n.name === npcName);
+        if (!npc) return;
+        const self = this;
+
+        // 관련 이벤트 (이 장소에서 NPC 이름 언급된 것)
+        const relEvents = (loc.events || []).filter(e => e.text && e.text.includes(npc.name)).slice(-3);
+
+        const hearts = Array.from({length: 5}, (_, i) =>
+            `<span class="wt-npc-heart" data-val="${i+1}" style="font-size:24px;cursor:pointer;transition:transform .15s;${i >= (npc.affinity || 3) ? 'filter:grayscale(1) opacity(.3)' : 'filter:saturate(1.2)'}"">❤️</span>`
+        ).join('');
+
+        const tags = (npc.personality || []).map((t, i) =>
+            `<span style="display:inline-block;padding:3px 8px;background:${i >= 3 ? '#FFF5E0' : '#F3EAFA'};color:${i >= 3 ? '#B07810' : '#8B6BB4'};border-radius:12px;font-size:10px;font-weight:600;margin:2px 2px 0 0">${t}</span>`
+        ).join('') || '<span style="font-size:11px;color:#B0A898">AI 재생성으로 추가해보세요</span>';
+
+        const evHtml = relEvents.length ? relEvents.map(e =>
+            `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:#FAFAF5;border-radius:10px;border:1px solid #E8E4D8;margin-bottom:4px">
+                <span style="font-size:14px;margin-top:1px">${e.mood || '📝'}</span>
+                <div><div style="font-size:11px;color:#5A4030;line-height:1.5">${e.title || e.text?.substring(0, 30)}</div>
+                <div style="font-size:9px;color:#B0A898;margin-top:2px">${e.rpDate || this._fmt(e.timestamp)}</div></div>
+            </div>`
+        ).join('') : '<div style="font-size:11px;color:#B0A898;padding:8px;text-align:center">관련 이벤트가 없어요</div>';
+
+        const overlay = $(`<div id="wt-npc-profile-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:10100;display:flex;align-items:flex-end;opacity:0;transition:opacity .25s">
+            <div id="wt-npc-profile-sheet" style="width:100%;background:#F5F4ED;border-radius:20px 20px 0 0;padding:0 0 20px;max-height:85vh;overflow-y:auto;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
+                <div style="text-align:center;padding:20px 20px 16px;position:relative">
+                    <div style="width:36px;height:4px;background:#D0C8B8;border-radius:2px;margin:0 auto 16px"></div>
+                    <button id="wt-npc-close" style="position:absolute;top:16px;right:16px;width:28px;height:28px;border-radius:50%;background:#E8E4D8;border:none;font-size:14px;cursor:pointer;color:#9A8A7A;display:flex;align-items:center;justify-content:center">×</button>
+                    <div style="width:72px;height:72px;border-radius:50%;background:${npc.type==='animal'?'#FFF8E1':'#F3EAFA'};display:flex;align-items:center;justify-content:center;font-size:36px;margin:0 auto 10px;border:3px solid ${npc.type==='animal'?'#F6A93A':'#8B6BB4'};box-shadow:0 4px 12px ${npc.type==='animal'?'rgba(246,169,58,.2)':'rgba(139,107,180,.2)'}">${npc.avatar || (npc.type==='animal'?'🐾':'👤')}</div>
+                    <div style="font-size:18px;font-weight:800;color:#5A4030">${npc.name}</div>
+                    <div style="font-size:12px;color:#8B6BB4;font-weight:600;margin-top:2px">${npc.role || npc.type}</div>
+                </div>
+                <div style="margin:0 20px;padding:14px 16px;background:#FFF0F3;border-radius:14px;border:1px solid #F5D0D8">
+                    <div style="font-size:10px;font-weight:600;color:#E8577E;margin-bottom:8px;display:flex;align-items:center;gap:4px">💗 호감도</div>
+                    <div id="wt-npc-hearts" style="display:flex;gap:6px;justify-content:center;margin-bottom:6px">${hearts}</div>
+                    <div id="wt-npc-aff-desc" style="text-align:center;font-size:11px;color:#C05070;font-weight:500;font-style:italic">${this._affinityDesc(npc.affinity || 3)}</div>
+                </div>
+                <div style="margin:12px 20px 0;padding:12px 14px;background:#FAFAF5;border-radius:12px;border:1px solid #E8E4D8">
+                    <div style="font-size:10px;font-weight:700;color:#6B4F91;margin-bottom:6px">✍️ 한줄 소개</div>
+                    <p id="wt-npc-bio" style="font-size:12px;color:#5A4030;line-height:1.6;margin:0">${npc.bio || '<span style="color:#B0A898">아직 소개가 없어요 — AI 재생성을 눌러보세요</span>'}</p>
+                </div>
+                <div style="margin:12px 20px 0;padding:12px 14px;background:#FAFAF5;border-radius:12px;border:1px solid #E8E4D8">
+                    <div style="font-size:10px;font-weight:700;color:#6B4F91;margin-bottom:6px">🎭 성격</div>
+                    <div>${tags}</div>
+                </div>
+                <div style="margin:12px 20px 0;padding:12px 14px;background:#FAFAF5;border-radius:12px;border:1px solid #E8E4D8">
+                    <div style="font-size:10px;font-weight:700;color:#6B4F91;margin-bottom:6px">🤝 관계</div>
+                    <p style="font-size:12px;color:#5A4030;line-height:1.6;margin:0">${npc.relationship || '<span style="color:#B0A898">아직 관계 메모가 없어요</span>'}</p>
+                </div>
+                <div style="margin:12px 20px 0">
+                    <div style="font-size:10px;font-weight:700;color:#9A8A7A;margin-bottom:6px">📖 최근 등장</div>
+                    ${evHtml}
+                </div>
+                <div id="wt-npc-actions" style="display:flex;gap:8px;margin:16px 20px 0">
+                    <button id="wt-npc-edit-btn" style="flex:1;padding:10px;border-radius:12px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid #8B6BB4;background:#F3EAFA;color:#8B6BB4;font-family:inherit">✏️ 수정</button>
+                    <button id="wt-npc-regen-btn" style="flex:1;padding:10px;border-radius:12px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid #5E84E2;background:#E8F0FE;color:#5E84E2;font-family:inherit">🔄 AI 재생성</button>
+                    <button id="wt-npc-del-btn" style="flex:0.5;padding:10px;border-radius:12px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid #E8577E;background:#FFF0F3;color:#E8577E;font-family:inherit">🗑️</button>
+                </div>
+                <div id="wt-npc-edit-area" style="display:none;margin:12px 20px 0">
+                    <div style="margin-bottom:8px"><label style="font-size:10px;font-weight:600;color:#6B4F91;display:block;margin-bottom:4px">이름</label><input id="wt-npc-ed-name" type="text" value="${npc.name}" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:10px;font-size:12px;font-family:inherit;color:#5A4030;background:#FAFAF5;box-sizing:border-box"/></div>
+                    <div style="margin-bottom:8px"><label style="font-size:10px;font-weight:600;color:#6B4F91;display:block;margin-bottom:4px">역할</label><input id="wt-npc-ed-role" type="text" value="${npc.role || ''}" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:10px;font-size:12px;font-family:inherit;color:#5A4030;background:#FAFAF5;box-sizing:border-box"/></div>
+                    <div style="margin-bottom:8px"><label style="font-size:10px;font-weight:600;color:#6B4F91;display:block;margin-bottom:4px">아바타 이모지</label><input id="wt-npc-ed-avatar" type="text" value="${npc.avatar || ''}" style="width:60px;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:10px;font-size:14px;font-family:inherit;text-align:center"/></div>
+                    <div style="margin-bottom:8px"><label style="font-size:10px;font-weight:600;color:#6B4F91;display:block;margin-bottom:4px">한줄 소개</label><textarea id="wt-npc-ed-bio" rows="2" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:10px;font-size:12px;font-family:inherit;color:#5A4030;background:#FAFAF5;resize:none;box-sizing:border-box">${npc.bio || ''}</textarea></div>
+                    <div style="margin-bottom:8px"><label style="font-size:10px;font-weight:600;color:#6B4F91;display:block;margin-bottom:4px">성격 태그 (쉼표 구분)</label><input id="wt-npc-ed-personality" type="text" value="${(npc.personality||[]).join(', ')}" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:10px;font-size:12px;font-family:inherit;color:#5A4030;background:#FAFAF5;box-sizing:border-box"/></div>
+                    <div style="margin-bottom:8px"><label style="font-size:10px;font-weight:600;color:#6B4F91;display:block;margin-bottom:4px">관계 메모</label><textarea id="wt-npc-ed-rel" rows="2" style="width:100%;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:10px;font-size:12px;font-family:inherit;color:#5A4030;background:#FAFAF5;resize:none;box-sizing:border-box">${npc.relationship || ''}</textarea></div>
+                    <div style="margin-bottom:8px"><label style="font-size:10px;font-weight:600;color:#6B4F91;display:block;margin-bottom:4px">호감도 (1~5)</label><input id="wt-npc-ed-aff" type="number" value="${npc.affinity||3}" min="1" max="5" style="width:60px;padding:8px 10px;border:1.5px solid #E8E4D8;border-radius:10px;font-size:12px;text-align:center"/></div>
+                    <div style="display:flex;gap:8px;margin-top:8px">
+                        <button id="wt-npc-ed-cancel" style="flex:1;padding:10px;border-radius:12px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:#E8E4D8;color:#5A4030;font-family:inherit">취소</button>
+                        <button id="wt-npc-ed-save" style="flex:1;padding:10px;border-radius:12px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:#8B6BB4;color:#fff;font-family:inherit">💾 저장</button>
+                    </div>
+                </div>
+            </div>
+        </div>`);
+
+        $('body').append(overlay);
+        requestAnimationFrame(() => {
+            overlay.css('opacity', '1');
+            overlay.find('#wt-npc-profile-sheet').css('transform', 'translateY(0)');
+        });
+
+        const closeProfile = () => {
+            overlay.find('#wt-npc-profile-sheet').css('transform', 'translateY(100%)');
+            overlay.css('opacity', '0');
+            setTimeout(() => overlay.remove(), 350);
+        };
+
+        overlay.on('click', (e) => { if (e.target === overlay[0]) closeProfile(); });
+        overlay.find('#wt-npc-close').on('click', closeProfile);
+
+        // 호감도 하트 클릭 → 수동 변경
+        overlay.find('.wt-npc-heart').on('click', async function(e) {
+            e.stopPropagation();
+            const val = parseInt($(this).data('val'));
+            await self.lm.updateNpc(locId, npc.name, { affinity: val });
+            npc.affinity = val;
+            overlay.find('.wt-npc-heart').each(function(i) {
+                $(this).css({ filter: i < val ? 'saturate(1.2)' : 'grayscale(1) opacity(.3)' });
+            });
+            overlay.find('#wt-npc-aff-desc').text(self._affinityDesc(val));
+            self._renderNpcTab(locId);
+        });
+
+        // 수정 버튼
+        overlay.find('#wt-npc-edit-btn').on('click', () => {
+            overlay.find('#wt-npc-actions').hide();
+            overlay.find('#wt-npc-edit-area').slideDown(200);
+            overlay.find('#wt-npc-edit-area')[0]?.scrollIntoView({ behavior: 'smooth' });
+        });
+        overlay.find('#wt-npc-ed-cancel').on('click', () => {
+            overlay.find('#wt-npc-edit-area').slideUp(200);
+            overlay.find('#wt-npc-actions').show();
+        });
+        overlay.find('#wt-npc-ed-save').on('click', async () => {
+            const oldName = npc.name;
+            const updates = {
+                name: overlay.find('#wt-npc-ed-name').val().trim() || npc.name,
+                role: overlay.find('#wt-npc-ed-role').val().trim(),
+                avatar: overlay.find('#wt-npc-ed-avatar').val().trim() || npc.avatar,
+                bio: overlay.find('#wt-npc-ed-bio').val().trim(),
+                personality: overlay.find('#wt-npc-ed-personality').val().split(',').map(s=>s.trim()).filter(Boolean),
+                relationship: overlay.find('#wt-npc-ed-rel').val().trim(),
+                affinity: Math.max(1, Math.min(5, parseInt(overlay.find('#wt-npc-ed-aff').val()) || 3)),
+            };
+            await self.lm.updateNpc(locId, oldName, updates);
+            toastSuccess('💾 저장!');
+            closeProfile();
+            self._renderNpcTab(locId);
+            self.pi?.inject();
+        });
+
+        // 삭제
+        overlay.find('#wt-npc-del-btn').on('click', async () => {
+            if (!confirm(`"${npc.name}" 삭제?`)) return;
+            await self.lm.removeNpcFromLocation(locId, npc.name);
+            toastSuccess('🗑️ 삭제됨');
+            closeProfile();
+            self._renderNpcTab(locId);
+        });
+
+        // AI 재생성
+        overlay.find('#wt-npc-regen-btn').on('click', async () => {
+            overlay.find('#wt-npc-regen-btn').text('⏳ 생성 중...').prop('disabled', true);
+            await self._generateNpcProfile(locId, npc.name);
+            closeProfile();
+            // 재열기 (갱신된 데이터)
+            self._renderNpcTab(locId);
+            self._showNpcProfile(locId, npc.name);
+        });
+    }
+
+    async _generateNpcProfile(locId, npcName) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        const npc = loc?.npcs?.find(n => n.name === npcName);
+        if (!npc) return;
+
+        const ctx = getContext();
+        const userName = ctx.name1 || 'User';
+        const charName = ctx.name2 || 'Character';
+        const charDesc = (ctx.characters?.[ctx.characterId]?.description || '').substring(0, 300);
+        const recentChat = getRecentChatContext(2000);
+        const evSummary = (loc.events || []).filter(e => e.text?.includes(npc.name)).slice(-5).map(e => `${e.mood||'📝'} ${e.title||e.text?.substring(0,30)}`).join(', ') || 'none';
+        const s = extension_settings[EXTENSION_NAME];
+        const eLang = s?.eventLang || 'auto';
+        const langInst = eLang === 'ko' ? 'Write in Korean.' : eLang === 'en' ? 'Write in English.' : 'Write in the same language as the RP.';
+
+        const prompt = `Generate a character profile for an NPC in an RP story.
+
+NPC: "${npc.name}" (${npc.type}, ${npc.role || 'unknown role'})
+Location: "${loc.name}"
+Protagonists: "${userName}", "${charName}"
+${charDesc ? `Character context: ${charDesc}` : ''}
+Related events: ${evSummary}
+${langInst}
+${recentChat ? `\n[Recent conversation for context]:\n${recentChat}\n` : ''}
+
+Based on the RP context, generate this NPC's profile.
+Respond with ONLY valid JSON, no markdown:
+{"avatar":"single emoji representing this character","bio":"one atmospheric sentence about this character (30-50 chars)","personality":["trait1","trait2","trait3","trait4"],"relationship":"1-2 sentence description of relationship with ${userName}","affinity":3}
+
+affinity: 1=hostile 2=wary 3=neutral 4=friendly 5=deeply bonded
+CRITICAL: Start with { end with }`;
+
+        try {
+            const result = await callLLM(prompt);
+            if (!result) return;
+            const parsed = parseLLMJson(result);
+            if (!parsed) return;
+            const updates = {};
+            if (parsed.avatar) updates.avatar = parsed.avatar;
+            if (parsed.bio) updates.bio = parsed.bio;
+            if (Array.isArray(parsed.personality) && parsed.personality.length) updates.personality = parsed.personality;
+            if (parsed.relationship) updates.relationship = parsed.relationship;
+            if (parsed.affinity) updates.affinity = Math.max(1, Math.min(5, parsed.affinity));
+            await this.lm.updateNpc(locId, npcName, updates);
+            toastSuccess(`✨ ${npc.name} 프로필 생성!`);
+        } catch(e) {
+            console.error('[wt] NPC profile gen error:', e);
+            toastWarn('⚠️ 프로필 생성 실패');
+        }
     }
 
     // ========== ⭐ 랜덤 리뷰 생성 (구글맵 스타일) ==========

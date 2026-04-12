@@ -197,6 +197,15 @@ async function scanMessage(text, source = 'USER') {
                 }
                 dbg(`📌 Meta location raw: "${metaLoc}"`);
 
+                // ★ 한국어 문장 필터: 용언 어미가 포함된 건 장소가 아니라 문장
+                if (/[가-힣]/.test(metaLoc) && /(?:했[다어]|됐[다어]|났[다어]|있[다어]|없[다어]|갔[다어]|왔[다어]|봤[다어]|먹[었]|잤[다어]|[가-힣]네요?|[가-힣]구나|[가-힣]잖아|[가-힣]더라|[가-힣]거든|습니다|ㅂ니다|세요|에요|해요|하고|하며|하면|인데|지만|에서|으로|부터|까지|처럼|만큼|라고|다고)/.test(metaLoc)) {
+                    dbg(`🚫 Meta loc is Korean sentence: "${metaLoc}" → skip`);
+                    if (lm.currentLocationId) { await _tryEvent(text, lm.currentLocationId, source); return true; }
+                    return false;
+                }
+
+                // ★ 영어 욕설/감탄사 접두 제거 — "Damn barracks" → "barracks"
+                metaLoc = metaLoc.replace(/^(?:damn|fucking|fuckin|freaking|goddamn|bloody|stupid|shit|holy)\s+/i, '').trim();
                 // ★ 이동 중/차량/탈것 내부 → 장소 등록 건너뛰기
                 const transitSkip = /이동\s*중|향으로\s*이동|밴\s*내부|차량\s*내부|차\s*안|버스\s*안|택시\s*안|SUV|뒷좌석|앞좌석|조수석|운전석|트렁크|차\s*안|차\s*속|차\s*밖|차량|자동차|승합차|지프|트럭|밴|탱크|헬기|헬리콥터|비행기|기차|열차|지하철|전철|보트|배\s*위|선박|en\s*route|in\s*transit|on\s+the\s+way|driving|riding|heading\s+to|moving\s+to|backseat|front\s*seat|passenger|driver.*seat|trunk|SUV|van|truck|jeep|car\s+interior|vehicle|helicopter|chopper|aircraft|humvee|convoy/i;
                 if (transitSkip.test(metaLoc)) {
@@ -1023,17 +1032,18 @@ If no significant event (just walking, sitting, daily routine): {"mood":null,"su
 Pay SPECIAL ATTENTION to any future promises, appointments, or plans mentioned in the dialogue (e.g., "Let's go to X tomorrow", "Come back in two weeks", "내일 마트 가자", "2주 뒤에 재검").
 
 Respond with ONLY a JSON object, no markdown, no explanation:
-{"mood":"💕","title":"ultra-short hook max 15chars","summary":"detailed 2-sentence summary","promisePlace":"named location characters plan to visit (or null)","future_plan":{"has_plan":true,"what":"what they plan to do","where":"destination name or null","when":"time expression as-is: 2주 뒤, tomorrow, 오늘 저녁, next week, 1월 3일, every month, etc."}}
+{"mood":"💕","title":"ultra-short hook max 15chars","summary":"detailed 2-sentence summary","promisePlace":"named location characters plan to visit (or null)","future_plan":{"has_plan":true,"what":"what they plan to do","where":"destination name or null","when":"time expression as-is: 2주 뒤, tomorrow, 오늘 저녁, next week, 1월 3일, every month, etc."},"npc_interactions":[{"name":"NPC name","delta":0.5,"reason":"short reason"}]}
 
 Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
 title: Write like 'OO한 곳' or 'OO이 시작된 곳'. Capture emotional significance, not literal dialogue.
 promisePlace: ANY named store/city/building characters discuss visiting. Be AGGRESSIVE. Write ONLY the place name, or null.
 future_plan: ALWAYS check for this. If ANY character mentions going somewhere, doing something later, making an appointment, scheduling a visit, or promising to return — set has_plan: true and fill what/where/when.
+npc_interactions: Track how NPCs/animals interact with ${userName}. delta: +0.5 friendly/kind, +1 life-saving/deeply bonding, -0.5 rude/hostile, -1 betrayal/attack. Only include NPCs who ACTIVELY interact in this scene. Omit if no NPC interactions.
 
 Examples:
-{"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다.","promisePlace":null,"future_plan":{"has_plan":false}}
-{"mood":"💕","title":"첫 심장소리를 들은 곳","summary":"${userName}와 TF141이 산부인과 진찰실을 점거하고 초음파 검사를 받았다. 모니터에 작은 심장 박동이 울리자 König의 손이 떨리기 시작했다.","promisePlace":"산부인과","future_plan":{"has_plan":true,"what":"2차 검진 및 초음파","where":"산부인과","when":"2주 뒤"}}
-{"mood":"📅","title":"비밀 약속을 나눈 곳","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다.","promisePlace":null,"future_plan":{"has_plan":true,"what":"비밀 만남","where":"옥상","when":"내일"}}
+{"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다.","promisePlace":null,"future_plan":{"has_plan":false},"npc_interactions":[{"name":"Dex","delta":0.5,"reason":"간식 나눠먹음"},{"name":"Ghost","delta":-0.5,"reason":"뒷담화 들킴"}]}
+{"mood":"💕","title":"첫 심장소리를 들은 곳","summary":"${userName}와 TF141이 산부인과 진찰실을 점거하고 초음파 검사를 받았다. 모니터에 작은 심장 박동이 울리자 König의 손이 떨리기 시작했다.","promisePlace":"산부인과","future_plan":{"has_plan":true,"what":"2차 검진 및 초음파","where":"산부인과","when":"2주 뒤"},"npc_interactions":[{"name":"König","delta":1,"reason":"함께 초음파 감동"}]}
+{"mood":"📅","title":"비밀 약속을 나눈 곳","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다.","promisePlace":null,"future_plan":{"has_plan":true,"what":"비밀 만남","where":"옥상","when":"내일"},"npc_interactions":[{"name":"Alejandro","delta":1,"reason":"로맨틱 약속"}]}
 ${recentChat ? `\n[Recent conversation for tone & context]:\n${recentChat}\n` : ''}
 [Current scene to summarize]:
 ${trimmed}${userCtx}`;
@@ -1150,6 +1160,16 @@ ${trimmed}${userCtx}`;
                             }
                         }
                     }
+                }
+                // ★ NPC 호감도 자동 업데이트 (npc_interactions)
+                if (Array.isArray(parsed.npc_interactions)) {
+                    for (const ni of parsed.npc_interactions) {
+                        if (!ni?.name || typeof ni.delta !== 'number') continue;
+                        const delta = Math.max(-1, Math.min(1, ni.delta));
+                        await lm.updateNpcAffinity(locId, ni.name, delta);
+                        dbg(`💗 NPC interaction: "${ni.name}" ${delta > 0 ? '+' : ''}${delta} (${ni.reason || ''})`);
+                    }
+                    if (ui?.panelVisible) ui.refresh();
                 }
             }
         }

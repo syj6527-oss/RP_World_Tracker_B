@@ -3951,7 +3951,7 @@ JSON만 응답해:
         const posts = loc.community || [];
         const postsHtml = posts.length ? posts.map(p => this._renderCommunityPostCard(p)).join('') : '<div style="padding:60px 20px;text-align:center;color:#8B98A5;font-size:13px">아직 반응이 없어요<br><span style="font-size:11px">✨ 버튼을 눌러 실시간 반응을 생성해보세요</span></div>';
 
-        const overlay = $(`<div id="wt-community-overlay" style="position:fixed;inset:0;background:#fff;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
+        const overlay = $(`<div id="wt-community-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#fff;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
             <div style="padding:14px 16px 0;background:#fff;border-bottom:1px solid #EFF3F4;position:sticky;top:0;z-index:50">
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
                     <div id="wt-comm-back" style="font-size:20px;color:#0F1419;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
@@ -4056,7 +4056,7 @@ JSON만 응답해:
     _showNodemapFullscreen(anchorLocId) {
         $('#wt-nodemap-overlay').remove();
 
-        const overlay = $(`<div id="wt-nodemap-overlay" style="position:fixed;inset:0;background:#F8F9FA;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
+        const overlay = $(`<div id="wt-nodemap-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#F8F9FA;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
             <div style="padding:12px 16px;background:#fff;border-bottom:1px solid #DADCE0;display:flex;align-items:center;gap:12px;box-shadow:0 1px 3px rgba(60,64,67,.15)">
                 <div id="wt-nodemap-back" style="font-size:20px;color:#202124;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
                 <div style="flex:1">
@@ -4283,7 +4283,7 @@ JSON만 응답해:
             </div>`
         ).join('') : '<div style="font-size:11px;color:#B0A898;padding:8px;text-align:center">관련 이벤트가 없어요</div>';
 
-        const overlay = $(`<div id="wt-npc-profile-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:10100;display:flex;align-items:flex-end;opacity:0;transition:opacity .25s">
+        const overlay = $(`<div id="wt-npc-profile-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:rgba(0,0,0,.4);z-index:10100;display:flex;align-items:flex-end;opacity:0;transition:opacity .25s">
             <div id="wt-npc-profile-sheet" style="width:100%;background:#F5F4ED;border-radius:20px 20px 0 0;padding:0 0 20px;max-height:85vh;overflow-y:auto;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
                 <div style="text-align:center;padding:20px 20px 16px;position:relative">
                     <div style="width:36px;height:4px;background:#D0C8B8;border-radius:2px;margin:0 auto 16px"></div>

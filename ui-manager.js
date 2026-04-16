@@ -280,7 +280,7 @@ export class UIManager {
                         <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 지도</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar" style="position:relative">
-                        <button class="wt-back-btn" style="display:none" onclick="window.__wtBackToMap&&window.__wtBackToMap()">←</button>
+                        <button class="wt-back-btn" style="display:none" onclick="window.__wtCloseMap&&window.__wtCloseMap()" title="닫기">✕</button>
                         <div id="wt-search-tabs" style="display:none;gap:2px;margin-bottom:3px">
                             <button id="wt-search-tab-loc" class="wt-mode-btn wt-mode-active" style="flex:1;padding:4px;font-size:11px">🔍 장소</button>
                             <button id="wt-search-tab-addr" class="wt-mode-btn" style="flex:1;padding:4px;font-size:11px">📍 주소</button>
@@ -1696,7 +1696,7 @@ export class UIManager {
                 ${(loc.community?.length) ? `<div style="margin-top:10px;border:1px solid #EFF3F4;border-radius:14px;overflow:hidden">
                     <div style="padding:10px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #EFF3F4;background:#fff">
                         <div style="font-size:12px;font-weight:700;color:#0F1419;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 지금 이곳은</div>
-                        <span class="wt-bs-comm-more" style="font-size:11px;color:#1D9BF0;font-weight:500;cursor:pointer">전체 보기 ›</span>
+                        <button class="wt-bs-comm-more" style="font-size:12px;color:#1D9BF0;font-weight:600;cursor:pointer;background:#E8F5FD;border:none;padding:6px 12px;border-radius:14px;font-family:inherit;-webkit-tap-highlight-color:rgba(29,155,240,.2);min-height:32px">전체 보기 ›</button>
                     </div>
                     ${loc.community.slice(0,3).map(p => `<div style="padding:8px 12px;display:flex;gap:8px;border-bottom:1px solid #EFF3F4">
                         <div style="width:28px;height:28px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${p.avatar || '👤'}</div>
@@ -1921,23 +1921,28 @@ export class UIManager {
         // ★ 터줏대감 탭 렌더
         this._renderNpcTab(locId);
         this._renderMiniNodemap(locId);
-        // 🗺️ 전체 약도 보기 버튼
+        // 🗺️ 전체 약도 보기 — 풀스크린 오버레이 (모드 전환 X)
         bs.find('#wt-bs-nodemap-expand').on('click', (e) => {
             e.stopPropagation();
-            self._hideBottomSheet();
-            self._setMapMode('node');
-            toastSuccess('🗺️ 약도 모드');
+            self._showNodemapFullscreen(locId);
         });
-        // 💬 커뮤니티 버튼 핸들러
-        bs.find('.wt-bs-comm-gen').on('click', async (e) => {
+        // 💬 커뮤니티 버튼 핸들러 (click + touchend 둘 다 — 모바일 호환성)
+        const commGenHandler = async (e) => {
+            e.preventDefault();
             e.stopPropagation();
-            $(e.currentTarget).text('⏳ 생성 중...').prop('disabled', true);
+            const btn = $(e.currentTarget);
+            if (btn.prop('disabled')) return;
+            btn.prop('disabled', true).text('⏳ 생성 중...');
             await self._generateCommunity(locId);
-        });
-        bs.find('.wt-bs-comm-more').on('click', (e) => {
+        };
+        bs.find('.wt-bs-comm-gen').on('click touchend', commGenHandler);
+
+        const commMoreHandler = (e) => {
+            e.preventDefault();
             e.stopPropagation();
             self._showCommunityFullFeed(locId);
-        });
+        };
+        bs.find('.wt-bs-comm-more').on('click touchend', commMoreHandler);
         bs.find('#wt-bs-rv-more').on('click', (e) => {
             e.stopPropagation();
             // 리뷰 탭으로 전환
@@ -2299,8 +2304,13 @@ export class UIManager {
 
         // ★ 뒤로가기 → 약도로 전환
         window.__wtBackToMap = () => {
+            // (v0.6.0 deprecated — 유지만, 약도 모드 전환 없음)
             self._hideBottomSheet();
-            self._setMapMode('node');
+        };
+        // v0.6.0: 지도 닫기 (패널 자체 닫기)
+        window.__wtCloseMap = () => {
+            self._hideBottomSheet();
+            self.togglePanel(false);
         };
 
         // 지도 클릭 → 바텀시트 peek 복귀 (T1: 닫기 대신 peek)
@@ -3601,12 +3611,12 @@ export class UIManager {
     // ========== 💬 커뮤니티 피드 시스템 (v0.6.0 NEW) ==========
     _renderCommunityText(text) {
         if (!text) return '';
+        // ★ *action* 액션 서술 제거 (한국 트위터 감성 유지)
+        let t = text.replace(/\*[^*]+\*/g, '').replace(/\s{2,}/g, ' ').trim();
         // @멘션 → 파란색
-        let t = text.replace(/@([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0;font-weight:500">@$1</span>');
+        t = t.replace(/@([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0;font-weight:500">@$1</span>');
         // #해시태그 → 파란색
         t = t.replace(/#([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0">#$1</span>');
-        // *액션* → 이탤릭 회색
-        t = t.replace(/\*([^*]+)\*/g, '<span style="font-style:italic;color:#536471">*$1*</span>');
         // 줄바꿈
         t = t.replace(/\n/g, '<br>');
         return t;
@@ -3630,27 +3640,35 @@ export class UIManager {
             const eLang = s?.eventLang || 'auto';
             const langInst = eLang === 'ko' ? 'Write in Korean (casual).' : eLang === 'en' ? 'Write in English (casual).' : 'Match RP language.';
 
-            const prompt = `Twitter-style real-time posts for NPCs at an RP location. Short, casual, showing what they're doing NOW.
+            const prompt = `한국 트위터 스타일의 실시간 짧은 글들을 이 장소의 NPC들이 쓰고 있다고 상상하고 만들어줘.
 
-Location: "${loc.name}"${loc.memo ? ` (${loc.memo.substring(0,80)})` : ''}
-User="${userName}", Char="${charName}"
-${charDesc ? `Context: ${charDesc}` : ''}
-NPCs here: ${npcList || 'none'}
-Recent events: ${evSummary}
+장소: "${loc.name}"${loc.memo ? ` (${loc.memo.substring(0,80)})` : ''}
+유저="${userName}", 메인 캐릭터="${charName}"
+${charDesc ? `캐릭터 설정: ${charDesc}` : ''}
+이곳의 NPC: ${npcList || '없음'}
+최근 사건: ${evSummary}
 ${langInst}
-${recentChat ? `\n[Recent RP]:\n${recentChat.substring(0, 600)}\n` : ''}
+${recentChat ? `\n[최근 RP]:\n${recentChat.substring(0, 600)}\n` : ''}
 
-RULES:
-- 1-3 short sentences per post, like real tweets
-- @mentions + #hashtags + *actions in asterisks*
-- Match each character's voice
-- Animals post from their perspective
-- Include mood (excited/chill/tense/sleepy/romantic)
+작성 규칙 — 한국 트위터(X) 감성으로:
+- 각 글은 1~3줄의 짧은 트윗. 한국어로 자연스럽게.
+- 캐릭터마다 말투/어휘/성격이 뚜렷해야 함. 설정을 꼭 반영.
+- @멘션, #해시태그는 자연스럽게 (해시태그 2~3개)
+- "*행동*" 같은 별표로 감싸는 액션 설명은 절대 쓰지 마. 진짜 트윗처럼 그냥 쓰고 있는 상태 자체를 텍스트로 묘사.
+  ❌ 나쁜 예: "*차가운 물 찾으며* 목이 타네" 
+  ✅ 좋은 예: "냉장고 뒤져도 찬물이 없어. 누가 좀 채워놔 제발..."
+- 동물은 동물 시점으로 귀엽게 (예: 고양이 "따뜻한 창가 자리 사수 완료")
+- 감정 라벨 (excited/chill/tense/sleepy/romantic) 선택
+- 서로의 트윗에 반응하거나 사건을 언급할 수 있음
+- **절대 금지**: 남초 커뮤니티 말투/유행어 ("ㅇㅇ", "ㄴㄴ", "팩트", "ㄱㅈㅇㅈ", "ㅇㄱㄹㅇ", "~노", "~근", "킹받네", "~하노", "~꺼라", "~해야함", 디시 말투, 일베 말투, 아재개그 전부 금지)
+- 대신 자연스러운 한국어로. 캐릭터 개성 살려서 (진지/발랄/시니컬/감성 등 캐릭터에 맞게)
 
-Generate 4-5 posts from mix of NPCs/animals. Respond ONLY with JSON:
-{"posts":[{"name":"CharName","avatar":"emoji","type":"npc","mood":"excited","moodLabel":"🔥 신남","text":"post with @mention #hashtag *action*","likes":5}]}
+혼합된 NPC(알려진 NPC + 이 장소에 어울리는 신규 NPC/동물 1~2명)로 4~5개 트윗 생성.
 
-Start with { end with }.`;
+JSON만 응답해:
+{"posts":[{"name":"CharName","avatar":"적절한 이모지","type":"npc","mood":"excited","moodLabel":"🔥 신남","text":"자연스러운 한국어 트윗. @멘션 #해시태그","likes":5}]}
+
+{로 시작해서 }로 끝.`;
 
             const result = await callLLM(prompt);
             if (!result) {
@@ -3721,8 +3739,10 @@ Start with { end with }.`;
             overlay.css('transform', 'translateY(100%)');
             setTimeout(() => overlay.remove(), 350);
         };
-        overlay.find('#wt-comm-back').on('click', close);
-        overlay.find('#wt-comm-refresh, #wt-comm-fab').on('click', async () => {
+        overlay.find('#wt-comm-back').on('click touchend', (e) => { e.preventDefault(); close(); });
+        overlay.find('#wt-comm-refresh, #wt-comm-fab').on('click touchend', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             overlay.find('#wt-comm-fab').text('⏳').prop('disabled', true);
             await self._generateCommunity(locId);
             close();
@@ -3759,6 +3779,57 @@ Start with { end with }.`;
     }
 
     // ========== 🗺️ 미니 약도 (장소 주변 관계도) ==========
+    _showNodemapFullscreen(anchorLocId) {
+        $('#wt-nodemap-overlay').remove();
+
+        const overlay = $(`<div id="wt-nodemap-overlay" style="position:fixed;inset:0;background:#F8F9FA;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
+            <div style="padding:12px 16px;background:#fff;border-bottom:1px solid #DADCE0;display:flex;align-items:center;gap:12px;box-shadow:0 1px 3px rgba(60,64,67,.15)">
+                <div id="wt-nodemap-back" style="font-size:20px;color:#202124;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
+                <div style="flex:1">
+                    <div style="font-size:16px;font-weight:700;color:#202124">🗺️ 전체 약도</div>
+                    <div style="font-size:11px;color:#5F6368">장소 관계도 · 노드 이동: 드래그</div>
+                </div>
+                <div id="wt-nodemap-refresh" style="padding:6px 12px;border-radius:18px;background:#E8F0FE;color:#1A73E8;font-size:12px;font-weight:500;cursor:pointer">🔄 재배치</div>
+            </div>
+            <div id="wt-nodemap-full-container" style="flex:1;background:#fff;position:relative;overflow:hidden"></div>
+        </div>`);
+        $('body').append(overlay);
+        requestAnimationFrame(() => overlay.css('transform', 'translateY(0)'));
+
+        const self = this;
+        const close = () => {
+            overlay.css('transform', 'translateY(100%)');
+            setTimeout(() => overlay.remove(), 350);
+        };
+        overlay.find('#wt-nodemap-back').on('click', close);
+
+        // ★ 약도 렌더러 생성 (풀스크린 컨테이너에)
+        setTimeout(async () => {
+            const container = document.getElementById('wt-nodemap-full-container');
+            if (!container) return;
+            try {
+                const { MapRenderer } = await import('./map-renderer.js');
+                const mr = new MapRenderer(container, self.lm);
+                mr.onLocationClick = id => {
+                    // 클릭하면 해당 장소 바텀시트 + 약도 오버레이 닫기
+                    close();
+                    setTimeout(() => self._showBottomSheet(id), 400);
+                };
+                mr.render();
+                overlay.find('#wt-nodemap-refresh').on('click', () => {
+                    mr.relayout?.();
+                    mr.render();
+                    toastSuccess('🔄 재배치 완료');
+                });
+                // 중심 장소로 이동
+                if (anchorLocId && mr.centerOn) mr.centerOn(anchorLocId);
+            } catch(e) {
+                console.error('[wt] Nodemap fullscreen error:', e);
+                container.innerHTML = '<div style="padding:40px;text-align:center;color:#9AA0A6">약도를 불러올 수 없습니다</div>';
+            }
+        }, 100);
+    }
+
     _renderMiniNodemap(locId) {
         const svg = $('#wt-bs-nodemap-svg');
         if (!svg.length) return;

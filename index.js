@@ -1047,7 +1047,7 @@ title: Write like 'OO한 곳' or 'OO이 시작된 곳'. Capture emotional signif
 promisePlace: ANY named store/city/building characters discuss visiting. Be AGGRESSIVE. Write ONLY the place name, or null.
 future_plan: ALWAYS check for this. If ANY character mentions going somewhere, doing something later, making an appointment, scheduling a visit, or promising to return — set has_plan: true and fill what/where/when.
 npc_interactions: Track how NPCs/animals interact with ${userName}. delta: +0.5 friendly/kind, +1 life-saving/deeply bonding, -0.5 rude/hostile, -1 betrayal/attack. Only include NPCs who ACTIVELY interact in this scene. Omit if no NPC interactions.
-community_updates: Twitter-style real-time posts capturing what NPCs/animals are doing RIGHT NOW in this scene. Generate 1-3 posts (only for NPCs who are visibly active). Match each character's voice. Use *actions*, @mentions, #hashtags. Omit if no NPCs are active.
+community_updates: Twitter-style real-time Korean posts capturing what NPCs/animals are doing RIGHT NOW in this scene. Generate 1-3 posts (only for NPCs who are visibly active). Write like real Korean Twitter/X: no *asterisked actions*, just natural Korean sentences showing their current state/feeling. Match each character's voice/personality. Use @mentions, #hashtags. NEVER use Korean male-forum slang (ㅇㅇ/ㄴㄴ/팩트/ㅇㄱㄹㅇ/~노/~근/킹받네/디시체 등 금지). Omit if no NPCs are active.
 
 Examples:
 {"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다.","promisePlace":null,"future_plan":{"has_plan":false},"npc_interactions":[{"name":"Dex","delta":0.5,"reason":"간식 나눠먹음"},{"name":"Ghost","delta":-0.5,"reason":"뒷담화 들킴"}]}

@@ -47,24 +47,106 @@ export class UIManager {
             const panel = document.createElement('div');
             panel.id = 'wt-tap-debug';
             panel.style.cssText = 'position:fixed;top:8px;right:8px;width:240px;max-height:180px;background:rgba(0,0,0,0.85);color:#0f0;font-family:monospace;font-size:10px;padding:4px 6px;border-radius:6px;z-index:2147483647;overflow-y:auto;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.3);pointer-events:auto';
-            panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px"><span style="color:#ff0;font-weight:700">🔍 WT TAP DEBUG</span><span style="display:flex;gap:4px"><span id="wt-dbg-clr" style="cursor:pointer;color:#0af;padding:0 4px">CLR</span><span id="wt-dbg-x" style="cursor:pointer;color:#f55;padding:0 4px">✕</span></span></div><div id="wt-dbg-log"></div>';
+            panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px"><span style="color:#ff0;font-weight:700">🔍 WT DEBUG</span><span style="display:flex;gap:3px"><span id="wt-dbg-diag" style="cursor:pointer;color:#fa0;padding:0 3px;font-weight:700">DIAG</span><span id="wt-dbg-all" style="cursor:pointer;color:#888;padding:0 3px;font-weight:700">ALL</span><span id="wt-dbg-clr" style="cursor:pointer;color:#0af;padding:0 3px">CLR</span><span id="wt-dbg-x" style="cursor:pointer;color:#f55;padding:0 3px">✕</span></span></div><div id="wt-dbg-log"></div>';
             document.body.appendChild(panel);
 
             const log = document.getElementById('wt-dbg-log');
             const dlog = (msg, color) => {
                 const d = document.createElement('div');
-                d.style.cssText = `color:${color||'#0f0'};margin-bottom:1px`;
+                d.style.cssText = `color:${color||'#0f0'};margin-bottom:1px;word-break:break-all`;
                 const ts = new Date();
                 const tm = `${String(ts.getSeconds()).padStart(2,'0')}.${String(ts.getMilliseconds()).padStart(3,'0')}`;
                 d.textContent = `${tm} ${msg}`;
                 log.insertBefore(d, log.firstChild);
-                while (log.children.length > 30) log.removeChild(log.lastChild);
+                while (log.children.length > 50) log.removeChild(log.lastChild);
             };
             window._wtDlog = dlog;
             dlog('debug ready', '#ff0');
 
             document.getElementById('wt-dbg-clr').addEventListener('click', (e) => { e.stopPropagation(); log.innerHTML = ''; }, true);
             document.getElementById('wt-dbg-x').addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); }, true);
+
+            // r17: DIAG 진단 — 버튼 위치에 뭐가 덮여있는지, 조상 pointer-events 검사
+            const describeEl = (el) => {
+                if (!el) return 'NULL';
+                const id = el.id ? `#${el.id}` : '';
+                const cls = (el.className && typeof el.className === 'string') ? `.${el.className.split(' ').slice(0,2).join('.')}` : '';
+                return `${el.tagName}${id}${cls}`.substring(0, 50);
+            };
+            const runDiag = () => {
+                dlog('=== DIAG START ===', '#ff0');
+                const targets = [
+                    { sel: '.wt-bs-comm-more', label: 'COMM_MORE' },
+                    { sel: '#wt-bs-nodemap-expand', label: 'NMAP_EXP' },
+                ];
+                for (const { sel, label } of targets) {
+                    const el = document.querySelector(sel);
+                    if (!el) { dlog(`${label}: NOT IN DOM`, '#f55'); continue; }
+                    const r = el.getBoundingClientRect();
+                    dlog(`${label}: ${r.width.toFixed(0)}x${r.height.toFixed(0)} @(${r.left.toFixed(0)},${r.top.toFixed(0)})`, '#0f0');
+                    const cs = getComputedStyle(el);
+                    dlog(` pe=${cs.pointerEvents} vis=${cs.visibility} disp=${cs.display} op=${cs.opacity} z=${cs.zIndex}`, '#0af');
+                    if (r.width === 0 || r.height === 0) { dlog(` ! zero-size button`, '#f55'); continue; }
+                    const vh = window.innerHeight;
+                    const vw = window.innerWidth;
+                    if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) {
+                        dlog(` ! offscreen (vh=${vh})`, '#f55'); continue;
+                    }
+                    const cx = Math.min(Math.max(r.left + r.width/2, 0), vw-1);
+                    const cy = Math.min(Math.max(r.top + r.height/2, 0), vh-1);
+                    const topEl = document.elementFromPoint(cx, cy);
+                    const isSame = topEl === el || (topEl && el.contains(topEl));
+                    dlog(` topAt(${cx.toFixed(0)},${cy.toFixed(0)}): ${describeEl(topEl)}`, isSame ? '#0f0' : '#f55');
+                    if (!isSame && topEl) {
+                        const tcs = getComputedStyle(topEl);
+                        dlog(` !! COVERED BY pe=${tcs.pointerEvents} z=${tcs.zIndex} pos=${tcs.position}`, '#f80');
+                    }
+                    // 조상 체인에서 pointer-events:none 찾기
+                    let cur = el.parentElement, depth = 0, found = false;
+                    while (cur && cur !== document.body && depth < 15) {
+                        const pcs = getComputedStyle(cur);
+                        if (pcs.pointerEvents === 'none') {
+                            dlog(` !! ANCESTOR pe=none: ${describeEl(cur)}`, '#f00');
+                            found = true;
+                        }
+                        cur = cur.parentElement;
+                        depth++;
+                    }
+                    if (!found && isSame) dlog(` ancestors OK`, '#0f0');
+                }
+                dlog('=== DIAG END ===', '#ff0');
+            };
+            document.getElementById('wt-dbg-diag').addEventListener('click', (e) => { e.stopPropagation(); runDiag(); }, true);
+            document.getElementById('wt-dbg-diag').addEventListener('touchend', (e) => { e.stopPropagation(); runDiag(); }, true);
+
+            // r17: ALL 토글 — 모든 touchstart 이벤트 추적 (어디서 터치가 실제로 발생하는지)
+            window._wtLogAll = false;
+            const toggleAll = () => {
+                window._wtLogAll = !window._wtLogAll;
+                const btn = document.getElementById('wt-dbg-all');
+                btn.style.color = window._wtLogAll ? '#0f0' : '#888';
+                dlog(`ALL ${window._wtLogAll ? 'ON' : 'OFF'}`, '#ff0');
+            };
+            document.getElementById('wt-dbg-all').addEventListener('click', (e) => { e.stopPropagation(); toggleAll(); }, true);
+            document.getElementById('wt-dbg-all').addEventListener('touchend', (e) => { e.stopPropagation(); toggleAll(); }, true);
+
+            // ALL 모드: 모든 touchstart/pointerdown 이벤트의 target 기록
+            document.addEventListener('touchstart', (e) => {
+                if (!window._wtLogAll) return;
+                // 디버그 패널 내부 터치는 무시
+                if (e.target.closest?.('#wt-tap-debug')) return;
+                const t = e.touches[0];
+                const topEl = document.elementFromPoint(t.clientX, t.clientY);
+                dlog(`TS @(${t.clientX.toFixed(0)},${t.clientY.toFixed(0)}) → ${describeEl(e.target)}`, '#0ff');
+                if (topEl && topEl !== e.target) {
+                    dlog(` topAt=${describeEl(topEl)}`, '#f80');
+                }
+            }, true);
+            document.addEventListener('pointerdown', (e) => {
+                if (!window._wtLogAll) return;
+                if (e.target.closest?.('#wt-tap-debug')) return;
+                dlog(`PD → ${describeEl(e.target)}`, '#aaf');
+            }, true);
 
             // r16: COMM_GEN은 기존 handler가 잘 작동하니까 capture 우회에서 제외 (중복 호출/race 방지)
             // 로그만 찍고 fire는 안 함

@@ -202,7 +202,7 @@ export class UIManager {
     createSettingsPanel() {
         const html = `<div id="wt-settings" class="wt-settings"><div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>🐶 World Tracker <span class="wt-version" style="cursor:default;user-select:none">v0.6.1-beta-r1</span></b>
+                <b>🐶 World Tracker <span class="wt-version" style="cursor:default;user-select:none">v0.6.1-beta-r2</span></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div><div class="inline-drawer-content">
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-enabled"/> 활성화</label></div>
@@ -1895,7 +1895,7 @@ export class UIManager {
                         <button class="wt-bs-comm-more" style="font-size:12px;color:#1D9BF0;font-weight:600;cursor:pointer;background:#E8F5FD;border:none;padding:6px 12px;border-radius:14px;font-family:inherit;-webkit-tap-highlight-color:rgba(29,155,240,.2);min-height:32px;touch-action:manipulation;position:relative;z-index:2">전체 보기 ›</button>
                     </div>
                     ${loc.community.slice(0,3).map(p => `<div style="padding:8px 12px;display:flex;gap:8px;border-bottom:1px solid #EFF3F4">
-                        <div style="width:28px;height:28px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${p.avatar || '👤'}</div>
+                        <div style="width:28px;height:28px;min-width:28px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;flex-shrink:0;overflow:hidden;text-align:center">${this._firstGrapheme(p.avatar || '👤')}</div>
                         <div style="flex:1;min-width:0">
                             <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px;font-weight:600;color:#0F1419">${p.name}</span><span style="font-size:10px;color:#8B98A5">· ${this._timeAgo(p.timestamp)}</span></div>
                             <div style="font-size:11px;color:#536471;line-height:1.4;margin-top:1px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${this._renderCommunityText(p.text)}</div>
@@ -4012,67 +4012,116 @@ export class UIManager {
             const eLang = s?.eventLang || 'auto';
             const langInst = eLang === 'ko' ? 'Write in Korean (casual).' : eLang === 'en' ? 'Write in English (casual).' : 'Match RP language.';
 
-            const prompt = `한국 트위터 스타일의 실시간 짧은 글들을 이 장소의 NPC들이 쓰고 있다고 상상하고 만들어줘.
+            const prompt = `이 장소 주변에서 흘러나오는 **트위터 실시간 피드**를 생성해줘. 지역/장소 해시태그로 모인 **익명의 아무나**가 쓴 글이 대부분이다.
 
-장소: "${loc.name}"${loc.memo ? ` (${loc.memo.substring(0,80)})` : ''}
+장소: "${loc.name}"${loc.memo ? ` (${loc.memo.substring(0,80)})` : ''}${loc.address ? ` · ${loc.address.substring(0,60)}` : ''}
 유저="${userName}", 메인 캐릭터="${charName}"
 ${charDesc ? `캐릭터 설정: ${charDesc}` : ''}
-이곳의 NPC: ${npcList || '없음'}
-최근 사건: ${evSummary}
+이곳 등록된 NPC: ${npcList || '없음'}
+최근 이곳 사건: ${evSummary}
 ${langInst}
-${recentChat ? `\n[최근 RP]:\n${recentChat.substring(0, 600)}\n` : ''}
+${recentChat ? `\n[최근 RP 맥락 (배경 참고만, 직접 언급 금지)]:\n${recentChat.substring(0, 600)}\n` : ''}
 
-작성 규칙 — 진짜 한국 트위터(X) 감성:
+━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 핵심 원칙 — "장소 기반 트위터 타임라인"
+━━━━━━━━━━━━━━━━━━━━━━━━
 
-[기본 원칙]
-- 각 트윗은 캐릭터가 SNS에 실제로 쓰는 짧은 글이다.
-- 메타 내레이션/장면 설명 금지 — 캐릭터 본인이 직접 쓴 글만.
+이곳은 리뷰가 아니다. **지역 해시태그를 타고 흘러오는 웅성웅성한 트위터 피드**다.
+"이 장소 + 주변 지역을 공유하는 사람들"이 각자 살아가며 올리는 트윗.
 
-[텍스트 트윗 — 전체의 70~80%]
-- 1~3줄 짧은 한국어 트윗. @멘션·#해시태그 자연스럽게 (2~3개)
-- 캐릭터별 말투/어휘/성격 뚜렷 (설정 반영)
-- "*행동*" 별표 액션 서술 금지 — 그냥 트윗처럼 써
-- 동물은 동물 시점 (고양이 "창가 자리 사수했다냥")
-- 금지 유행어: ㅇㅇ/ㄴㄴ/팩트/ㄱㅈㅇㅈ/ㅇㄱㄹㅇ/~노/~근/킹받네/~하노/~꺼라/디시/일베/아재개그
+━━━━━━━━━━━━━━━━━━━━━━━━
+👥 구성 비율 (4~5개 포스트)
+━━━━━━━━━━━━━━━━━━━━━━━━
 
-[📸 이미지 첨부 트윗 — 4~5개 중 1~2개]
-트위터처럼 "텍스트 + 사진 첨부" 형태. text에 글 쓰고 아래에 img 태그 삽입.
-이미지 URL: https://image.pollinations.ai/prompt/<영어 설명 URL 인코딩>?nologo=true&width=512&height=340
+**익명 유저 3~4개 (대다수) / 등록 캐릭·NPC 0~1개 (가끔)**
 
-이미지 설명은 **장소·상황·분위기에 맞는 영어 키워드**로 (realistic, cinematic 스타일 추가 권장)
+- 등록된 캐릭터(${charName})나 NPC(${npcList || '없음'})는 **4~5개 중 최대 1개만** 등장. 없어도 OK.
+- 나머지는 전부 **이름 없는 트위터 유저** — 이곳에 살거나, 지나가거나, 관련 있는 익명들.
 
-⚠️ JSON 파싱 안전: HTML 태그 안에서는 **작은따옴표(') 사용**. 큰따옴표 금지.
-  ✅ style='width:100%;border-radius:10px;margin-top:8px'
-  ❌ style="width:100%"
+━━━━━━━━━━━━━━━━━━━━━━━━
+🎭 익명 유저 프로필 (다양하게 섞기!)
+━━━━━━━━━━━━━━━━━━━━━━━━
 
-이미지 종류 자유 — 장소·상황에 맞게:
-- 풍경/배경 (사막, 도시, 숲, 실내 등)
-- 음식/음료 사진
-- 풍경 셀카 느낌 (배경 중심)
-- 동물 사진
-- 물건/소품 클로즈업
-- 하늘/날씨
+**이름**: 트위터 닉네임 스타일. 장르/지역에 맞게 자유롭게.
+- 지역 연상: "헤리퍼드_주민", "Quarters_rat", "카자흐거주민", "사막여우42", "부대앞카페단골"
+- 평범: "익명", "지나가는행인", "이름없음", "밤새는사람"
+- 캐릭터성: "커피중독자", "야행성올빼미", "군인좋아함", "개덕후"
 
-[간단 인용문 — 가끔 (선택)]
-트윗 안에 짧은 인용 블록을 넣을 수 있음. 반드시 트윗 카드 안에 들어갈 크기로.
-예: <div style='border-left:3px solid #B0A898;padding:8px 12px;margin-top:8px;background:#F8F8F5;border-radius:0 8px 8px 0;font-size:13px;color:#4A4A4A;font-style:italic'>인용문 내용<br><span style='font-style:normal;color:#8B98A5;font-size:11px'>— 출처</span></div>
+**@핸들**: 영문 소문자+언더스코어+숫자. "@desert_rat42", "@local_kazakh", "@coffee_addict"
 
-[❌ 금지]
-- 복잡한 HTML 레이아웃 (큰 박스 카드, SYSTEM ALERT 패널, 네온 박스 등)
-- display:flex/grid 같은 레이아웃 속성으로 복잡한 구조
-- <script>, <iframe>, onclick 등 이벤트 핸들러
+**avatar**: 아래 3가지 **섞어서** 써. 각 포스트마다 다른 스타일. 반드시 **이모지 1개만**.
+1. 고정 랜덤: ☺ 🌵 🤔 🌕 ☀ 🌙 💭 🫠 🐾 ✨ 📷 ☕ 🎧
+2. 지역/장소 연상: (사막→🐪🌵, 기지→🪖⚙, 카페→☕🧁, 조선→🏯👘 중 하나)
+3. 심플 아바타: 👤 👥 👨 👩 🧑 👻
 
-혼합된 NPC(알려진 NPC + 장소에 어울리는 신규 NPC/동물 1~2명)로 4~5개 포스트.
-감정 라벨 (excited/chill/tense/sleepy/romantic) 선택.
+**type**: 익명이면 "anon" (신규), 등록 NPC면 기존대로 "npc"/"animal"
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+✍️ 톤·주제 (전부 섞어서 다양하게!)
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+한 피드 안에 아래 톤들이 **골고루** 들어가야 함:
+
+🔸 **불평/잡담/밈 (ㅋㅋㅋ 감성)**
+   "여기 진짜 왜 이렇게 더움? ㅋㅋㅋ 에어컨 어디 감"
+   "오늘도 출근. 집에 가고 싶다 #월요일 #극혐"
+   "또 와이파이 끊김 이 동네 통신사 바꿔야 함 진짜"
+
+🔸 **관찰/분위기 (사진 묘사, 풍경)**
+   "창밖 노을 미쳤다."
+   "아침 공기 선선하다. #산책 #아침"
+   "이 골목 고양이 또 왔네 ㅋㅋ 살찜"
+
+🔸 **뉴스/루머/소문 (속보 감성)**
+   "방금 큰길에 검은차 대여섯대 지나감. 뭔 일?"
+   "근처 상가 오늘 일찍 닫았다던데 왜임"
+   "소문 들었는데 여기 예전에 군인들 자주 왔다며"
+
+🔸 **일상/혼잣말 (짧고 툭)**
+   "커피 마시는 중"
+   "배고프다"
+   "왜 이시간에 잠이 안 옴"
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+📏 포맷 규칙
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+- 1~3줄 짧은 트윗. @멘션·#해시태그 자연스럽게 (#장소명, #지역, #일상 등 2~3개)
+- **"*행동*" 별표 액션 금지** — 그냥 트윗처럼 써
+- **금지 유행어**: ㅇㅇ/ㄴㄴ/팩트/ㄱㅈㅇㅈ/ㅇㄱㄹㅇ/~노/~근/킹받네/~하노/~꺼라/디시체/일베/아재개그
+- **메타 내레이션 금지** — "~에 있는 인물이 트윗을 작성한다" 같은 서술 X
+
+📸 **이미지 첨부 (4~5개 중 1~2개에만)**
+- URL: \`https://image.pollinations.ai/prompt/<영어설명 URL인코딩>?nologo=true&width=512&height=340\`
+- HTML 내부는 **작은따옴표(')** 사용 (JSON 파싱 안전):
+  ✅ \`style='width:100%;border-radius:10px;margin-top:8px'\`
+  ❌ \`style="width:100%"\`
+- 장소·분위기에 맞는 영어 키워드 (풍경/음식/하늘/동물/소품)
+
+💬 **인용문 블록 (가끔, 선택)**
+- \`<div style='border-left:3px solid #B0A898;padding:8px 12px;margin-top:8px;background:#F8F8F5;border-radius:0 8px 8px 0;font-size:13px;color:#4A4A4A;font-style:italic'>인용 내용<br><span style='font-style:normal;color:#8B98A5;font-size:11px'>— 출처</span></div>\`
+
+❌ **금지**
+- 복잡한 HTML 레이아웃 (SYSTEM ALERT 패널, 네온 박스, display:flex/grid 구조)
+- \`<script>\`, \`<iframe>\`, \`onclick\` 등
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+📦 JSON 출력
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+감정 라벨: excited/chill/tense/sleepy/romantic 중 선택
+likes: 익명은 0~15 사이 소소하게, 등록 NPC는 20~50 사이
 
 JSON만 응답:
 {"posts":[
-  {"name":"야옹이","avatar":"🐱","type":"animal","mood":"chill","moodLabel":"😌 나른","text":"창가 자리 사수했다냥 #냥스타그램","likes":12},
-  {"name":"Price","avatar":"🥃","type":"npc","mood":"tense","moodLabel":"😰 경계","text":"사막 한가운데서 헬기 소리가 끊이질 않는다. 잠은 언제 자나. #TF141 #임무중<br><img src='https://image.pollinations.ai/prompt/military%20desert%20night%20helicopter%20silhouette%20cinematic?nologo=true&width=512&height=340' style='width:100%;border-radius:10px;margin-top:8px'>","likes":42},
-  {"name":"Ghost","avatar":"💀","type":"npc","mood":"sleepy","moodLabel":"😮‍💨 피곤","text":"이 좆같은 더위는 뭐냐. 물이라도 좀 시원한 거 마시고 싶다.<div style='border-left:3px solid #B0A898;padding:8px 12px;margin-top:8px;background:#F8F8F5;border-radius:0 8px 8px 0;font-size:13px;color:#4A4A4A;font-style:italic'>물 배급은 0600시 이후.<br><span style='font-style:normal;color:#8B98A5;font-size:11px'>— 보급 담당</span></div>","likes":18}
+  {"name":"사막여우42","handle":"@desert_fox42","avatar":"🦊","type":"anon","mood":"chill","moodLabel":"😌 나른","text":"해가 쨍쨍. 낮잠 자기 딱 좋은 날씨네 #카자흐스탄 #자연","likes":4},
+  {"name":"Quarters_rat","handle":"@q_rat","avatar":"🤔","type":"anon","mood":"tense","moodLabel":"😵 멘붕","text":"또 와이파이 끊김 ㅋㅋㅋㅋ 이 동네 진짜 왜 이럼","likes":11},
+  {"name":"야행성올빼미","handle":"@night_owl","avatar":"🌙","type":"anon","mood":"sleepy","moodLabel":"😮‍💨 피곤","text":"새벽 3시. 왜 잠이 안 오는지 모르겠음<br><img src='https://image.pollinations.ai/prompt/night%20window%20desert%20stars%20lonely%20atmosphere?nologo=true&width=512&height=340' style='width:100%;border-radius:10px;margin-top:8px'>","likes":7},
+  {"name":"익명","handle":"@anon_local","avatar":"👤","type":"anon","mood":"excited","moodLabel":"👀 관찰","text":"방금 큰길에 검은 SUV 대여섯대 지나감. 뭔 일이래 #속보 #동네","likes":15},
+  {"name":"Price","handle":"@captain","avatar":"🥃","type":"npc","mood":"tense","moodLabel":"😰 경계","text":"잠은 언제 자나. 또 밤샘이다 #임무중","likes":32}
 ]}
 
-{로 시작 }로 끝.`;
+JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
 
             const result = await callLLM(prompt);
             if (!result) {
@@ -4306,6 +4355,18 @@ JSON만 응답:
         }, { passive: true });
     }
 
+    // v0.6.1: 이모지/멀티바이트 문자의 첫 grapheme만 추출 (아바타 overflow 방지)
+    _firstGrapheme(s) {
+        if (!s) return '👤';
+        try {
+            const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+            const first = segmenter.segment(s).containing(0)?.segment;
+            return first || s;
+        } catch(_) {
+            return s.length > 4 ? s.substring(0, 2) : s;
+        }
+    }
+
     _renderCommunityPostCard(p) {
         const moodColors = {
             excited: 'background:#FFF3E0;color:#B36B00',
@@ -4315,8 +4376,10 @@ JSON만 응답:
             sleepy: 'background:#EDE7F6;color:#4527A0',
         };
         const moodStyle = moodColors[p.mood] || 'background:#F7F9F9;color:#536471';
-        return `<div style="padding:12px 16px;border-bottom:1px solid #EFF3F4;display:flex;gap:12px">
-            <div style="width:40px;height:40px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${p.avatar || '👤'}</div>
+        // v0.6.1: 아바타 정규화 — 이모지 2~3개 겹친 거("🍯🦡", "1️⃣4️⃣1️⃣") 터지지 않도록 첫 grapheme만 사용
+        const avatarChar = this._firstGrapheme(p.avatar || (p.type === 'animal' ? '🐾' : '👤'));
+        return `<div style="padding:12px 16px;border-bottom:1px solid #EFF3F4;display:flex;gap:12px;align-items:flex-start">
+            <div style="width:40px;height:40px;min-width:40px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;flex-shrink:0;overflow:hidden;text-align:center">${avatarChar}</div>
             <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:2px">
                     <span style="font-size:14px;font-weight:700;color:#0F1419">${p.name}</span>

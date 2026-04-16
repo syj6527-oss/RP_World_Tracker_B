@@ -2160,16 +2160,14 @@ export class UIManager {
         // #8: 핸들 클릭 이벤트 차단
         handle.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
 
-        handle.addEventListener('touchstart', (e) => {
-            e.stopPropagation();
-            startY = e.touches[0].clientY;
+        // ★ 공통 드래그 로직 (터치 + 마우스 둘 다 지원)
+        const startDrag = (clientY) => {
+            startY = clientY;
             startH = bsEl.offsetHeight;
             dragged = false;
             totalDelta = 0;
             bsEl.style.transition = 'none';
-            // ★ 드래그 중 스크롤 차단 (MyPage/Timeline 스와이프 버그 수정)
             bsEl.style.overflowY = 'hidden';
-            // ★ Full 상태면 top:0 → maxHeight 모드로 전환
             if (self._bsStage === 3) {
                 const wrapEl = bsEl.closest('#wt-leaflet-wrap') || bsEl.parentElement;
                 const wrapH = wrapEl?.offsetHeight || window.innerHeight;
@@ -2178,27 +2176,22 @@ export class UIManager {
                 startH = wrapH;
                 bsEl.style.zIndex = '2000';
             }
-        }, { passive: true });
+        };
 
-        handle.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            const curY = e.touches[0].clientY;
-            const delta = startY - curY;
+        const moveDrag = (clientY) => {
+            const delta = startY - clientY;
             totalDelta = delta;
-            // B3: threshold 미만이면 시각적 변경 없음
             if (Math.abs(delta) < DRAG_THRESHOLD) return;
             dragged = true;
             const newH = Math.max(40, startH + delta);
             bsEl.style.maxHeight = newH + 'px';
             bsEl.style.top = 'auto';
             bsEl.style.overflowY = newH > 100 ? 'auto' : 'hidden';
-        }, { passive: false });
+        };
 
-        handle.addEventListener('touchend', () => {
+        const endDrag = () => {
             if (!dragged) {
-                // 터치만 하고 안 움직임 → 다음 단계
                 bsEl.style.transition = 'max-height 0.3s ease, top 0.3s ease';
-                // B2: 핸들 탭 시 peek→half→full→half 반복 (HANDOFF 스펙)
                 let next;
                 if (self._bsStage === 1) next = 2;
                 else if (self._bsStage === 2) next = 3;
@@ -2207,42 +2200,66 @@ export class UIManager {
                 self._applyBsStage(next);
                 return;
             }
-            // 드래그 끝 → 스냅
             const h = bsEl.offsetHeight;
             const wrapEl = bsEl.closest('#wt-leaflet-wrap') || bsEl.parentElement;
             const wrapH = wrapEl?.offsetHeight || window.innerHeight;
             bsEl.style.transition = 'max-height 0.3s ease, top 0.3s ease';
-
-            // B2: 스와이프 방향 고려한 스냅
-            const velocity = totalDelta; // 양수=위로, 음수=아래로
+            const velocity = totalDelta;
             const s1 = 80, s2 = wrapH * 0.5, s3 = wrapH;
-
-            if (h < 40) { self._applyBsStage(0); return; } // 닫기
-
-            // 강한 스와이프 → 방향에 따라 바로 이동
+            if (h < 40) { self._applyBsStage(0); return; }
             if (Math.abs(velocity) > 80) {
                 if (velocity > 0) {
-                    // 위로 강하게 → 한 단계 위
                     if (self._bsStage === 1) self._applyBsStage(2);
                     else self._applyBsStage(3);
                 } else {
-                    // 아래로 강하게 → 한 단계 아래
                     if (self._bsStage === 3) self._applyBsStage(2);
                     else if (self._bsStage === 2) self._applyBsStage(1);
                     else self._applyBsStage(0);
                 }
                 return;
             }
-
-            // 약한 드래그 → 가장 가까운 스냅포인트
             const d1 = Math.abs(h - s1);
             const d2 = Math.abs(h - s2);
             const d3 = Math.abs(h - s3);
-
             if (d1 <= d2 && d1 <= d3) { self._applyBsStage(1); }
             else if (d2 <= d3) { self._applyBsStage(2); }
             else { self._applyBsStage(3); }
+        };
+
+        // ★ 터치 이벤트 (모바일)
+        handle.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            startDrag(e.touches[0].clientY);
+        }, { passive: true });
+        handle.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            moveDrag(e.touches[0].clientY);
+        }, { passive: false });
+        handle.addEventListener('touchend', endDrag);
+
+        // ★ 마우스 이벤트 (웹 브라우저) — v0.6.0 NEW
+        handle.style.cursor = 'grab';
+        let isMouseDown = false;
+        handle.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            isMouseDown = true;
+            handle.style.cursor = 'grabbing';
+            startDrag(e.clientY);
         });
+        const onMouseMove = (e) => {
+            if (!isMouseDown) return;
+            e.preventDefault();
+            moveDrag(e.clientY);
+        };
+        const onMouseUp = () => {
+            if (!isMouseDown) return;
+            isMouseDown = false;
+            handle.style.cursor = 'grab';
+            endDrag();
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     }
 
     _navLock = false;

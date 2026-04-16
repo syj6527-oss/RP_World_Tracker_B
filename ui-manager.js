@@ -1784,7 +1784,7 @@ export class UIManager {
                 <div style="background:#F8F9FA;border-radius:12px;padding:12px;text-align:center">
                     <div style="font-size:11px;font-weight:600;color:#5F6368;margin-bottom:6px;text-align:left">🔗 주변 관계도</div>
                     <div id="wt-bs-nodemap-svg" style="width:100%;height:180px;background:#fff;border-radius:8px;border:1px solid #E8EAED;overflow:hidden"></div>
-                    <button id="wt-bs-nodemap-expand" style="margin-top:10px;padding:8px 16px;border-radius:20px;border:1px solid #DADCE0;background:#fff;font-size:12px;font-weight:500;color:#1A73E8;cursor:pointer;font-family:inherit">🗺️ 전체 약도 보기</button>
+                    <button id="wt-bs-nodemap-expand" style="margin-top:10px;padding:8px 16px;border-radius:20px;border:1px solid #DADCE0;background:#fff;font-size:12px;font-weight:500;color:#1A73E8;cursor:pointer;font-family:inherit;touch-action:manipulation;-webkit-tap-highlight-color:rgba(26,115,232,.2);min-height:38px;position:relative;z-index:2">🗺️ 전체 약도 보기</button>
                 </div>
                 <div style="margin-top:12px;padding:10px;background:#E8F0FE;border-radius:10px;font-size:11px;color:#1A73E8;line-height:1.5">
                     💡 현재 장소를 중심으로 주변 등록된 장소들의 관계를 보여줍니다. 도보 거리 기준.
@@ -1921,12 +1921,20 @@ export class UIManager {
         // ★ 터줏대감 탭 렌더
         this._renderNpcTab(locId);
         this._renderMiniNodemap(locId);
-        // 🗺️ 전체 약도 보기 — 풀스크린 오버레이 (모드 전환 X)
-        bs.find('#wt-bs-nodemap-expand').on('click', (e) => {
+        // r14: 약도 + 커뮤니티 전체보기 둘 다 document-level delegated로 통일
+        // bs.find().on() 방식이 환경에 따라 유실되는 케이스 원천 차단
+        $(document).off('click.wtNodemapExp touchend.wtNodemapExp');
+        let _nodemapExpLock = false;
+        $(document).on('click.wtNodemapExp touchend.wtNodemapExp', '#wt-bs-nodemap-expand', function(e) {
+            e.preventDefault();
             e.stopPropagation();
-            self._showNodemapFullscreen(locId);
+            if (_nodemapExpLock) return;
+            _nodemapExpLock = true;
+            setTimeout(() => _nodemapExpLock = false, 500);
+            const curBs = document.getElementById('wt-bottomsheet');
+            const lid = curBs?.getAttribute('data-id');
+            if (lid) self._showNodemapFullscreen(lid);
         });
-        // 💬 커뮤니티 버튼 핸들러 (click + touchend 둘 다 — 모바일 호환성)
         // 💬 커뮤니티 버튼 핸들러 (debounce로 중복 호출 방지)
         let _commHandlerLock = false;
         const commGenHandler = async (e) => {

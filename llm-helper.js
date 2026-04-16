@@ -23,26 +23,30 @@ function _getApiConfig() {
 
         let type = null, key = null, model = null, url = null;
 
-        // ★ 여러 경로에서 API 키 탐색
+        // ★ 여러 경로에서 API 키 탐색 (window.oai 등 안전 접근)
+        const _oai = (typeof window !== 'undefined' && window.oai) || {};
+        const _chatCompletion = (typeof window !== 'undefined' && window.chat_completion_source) || (typeof window !== 'undefined' && window.chatCompletion) || null;
+        const _mainApi = (typeof window !== 'undefined' && window.main_api) || null;
+
         // Google (Gemini)
-        const gKey = oai?.api_key_makersuite
-            || window.api_key_makersuite
+        const gKey = _oai.api_key_makersuite
+            || (typeof window !== 'undefined' && window.api_key_makersuite)
             || document.getElementById('api_key_makersuite')?.value
             || '';
-        const gModel = oai?.google_model
-            || window.google_model
+        const gModel = _oai.google_model
+            || (typeof window !== 'undefined' && window.google_model)
             || document.getElementById('model_google_select')?.value
             || 'gemini-2.0-flash';
 
         // OpenAI
-        const oKey = oai?.api_key_openai
-            || window.api_key_openai
+        const oKey = _oai.api_key_openai
+            || (typeof window !== 'undefined' && window.api_key_openai)
             || document.getElementById('api_key_openai')?.value
             || '';
 
         // OpenRouter
-        const orKey = oai?.api_key_openrouter
-            || window.api_key_openrouter
+        const orKey = _oai.api_key_openrouter
+            || (typeof window !== 'undefined' && window.api_key_openrouter)
             || document.getElementById('api_key_openrouter')?.value
             || '';
 
@@ -54,7 +58,7 @@ function _getApiConfig() {
         });
 
         // Google 우선 (유저가 Gemini 사용)
-        if (gKey && (chatCompletion === 'makersuite' || mainApi === 'openai')) {
+        if (gKey && (_chatCompletion === 'makersuite' || _mainApi === 'openai')) {
             type = 'google'; key = gKey; model = gModel;
         }
         // 명시적 Google 체크 (chatCompletion 없어도)
@@ -62,15 +66,15 @@ function _getApiConfig() {
             type = 'google'; key = gKey; model = gModel;
         }
         // OpenAI
-        else if (oKey && (chatCompletion === 'openai' || !chatCompletion)) {
+        else if (oKey && (_chatCompletion === 'openai' || !_chatCompletion)) {
             type = 'openai'; key = oKey;
-            model = oai?.openai_model || 'gpt-4o-mini';
-            url = oai?.openai_reverse_proxy || 'https://api.openai.com/v1';
+            model = _oai.openai_model || 'gpt-4o-mini';
+            url = _oai.openai_reverse_proxy || 'https://api.openai.com/v1';
         }
         // OpenRouter
         else if (orKey) {
             type = 'openai'; key = orKey;
-            model = oai?.openrouter_model || '';
+            model = _oai.openrouter_model || '';
             url = 'https://openrouter.ai/api/v1';
         }
 
@@ -184,10 +188,14 @@ async function _callClaude(key, model, prompt, url) {
 
 // ========== 메인 호출 함수 ==========
 export async function callLLM(prompt) {
+    // ★ 마지막 에러 저장 (디버깅용)
+    window._wtLastLLMError = null;
+
     // ★ 방법 1: 직접 API 호출 (확장 설정 키 또는 ST 변수)
     const cfg = _getApiConfig();
     if (cfg) {
         try {
+            dbg(`🔧 LLM calling ${cfg.type} (${cfg.model}), prompt ${prompt.length}c`);
             let result = '';
             if (cfg.type === 'google') result = await _callGoogle(cfg.key, cfg.model, prompt);
             else if (cfg.type === 'openai') result = await _callOpenAI(cfg.key, cfg.model, prompt, cfg.url);
@@ -197,13 +205,17 @@ export async function callLLM(prompt) {
                 dbg(`🔧 LLM direct OK (${result.length}c)`);
                 return result;
             }
+            window._wtLastLLMError = 'LLM returned empty result';
+            dbg('⚠️ LLM direct returned empty');
         } catch(e) {
+            window._wtLastLLMError = e.message;
             dbg('⚠️ LLM direct failed:', e.message);
         }
+    } else {
+        window._wtLastLLMError = 'No API config (key missing?)';
     }
 
     // ★ 방법 2: Fallback — generateQuietPrompt (본체 모델, 컨텍스트 포함)
-    // ⚠️ 주의: RP 컨텍스트 포함되므로 JSON 응답이 아니면 거부!
     try {
         const ctx = getContext();
         const gen = ctx?.generateQuietPrompt;
@@ -211,17 +223,19 @@ export async function callLLM(prompt) {
             const { runWithoutAutoDetect } = await import('./index.js');
             const result = await runWithoutAutoDetect(() => gen({ prompt }), 2500);
             if (result) {
-                // ★ JSON 검증 — RP 이어쓰기 거부
                 if (result.includes('{') && result.includes('}')) {
                     dbg('🔧 LLM fallback (generateQuietPrompt) OK');
                     return result;
                 } else {
+                    window._wtLastLLMError = 'Fallback returned non-JSON';
                     dbg('⚠️ LLM fallback returned non-JSON (RP continuation?), rejecting');
                     return null;
                 }
             }
+            window._wtLastLLMError = 'Fallback returned null';
         }
     } catch(e) {
+        window._wtLastLLMError = 'Fallback: ' + e.message;
         dbg('⚠️ LLM fallback failed:', e.message);
     }
 

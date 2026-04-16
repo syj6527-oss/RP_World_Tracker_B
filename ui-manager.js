@@ -3605,45 +3605,45 @@ export class UIManager {
             const ctx = getContext();
             const userName = ctx.name1 || 'User';
             const charName = ctx.name2 || 'Character';
-            const charDesc = (ctx.characters?.[ctx.characterId]?.description || '').substring(0, 300);
-            const recentChat = getRecentChatContext(1500);
-            const npcList = (loc.npcs || []).map(n => `"${n.name}"(${n.role || n.type}, ❤️${n.affinity||3}/5, ${n.bio||''})`).join(', ');
-            const evSummary = (loc.events || []).slice(-3).map(e => `${e.mood||'📝'} ${e.title||e.text}`).join(', ') || 'none';
+            const charDesc = (ctx.characters?.[ctx.characterId]?.description || '').substring(0, 150);
+            const recentChat = getRecentChatContext(800); // 줄임 (1500 → 800)
+            const npcList = (loc.npcs || []).map(n => `"${n.name}"(${n.role || n.type}, ❤️${n.affinity||3}/5)`).join(', ');
+            const evSummary = (loc.events || []).slice(-2).map(e => `${e.mood||'📝'} ${e.title||e.text?.substring(0,30)}`).join(', ') || 'none';
             const s = extension_settings[EXTENSION_NAME];
             const eLang = s?.eventLang || 'auto';
-            const langInst = eLang === 'ko' ? 'Write in Korean (natural, casual tone).' : eLang === 'en' ? 'Write in English (casual).' : 'Write in the same language as the RP.';
+            const langInst = eLang === 'ko' ? 'Write in Korean (casual).' : eLang === 'en' ? 'Write in English (casual).' : 'Match RP language.';
 
-            const prompt = `You are writing Twitter-style real-time social posts for NPCs and animals currently at an RP location. These are short, casual posts showing what they're doing RIGHT NOW.
+            const prompt = `Twitter-style real-time posts for NPCs at an RP location. Short, casual, showing what they're doing NOW.
 
-Location: "${loc.name}" (${loc.memo || 'RP location'})
-Characters: User="${userName}", Char="${charName}"
-${charDesc ? `Character context: ${charDesc}` : ''}
-Known NPCs at this location: ${npcList || 'none yet'}
-Recent events here: ${evSummary}
+Location: "${loc.name}"${loc.memo ? ` (${loc.memo.substring(0,80)})` : ''}
+User="${userName}", Char="${charName}"
+${charDesc ? `Context: ${charDesc}` : ''}
+NPCs here: ${npcList || 'none'}
+Recent events: ${evSummary}
 ${langInst}
-${recentChat ? `\n[Recent RP scenes for tone & context]:\n${recentChat}\n` : ''}
+${recentChat ? `\n[Recent RP]:\n${recentChat.substring(0, 600)}\n` : ''}
 
-TWITTER-STYLE RULES:
-- Each post: 1-3 short sentences, like real tweets
-- Use @mentions (e.g., @${userName}, @${charName})
-- Use #hashtags (2-3 per post)
-- Use *action in asterisks* for physical actions (e.g., *stretches*, *sips coffee*)
-- Match each character's unique voice and speech patterns
-- Animals post from their own perspective (a dog: "꼬리 터보모드!!!", a cat: "...인간들 시끄러움")
-- Include a mood label (chill/excited/tense/sleepy/romantic)
-- Some posts should reference each other or respond to recent events
+RULES:
+- 1-3 short sentences per post, like real tweets
+- @mentions + #hashtags + *actions in asterisks*
+- Match each character's voice
+- Animals post from their perspective
+- Include mood (excited/chill/tense/sleepy/romantic)
 
-Generate 4-6 posts from different characters (mix of known NPCs and 1-2 new NPCs/animals that would fit this location). Mix humans and animals if it fits.
+Generate 4-5 posts from mix of NPCs/animals. Respond ONLY with JSON:
+{"posts":[{"name":"CharName","avatar":"emoji","type":"npc","mood":"excited","moodLabel":"🔥 신남","text":"post with @mention #hashtag *action*","likes":5}]}
 
-Respond with ONLY valid JSON:
-{"posts":[{"name":"CharName","avatar":"emoji","type":"npc|animal","mood":"excited","moodLabel":"🔥 신남","text":"post content with @mentions and #hashtags and *actions*","likes":5}]}
-
-CRITICAL: Start with { end with }. No markdown, no explanation.`;
+Start with { end with }.`;
 
             const result = await callLLM(prompt);
-            if (!result) { toastWarn('⚠️ LLM 응답 없음'); return; }
+            if (!result) {
+                const err = window._wtLastLLMError || '알 수 없는 오류';
+                toastWarn(`⚠️ LLM 응답 없음: ${err}`);
+                console.error('[wt] Community gen failed:', err);
+                return;
+            }
             const parsed = parseLLMJson(result);
-            if (!parsed?.posts || !Array.isArray(parsed.posts)) { toastWarn('⚠️ 커뮤니티 파싱 실패'); return; }
+            if (!parsed?.posts || !Array.isArray(parsed.posts)) { toastWarn('⚠️ 커뮤니티 파싱 실패'); console.error('[wt] Community parse failed, raw:', result.substring(0, 200)); return; }
 
             // 기존 커뮤니티 초기화하고 새로 추가 (최신순)
             await this.lm.clearCommunity(locId);
@@ -4250,7 +4250,11 @@ CRITICAL: Start your response with { and end with }. Nothing else.`;
                 dbg('🔄 Review LLM retry (1st was null)...');
                 result = await callLLM(prompt);
             }
-            if (!result) { list.html('<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ LLM 응답 없음 — API 키를 확인하거나 다시 시도해주세요</div>'); return; }
+            if (!result) {
+                const err = window._wtLastLLMError || '알 수 없는 오류';
+                list.html(`<div style="font-size:11px;color:#F5A8A8;padding:8px">⚠️ LLM 응답 없음<br><span style="font-size:10px;color:#B0A898">${err}</span><br><span style="font-size:10px;color:#B0A898">API 키 확인 또는 F12 콘솔 확인</span></div>`);
+                return;
+            }
 
             let parsed = parseLLMJson(result);
             // ★ 파싱 실패 시 1회 재시도

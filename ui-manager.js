@@ -30,9 +30,171 @@ export class UIManager {
         this.panelVisible=false;
         this._reviewCache = new Map();
         this._reviewPending = new Set();
-        // r22: 디버그 패널 제거 — no-op으로 유지 (기존 dlog 호출 안전 보장)
-        window._wtDlog = () => {};
+        // r23: 디버그 시스템 (설정 or localStorage로 토글) — 양쪽 다 체크
+        const _dbgFromLs = localStorage.getItem('wtDebug') === '1';
+        const _dbgFromSettings = extension_settings?.[EXTENSION_NAME]?.debugMode === true;
+        this._debugEnabled = _dbgFromLs || _dbgFromSettings;
         window._wtTapFireLock = false;
+        window._wtDlog = (msg, color) => this._dlog?.(msg, color);
+        this._installDebugSystem();
+    }
+
+    // r23: 디버그 시스템 — 항상 리스너는 설치하되 _debugEnabled true일 때만 동작
+    _installDebugSystem() {
+        if (window._wtDebugSysInstalled) return;
+        window._wtDebugSysInstalled = true;
+        const self = this;
+
+        // 1) 전역 에러 캐치 — 디버그 ON일 때 패널에 찍힘
+        window.addEventListener('error', (e) => {
+            if (!self._debugEnabled) return;
+            const src = (e.filename||'').split('/').pop().substring(0,20);
+            self._dlog(`ERR: ${e.message?.substring(0,60)} @${src}:${e.lineno}`, '#f55');
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+            if (!self._debugEnabled) return;
+            const msg = e.reason?.message || String(e.reason).substring(0,60);
+            self._dlog(`REJECT: ${msg.substring(0,80)}`, '#f55');
+        });
+
+        // 2) 터치 이벤트 추적
+        const describeEl = (el) => {
+            if (!el || !el.tagName) return 'NULL';
+            const id = el.id ? `#${el.id}` : '';
+            const cls = (typeof el.className === 'string') ? `.${el.className.split(' ').slice(0,2).join('.')}` : '';
+            return `${el.tagName}${id}${cls}`.substring(0, 45);
+        };
+        self._describeEl = describeEl;
+
+        const isWtTarget = (t) => {
+            if (!t || !t.closest) return null;
+            if (t.closest('#wt-tap-debug')) return null; // 디버그 패널 자체는 무시
+            if (t.closest('.wt-bs-comm-more')) return 'COMM_MORE';
+            if (t.closest('#wt-bs-nodemap-expand')) return 'NMAP_EXP';
+            if (t.closest('.wt-bs-comm-gen')) return 'COMM_GEN';
+            if (t.closest('.wt-bs-ev-del')) return 'EV_DEL';
+            if (t.closest('.wt-bs-sub-del')) return 'SUB_DEL';
+            if (t.closest('.wt-bs-mood-reset')) return 'MOOD_RST';
+            if (t.closest('.wt-plan-del')) return 'PLAN_DEL';
+            return null;
+        };
+
+        ['touchstart', 'touchend', 'click'].forEach(ev => {
+            document.addEventListener(ev, (e) => {
+                if (!self._debugEnabled) return;
+                const kind = isWtTarget(e.target);
+                if (kind) {
+                    self._dlog(`${ev} → ${kind}`, '#0ff');
+                } else if (window._wtLogAll && !e.target.closest?.('#wt-tap-debug')) {
+                    const t = e.touches?.[0] || e.changedTouches?.[0];
+                    if (ev === 'touchstart' && t) {
+                        const topEl = document.elementFromPoint(t.clientX, t.clientY);
+                        self._dlog(`TS @(${t.clientX.toFixed(0)},${t.clientY.toFixed(0)}) ${describeEl(topEl)}`, '#888');
+                    }
+                }
+            }, true);
+        });
+
+        // 3) 활성 상태면 패널 생성
+        if (self._debugEnabled) {
+            const setup = () => {
+                if (!document.body) { setTimeout(setup, 100); return; }
+                self._createDebugPanel();
+            };
+            setup();
+        }
+    }
+
+    _toggleDebug(on) {
+        this._debugEnabled = on;
+        localStorage.setItem('wtDebug', on ? '1' : '0');
+        // extension_settings도 동기화
+        try {
+            if (extension_settings?.[EXTENSION_NAME]) {
+                extension_settings[EXTENSION_NAME].debugMode = on;
+                saveSettingsDebounced();
+            }
+        } catch(e) {}
+        if (on) {
+            this._createDebugPanel();
+            toastSuccess('🔍 디버그 패널 ON');
+        } else {
+            document.getElementById('wt-tap-debug')?.remove();
+            toastSuccess('🔍 디버그 패널 OFF');
+        }
+    }
+
+    _dlog(msg, color) {
+        if (!this._debugEnabled) return;
+        const log = document.getElementById('wt-dbg-log');
+        if (!log) return;
+        const d = document.createElement('div');
+        d.style.cssText = `color:${color||'#0f0'};margin-bottom:1px;word-break:break-all`;
+        const ts = new Date();
+        const tm = `${String(ts.getSeconds()).padStart(2,'0')}.${String(ts.getMilliseconds()).padStart(3,'0')}`;
+        d.textContent = `${tm} ${msg}`;
+        log.insertBefore(d, log.firstChild);
+        while (log.children.length > 60) log.removeChild(log.lastChild);
+    }
+
+    _createDebugPanel() {
+        if (document.getElementById('wt-tap-debug')) return;
+        const self = this;
+        const panel = document.createElement('div');
+        panel.id = 'wt-tap-debug';
+        panel.style.cssText = 'position:fixed;top:8px;right:8px;width:250px;max-height:40vh;background:rgba(0,0,0,0.88);color:#0f0;font-family:monospace;font-size:10px;padding:4px 6px;border-radius:6px;z-index:2147483647;overflow-y:auto;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.4);pointer-events:auto';
+        panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px"><span style="color:#ff0;font-weight:700">🔍 WT DEBUG</span><span style="display:flex;gap:3px"><span id="wt-dbg-diag" style="cursor:pointer;color:#fa0;padding:0 3px;font-weight:700">DIAG</span><span id="wt-dbg-all" style="cursor:pointer;color:#888;padding:0 3px;font-weight:700">ALL</span><span id="wt-dbg-clr" style="cursor:pointer;color:#0af;padding:0 3px">CLR</span><span id="wt-dbg-x" style="cursor:pointer;color:#f55;padding:0 3px">✕</span></span></div><div id="wt-dbg-log"></div>';
+        document.body.appendChild(panel);
+        self._dlog(`debug ready (v${this._version || 'r23'})`, '#ff0');
+
+        document.getElementById('wt-dbg-clr').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('wt-dbg-log').innerHTML = ''; }, true);
+        document.getElementById('wt-dbg-x').addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); }, true);
+
+        window._wtLogAll = false;
+        const toggleAll = () => {
+            window._wtLogAll = !window._wtLogAll;
+            const btn = document.getElementById('wt-dbg-all');
+            if (btn) btn.style.color = window._wtLogAll ? '#0f0' : '#888';
+            self._dlog(`ALL ${window._wtLogAll ? 'ON' : 'OFF'}`, '#ff0');
+        };
+        document.getElementById('wt-dbg-all').addEventListener('click', (e) => { e.stopPropagation(); toggleAll(); }, true);
+        document.getElementById('wt-dbg-all').addEventListener('touchend', (e) => { e.stopPropagation(); toggleAll(); }, true);
+
+        // DIAG — 바텀시트 핵심 버튼들 진단
+        const runDiag = () => {
+            self._dlog('=== DIAG ===', '#ff0');
+            const targets = [
+                { sel: '.wt-bs-comm-more', label: 'COMM_MORE' },
+                { sel: '#wt-bs-nodemap-expand', label: 'NMAP_EXP' },
+                { sel: '.wt-bs-ev-del', label: 'EV_DEL (first)' },
+                { sel: '.wt-bs-sub-del', label: 'SUB_DEL (first)' },
+                { sel: '.wt-bs-mood-reset', label: 'MOOD_RST' },
+            ];
+            for (const { sel, label } of targets) {
+                const el = document.querySelector(sel);
+                if (!el) { self._dlog(`${label}: NOT IN DOM`, '#888'); continue; }
+                const r = el.getBoundingClientRect();
+                const cs = getComputedStyle(el);
+                self._dlog(`${label}: ${r.width.toFixed(0)}x${r.height.toFixed(0)} pe=${cs.pointerEvents}`, '#0f0');
+                if (r.width === 0 || r.height === 0) { self._dlog(` ! zero-size`, '#f55'); continue; }
+                const cx = r.left + r.width/2, cy = r.top + r.height/2;
+                const vw = window.innerWidth, vh = window.innerHeight;
+                if (cx < 0 || cx > vw || cy < 0 || cy > vh) { self._dlog(` ! offscreen`, '#f55'); continue; }
+                const topEl = document.elementFromPoint(cx, cy);
+                const isSame = topEl === el || (topEl && el.contains(topEl));
+                self._dlog(` top: ${self._describeEl(topEl)}`, isSame ? '#0f0' : '#f55');
+                if (!isSame && topEl) {
+                    const tcs = getComputedStyle(topEl);
+                    self._dlog(` !! COVERED z=${tcs.zIndex}`, '#f80');
+                }
+            }
+            // html/body transform 체크 — fixed containing block 이슈 발생 여부
+            const hcs = getComputedStyle(document.documentElement);
+            self._dlog(`html.tf=${hcs.transform.substring(0,25)}`, '#0af');
+            self._dlog('=== END ===', '#ff0');
+        };
+        document.getElementById('wt-dbg-diag').addEventListener('click', (e) => { e.stopPropagation(); runDiag(); }, true);
+        document.getElementById('wt-dbg-diag').addEventListener('touchend', (e) => { e.stopPropagation(); runDiag(); }, true);
     }
 
 
@@ -40,7 +202,7 @@ export class UIManager {
     createSettingsPanel() {
         const html = `<div id="wt-settings" class="wt-settings"><div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>🐶 World Tracker <span class="wt-version">v0.4.0</span></b>
+                <b>🐶 World Tracker <span class="wt-version" style="cursor:default;user-select:none">v0.6.0-beta-r25</span></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div><div class="inline-drawer-content">
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-enabled"/> 활성화</label></div>
@@ -78,6 +240,9 @@ export class UIManager {
                 <span id="wt-s-llm-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px">미설정 → 기본(generateQuietPrompt) 사용</span>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-worldcont"/> 🌍 세계관 이어가기</label></div>
+                <div class="wt-divider"></div>
+                <div class="wt-s-row"><label><input type="checkbox" id="wt-s-debug"/> 🔍 모바일 디버그 패널</label></div>
+                <span style="font-size:10px;color:#9A8A7A;display:block;margin-top:-4px">오류 추적용 우측 상단 로그 패널 (버그 발생 시 켜기)</span>
                 <span id="wt-s-worldcont-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:1px;margin-bottom:4px">새 채팅에서도 같은 캐릭터의 세계관 유지</span>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label>📦 전체 데이터 관리</label></div>
@@ -100,6 +265,14 @@ export class UIManager {
         const s = extension_settings[EXTENSION_NAME];
         const bind = (sel, key, def) => $(sel).prop('checked', s?.[key] ?? def).on('change', function(){ s[key]=$(this).is(':checked'); saveSettingsDebounced(); });
         bind('#wt-s-enabled','enabled',true); bind('#wt-s-detect','autoDetect',true); bind('#wt-s-toast','showDetectToast',true); bind('#wt-s-inject','aiInjection',true); bind('#wt-s-moveevent','moveEvent',true);
+        // r23: 디버그 체크박스 — localStorage + extension_settings 이중 저장
+        const self = this;
+        $('#wt-s-debug').prop('checked', this._debugEnabled).on('change', function() {
+            const on = $(this).is(':checked');
+            s.debugMode = on;
+            saveSettingsDebounced();
+            self._toggleDebug(on);
+        });
         $('#wt-s-inject').on('change', () => { s.aiInjection ? this.pi?.inject() : this.pi?.clear(); });
         $('#wt-s-mem').val(s?.memoryMode||'natural').on('change', () => { s.memoryMode=$('#wt-s-mem').val(); saveSettingsDebounced(); this.pi?.inject(); });
         $('#wt-s-eventlang').val(s?.eventLang||'auto').on('change', () => { s.eventLang=$('#wt-s-eventlang').val(); saveSettingsDebounced(); });
@@ -215,12 +388,30 @@ export class UIManager {
         $('#wt-s-import-all').on('click', () => $('#wt-s-import-file').click());
         $('#wt-s-import-file').on('change', (e) => this._importAllData(e));
         $('#wt-s-delete-all').on('click', () => this._deleteAllData());
-        // 🔧 비밀 디버그: 💭 5번 탭
-        let _t=0, _tm=null;
-        $(document).on('click','#wt-secret', e => { e.stopPropagation(); _t++; clearTimeout(_tm);
-            if(_t>=5){_t=0;s.debugMode=!s.debugMode;saveSettingsDebounced();wtNotify(s.debugMode?'🔧 Debug ON':'🔧 Debug OFF','info',2000);}
-            _tm=setTimeout(()=>{_t=0},2000);
+        // 🔧 비밀 디버그 토글: 💭 또는 버전 번호 5번 탭 (2초 내)
+        // r23: click → pointerdown으로 변경 (모바일 호환성 ↑, click보다 빨리 + 확실)
+        const makeRapidTap = (triggerFn) => {
+            let _t = 0, _tm = null;
+            return (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                _t++;
+                clearTimeout(_tm);
+                if (_t >= 5) {
+                    _t = 0;
+                    triggerFn();
+                }
+                _tm = setTimeout(() => { _t = 0; }, 2000);
+            };
+        };
+        const toggleHandler = makeRapidTap(() => {
+            const nv = !this._debugEnabled;
+            s.debugMode = nv;
+            saveSettingsDebounced();
+            this._toggleDebug(nv);
+            $('#wt-s-debug').prop('checked', nv);
         });
+        $(document).on('pointerdown', '#wt-secret, .wt-version', toggleHandler);
     }
 
     _loadProfiles() {
@@ -1650,7 +1841,7 @@ export class UIManager {
                 // r22: 이벤트 식별용 ts (timestamp) — 삭제 시 이걸로 find
                 const evTs = ev.timestamp || 0;
                 return `<div class="wt-bs-ev-card" data-ev-ts="${evTs}" style="background:${mc.bg};border-radius:7px;padding:7px 9px;border:1px solid ${mc.border};margin-bottom:4px;cursor:${hasDetail ? 'pointer' : 'default'}">
-                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:${mc.text}">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span>${hasDetail ? '<span class="wt-bs-ev-arrow" style="font-size:8px;color:#B0A898">▼</span>' : ''}<span class="wt-bs-ev-del" data-ev-ts="${evTs}" style="cursor:pointer;color:#E53935;background:#FFEBEE;font-size:14px;font-weight:700;padding:4px 8px;border-radius:10px;margin-left:6px;touch-action:manipulation;min-width:28px;text-align:center" title="삭제">✕</span></div>
+                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:${mc.text}">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span>${hasDetail ? '<span class="wt-bs-ev-arrow" style="font-size:8px;color:#B0A898">▼</span>' : ''}<span class="wt-bs-ev-del" data-ev-ts="${evTs}" style="cursor:pointer;color:#B8A89A;background:transparent;font-size:13px;font-weight:500;padding:3px 7px;border-radius:8px;margin-left:4px;touch-action:manipulation;min-width:24px;text-align:center;border:1px solid transparent;transition:all .15s" title="삭제">✕</span></div>
                     ${hasDetail ? `<div class="wt-bs-ev-detail" style="display:none;margin-top:5px;padding-top:5px;border-top:1px dashed ${mc.border};font-size:9.5px;line-height:1.6;color:#7A7060">${ev.text}</div>` : ''}
                 </div>`;
             }).join('');
@@ -1742,7 +1933,7 @@ export class UIManager {
             </div>
             <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;overflow-y:auto">
                 <div style="margin-bottom:8px;padding:8px 10px;background:#FAFAF5;border-radius:8px;border:1px solid #EAE6DC">
-                    <div style="font-size:10px;font-weight:600;color:#5A4030;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">🌡️ 분위기 지수 <span style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:#9AA0A6;font-weight:400">최근 7일</span><button class="wt-bs-mood-reset" style="font-size:11px;font-weight:600;background:#FFF3E0;border:1px solid #F6A93A;border-radius:10px;padding:4px 12px;cursor:pointer;color:#CF6E2E;font-family:inherit;touch-action:manipulation;min-height:28px">↻ 리셋</button></span></div>
+                    <div style="font-size:10px;font-weight:600;color:#5A4030;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">🌡️ 분위기 지수 <span style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:#9AA0A6;font-weight:400">최근 7일</span><button class="wt-bs-mood-reset" style="font-size:10px;font-weight:500;background:transparent;border:1px solid #D4CCBA;border-radius:12px;padding:3px 10px;cursor:pointer;color:#8A7A6A;font-family:inherit;touch-action:manipulation;min-height:26px;letter-spacing:-.2px">↻ 리셋</button></span></div>
                     <div style="display:flex;align-items:flex-end;gap:3px;height:36px">
                         ${(() => { const filteredEvents = loc.moodResetAt ? events.filter(e => (e.timestamp||0) > loc.moodResetAt) : events; const moods = filteredEvents.slice(-7); const bars = []; for(let i=0;i<7;i++){const ev=moods[i]; const h=ev?(['💕','😊'].some(m=>m===ev.mood)?30:['⚡','🔍'].some(m=>m===ev.mood)?70:45):12; const c=ev?(['💕','😊'].some(m=>m===ev.mood)?'#A8D8EA':['⚡','🔍'].some(m=>m===ev.mood)?'#F5A8A8':'#F5C6AA'):'#E8E4D8'; bars.push(`<div style="flex:1;height:${h}%;background:${c};border-radius:2px 2px 0 0"></div>`);} return bars.join(''); })()}
                     </div>
@@ -1777,7 +1968,7 @@ export class UIManager {
                         return `<div class="wt-bs-sub-item" data-subid="${s.id}" style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid ${isCur?'#2B8A6E':'#F0EDE5'};border-radius:10px;margin-bottom:6px;cursor:pointer;background:${isCur?'#F0FFF4':'#fff'};-webkit-tap-highlight-color:transparent">
                             <span style="font-size:16px">${getEmoji(s.name)}</span>
                             <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${s.name}${isCur?' <span style="font-size:9px;color:#2B8A6E;background:#E8F5E9;padding:1px 5px;border-radius:6px">현재</span>':''}</div><div style="font-size:10px;color:#70757A">${s.visitCount||0}회${evCount?' · 이벤트 '+evCount+'건':''}</div></div>
-                            <span class="wt-bs-sub-del" data-subid="${s.id}" style="cursor:pointer;color:#E53935;background:#FFEBEE;font-size:15px;font-weight:700;padding:6px 10px;border-radius:10px;margin-left:4px;touch-action:manipulation;min-width:32px;text-align:center" title="삭제">✕</span>
+                            <span class="wt-bs-sub-del" data-subid="${s.id}" style="cursor:pointer;color:#B8A89A;background:transparent;font-size:14px;font-weight:500;padding:4px 8px;border-radius:8px;margin-left:4px;touch-action:manipulation;min-width:26px;text-align:center;border:1px solid transparent;transition:all .15s" title="삭제">✕</span>
                             <span style="color:#9AA0A6;font-size:12px">></span>
                         </div>`;
                     }).join('');
@@ -3728,14 +3919,33 @@ export class UIManager {
     // ========== 💬 커뮤니티 피드 시스템 (v0.6.0 NEW) ==========
     _renderCommunityText(text) {
         if (!text) return '';
-        // ★ *action* 액션 서술 제거 (한국 트위터 감성 유지)
-        let t = text.replace(/\*[^*]+\*/g, '').replace(/\s{2,}/g, ' ').trim();
-        // @멘션 → 파란색
-        t = t.replace(/@([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0;font-weight:500">@$1</span>');
-        // #해시태그 → 파란색
-        t = t.replace(/#([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0">#$1</span>');
-        // 줄바꿈
-        t = t.replace(/\n/g, '<br>');
+        // r25: LLM이 자유롭게 HTML/CSS 입체 카드 생성 가능 — XSS 위험 요소만 차단 (블랙리스트 sanitize)
+        let t = text;
+        // 위험 태그 제거 (XSS 경로 봉쇄)
+        t = t.replace(/<script\b[\s\S]*?<\/script>/gi, '');
+        t = t.replace(/<script\b[^>]*>/gi, '');
+        t = t.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '');
+        t = t.replace(/<iframe\b[^>]*>/gi, '');
+        t = t.replace(/<object\b[\s\S]*?<\/object>/gi, '');
+        t = t.replace(/<embed\b[^>]*\/?>/gi, '');
+        t = t.replace(/<form\b[\s\S]*?<\/form>/gi, '');
+        t = t.replace(/<(meta|link|base)\b[^>]*\/?>/gi, '');
+        // 이벤트 핸들러 제거 (onclick, onload, onerror 등)
+        t = t.replace(/\son\w+\s*=\s*"[^"]*"/gi, '');
+        t = t.replace(/\son\w+\s*=\s*'[^']*'/gi, '');
+        t = t.replace(/\son\w+\s*=\s*[^\s>]+/gi, '');
+        // javascript: / data:text/html URL 차단
+        t = t.replace(/javascript\s*:/gi, '');
+        t = t.replace(/data\s*:\s*text\/html/gi, '');
+        // *action* 액션 서술 제거 (HTML 바깥에서만 — 단순 처리)
+        t = t.replace(/\*([^*\n<>]{1,40})\*/g, '').replace(/\s{2,}/g, ' ').trim();
+        // 일반 트윗 (HTML 태그 없는 경우) — @멘션/#해시태그 색칠
+        const hasHtml = /<[a-z][\s\S]*>/i.test(t);
+        if (!hasHtml) {
+            t = t.replace(/@([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0;font-weight:500">@$1</span>');
+            t = t.replace(/#([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0">#$1</span>');
+            t = t.replace(/\n/g, '<br>');
+        }
         return t;
     }
 
@@ -3775,23 +3985,49 @@ ${charDesc ? `캐릭터 설정: ${charDesc}` : ''}
 ${langInst}
 ${recentChat ? `\n[최근 RP]:\n${recentChat.substring(0, 600)}\n` : ''}
 
-작성 규칙 — 한국 트위터(X) 감성으로:
-- 각 글은 1~3줄의 짧은 트윗. 한국어로 자연스럽게.
-- 캐릭터마다 말투/어휘/성격이 뚜렷해야 함. 설정을 꼭 반영.
-- @멘션, #해시태그는 자연스럽게 (해시태그 2~3개)
-- "*행동*" 같은 별표로 감싸는 액션 설명은 절대 쓰지 마. 진짜 트윗처럼 그냥 쓰고 있는 상태 자체를 텍스트로 묘사.
-  ❌ 나쁜 예: "*차가운 물 찾으며* 목이 타네" 
-  ✅ 좋은 예: "냉장고 뒤져도 찬물이 없어. 누가 좀 채워놔 제발..."
-- 동물은 동물 시점으로 귀엽게 (예: 고양이 "따뜻한 창가 자리 사수 완료")
-- 감정 라벨 (excited/chill/tense/sleepy/romantic) 선택
-- 서로의 트윗에 반응하거나 사건을 언급할 수 있음
-- **절대 금지**: 남초 커뮤니티 말투/유행어 ("ㅇㅇ", "ㄴㄴ", "팩트", "ㄱㅈㅇㅈ", "ㅇㄱㄹㅇ", "~노", "~근", "킹받네", "~하노", "~꺼라", "~해야함", 디시 말투, 일베 말투, 아재개그 전부 금지)
-- 대신 자연스러운 한국어로. 캐릭터 개성 살려서 (진지/발랄/시니컬/감성 등 캐릭터에 맞게)
+작성 규칙 — 한국 트위터(X) 감성 + 창의적 입체 카드 섞기:
 
-혼합된 NPC(알려진 NPC + 이 장소에 어울리는 신규 NPC/동물 1~2명)로 4~5개 트윗 생성.
+[기본 텍스트 트윗 — 전체의 60~70%]
+- 1~3줄의 짧은 한국어 트윗
+- @멘션, #해시태그 자연스럽게 (해시태그 2~3개)
+- 캐릭터마다 말투/어휘/성격 뚜렷
+- "*행동*" 같은 별표 액션 서술 금지 — 그냥 트윗처럼 써
+- 동물은 동물 시점 (고양이 "따뜻한 창가 자리 사수 완료")
+- 금지: 남초 유행어 ("ㅇㅇ", "ㄴㄴ", "팩트", "ㄱㅈㅇㅈ", "ㅇㄱㄹㅇ", "~노", "~근", "킹받네", "~하노", "~꺼라", "~해야함", 디시/일베 말투, 아재개그)
 
-JSON만 응답해:
-{"posts":[{"name":"CharName","avatar":"적절한 이모지","type":"npc","mood":"excited","moodLabel":"🔥 신남","text":"자연스러운 한국어 트윗. @멘션 #해시태그","likes":5}]}
+[✨ 창의적 HTML 카드 — 4~5개 중 1~2개 반드시 포함]
+캐릭터 개성/직업/상황에 어울리는 입체 카드를 text 필드 안에 **HTML + 인라인 CSS로 통째로** 작성해.
+다양하게 발상 — 같은 스타일 반복 금지. 매번 새로운 디자인.
+
+가능한 방향 (일부 예시, 더 자유롭게):
+1) 시스템 경고창 (다크 + 네온 빨강, 스캔라인, FATAL/ALERT 표시) — 군인/기술자에 어울림
+2) 폴라로이드 사진 (살짝 기울어진 흰 카드, 노란 테이프, 손글씨 캡션) — 감성
+3) 메모지/포스트잇 (노란 배경, 찢어진 효과, 핀 이모지) — 일상
+4) 뉴스 속보 헤드라인 (검정 배경, 빨간 LIVE 태그, 인용문 박스) — 사건/속보
+5) 홀로그램 카드 (반투명 + 그라데이션 + 통계 수치) — SF/미래
+6) 영수증/티켓 (모노스페이스, 점선, 가격 표시) — 유머/쇼핑
+7) 게임 UI (HP바, 스탯 수치, 픽셀 느낌) — 상황 체크
+8) 손으로 그린 낙서 카드 (크레용 느낌, 이모지로 꾸밈) — 아이/귀엽
+9) 타자기 느낌 편지 (세피아톤, serif 글꼴, 편지 구성)
+10) 경찰 보고서/서류 (도장 느낌, "CONFIDENTIAL" 워터마크)
+...상상력을 발휘해서 완전히 새로운 것도 OK
+
+HTML 사용 규칙:
+- `<div style="background:...; padding:...; border-radius:...">` 기반으로 창작 자유
+- inline CSS 사용 (background, color, padding, border-radius, border, box-shadow, gradient, font-family, font-size, letter-spacing, text-align, display:flex, transform, opacity 모두 OK)
+- 이모지를 아이콘처럼 활용 (⚠️ 🚨 📸 📝 📰 🔮 💿 📡 🎮 ❤️ 🩸 🔒 등)
+- 금지: <script>, <iframe>, onclick 등 이벤트 핸들러, javascript: URL
+- JSON 안에 들어가니 큰따옴표는 반드시 \\" 로 이스케이프 **(매우 중요)**
+  예: "text":"<div style=\\"background:#000;color:#fff\\">내용</div>"
+- text 필드에 통으로 들어감. 바깥 트윗 껍데기는 자동으로 씌워짐
+
+혼합된 NPC(알려진 NPC + 이 장소에 어울리는 신규 NPC/동물 1~2명)로 4~5개 포스트 생성.
+
+JSON만 응답:
+{"posts":[
+  {"name":"야옹이","avatar":"🐱","type":"animal","mood":"chill","moodLabel":"😌 나른","text":"창가 자리 사수했다냥 #냥스타그램","likes":12},
+  {"name":"Price","avatar":"🥃","type":"npc","mood":"tense","moodLabel":"😰 초조","text":"<div style=\\"background:linear-gradient(135deg,#0A1929,#101F2E);padding:16px;border-radius:10px;color:#E0E7EF;font-family:monospace;border:1px solid rgba(255,70,85,0.3)\\"><div style=\\"color:#ff4655;font-weight:700;letter-spacing:2px;font-size:12px\\">⚠ SYSTEM ALERT</div><div style=\\"margin-top:8px;font-size:13px\\">외부 자극원 감지. 각자 위치 사수.</div></div>","likes":25}
+]}
 
 {로 시작해서 }로 끝.`;
 

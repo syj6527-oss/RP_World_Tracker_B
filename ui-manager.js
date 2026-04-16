@@ -202,7 +202,7 @@ export class UIManager {
     createSettingsPanel() {
         const html = `<div id="wt-settings" class="wt-settings"><div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>🐶 World Tracker <span class="wt-version" style="cursor:default;user-select:none">v0.6.0-beta-r25</span></b>
+                <b>🐶 World Tracker <span class="wt-version" style="cursor:default;user-select:none">v0.6.0-beta-r26</span></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div><div class="inline-drawer-content">
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-enabled"/> 활성화</label></div>
@@ -3985,51 +3985,76 @@ ${charDesc ? `캐릭터 설정: ${charDesc}` : ''}
 ${langInst}
 ${recentChat ? `\n[최근 RP]:\n${recentChat.substring(0, 600)}\n` : ''}
 
-작성 규칙 — 한국 트위터(X) 감성 + 창의적 입체 카드 섞기:
+작성 규칙 — 한국 트위터(X) 감성 + 디제틱 인게임 SNS 포스트:
+
+[핵심 원칙]
+- 각 트윗은 "${charName}의 세계관 안에서 캐릭터가 실제로 쓰는 SNS 앱의 실재 포스트"다.
+- 트윗 본문은 **디제틱 요소만** 포함 — 화자의 내레이션이나 장면 설명 같은 메타 텍스트 금지.
+- 캐릭터가 실제 감각으로 느끼고 공유하는 콘텐츠만 (사진, 스샷, 시스템 경고, 메모, 영수증 등).
 
 [기본 텍스트 트윗 — 전체의 60~70%]
-- 1~3줄의 짧은 한국어 트윗
-- @멘션, #해시태그 자연스럽게 (해시태그 2~3개)
-- 캐릭터마다 말투/어휘/성격 뚜렷
-- "*행동*" 같은 별표 액션 서술 금지 — 그냥 트윗처럼 써
-- 동물은 동물 시점 (고양이 "따뜻한 창가 자리 사수 완료")
-- 금지: 남초 유행어 ("ㅇㅇ", "ㄴㄴ", "팩트", "ㄱㅈㅇㅈ", "ㅇㄱㄹㅇ", "~노", "~근", "킹받네", "~하노", "~꺼라", "~해야함", 디시/일베 말투, 아재개그)
+- 1~3줄 짧은 한국어 트윗. @멘션·#해시태그 자연스럽게 (2~3개)
+- 캐릭터별 말투/어휘/성격 뚜렷 (설정 반영)
+- "*행동*" 별표 액션 서술 금지 — 그냥 트윗처럼 써
+- 동물은 동물 시점 (고양이 "창가 자리 사수했다냥")
+- 금지 유행어: ㅇㅇ/ㄴㄴ/팩트/ㄱㅈㅇㅈ/ㅇㄱㄹㅇ/~노/~근/킹받네/~하노/~꺼라/디시/일베/아재개그
 
-[✨ 창의적 HTML 카드 — 4~5개 중 1~2개 반드시 포함]
-캐릭터 개성/직업/상황에 어울리는 입체 카드를 text 필드 안에 **HTML + 인라인 CSS로 통째로** 작성해.
-다양하게 발상 — 같은 스타일 반복 금지. 매번 새로운 디자인.
+[✨ 창의적 HTML 디제틱 카드 — 4~5개 중 1~2개 반드시 포함]
+text 필드 안에 HTML+CSS 통째로 작성. **캐릭터가 공유하는 실재 아티팩트**여야 함.
 
-가능한 방향 (일부 예시, 더 자유롭게):
-1) 시스템 경고창 (다크 + 네온 빨강, 스캔라인, FATAL/ALERT 표시) — 군인/기술자에 어울림
-2) 폴라로이드 사진 (살짝 기울어진 흰 카드, 노란 테이프, 손글씨 캡션) — 감성
-3) 메모지/포스트잇 (노란 배경, 찢어진 효과, 핀 이모지) — 일상
-4) 뉴스 속보 헤드라인 (검정 배경, 빨간 LIVE 태그, 인용문 박스) — 사건/속보
-5) 홀로그램 카드 (반투명 + 그라데이션 + 통계 수치) — SF/미래
-6) 영수증/티켓 (모노스페이스, 점선, 가격 표시) — 유머/쇼핑
-7) 게임 UI (HP바, 스탯 수치, 픽셀 느낌) — 상황 체크
-8) 손으로 그린 낙서 카드 (크레용 느낌, 이모지로 꾸밈) — 아이/귀엽
-9) 타자기 느낌 편지 (세피아톤, serif 글꼴, 편지 구성)
-10) 경찰 보고서/서류 (도장 느낌, "CONFIDENTIAL" 워터마크)
-...상상력을 발휘해서 완전히 새로운 것도 OK
+⚠️ JSON 파싱 안전: CSS 속성값은 **반드시 작은따옴표(') 사용 또는 생략**. 큰따옴표는 JSON 깨뜨림.
+  ✅ 좋은 예: style='background:#000;color:#fff'
+  ❌ 나쁜 예: style=\\"background:#000\\"
 
-HTML 사용 규칙:
-- `<div style="background:...; padding:...; border-radius:...">` 기반으로 창작 자유
-- inline CSS 사용 (background, color, padding, border-radius, border, box-shadow, gradient, font-family, font-size, letter-spacing, text-align, display:flex, transform, opacity 모두 OK)
-- 이모지를 아이콘처럼 활용 (⚠️ 🚨 📸 📝 📰 🔮 💿 📡 🎮 ❤️ 🩸 🔒 등)
-- 금지: <script>, <iframe>, onclick 등 이벤트 핸들러, javascript: URL
-- JSON 안에 들어가니 큰따옴표는 반드시 \\" 로 이스케이프 **(매우 중요)**
-  예: "text":"<div style=\\"background:#000;color:#fff\\">내용</div>"
-- text 필드에 통으로 들어감. 바깥 트윗 껍데기는 자동으로 씌워짐
+자유 창작 방향 (아무거나 OK, 반복 금지):
+- SYSTEM ALERT/CCTV HUD/터미널 (군사·SF)
+- 뉴스 속보 스샷 (사건·속보)
+- 폴라로이드·필름 사진 (감성·추억)
+- 포스트잇·손글씨 메모 (일상)
+- 영수증·티켓·서류 (사건·유머)
+- 게임 UI (HP바·스탯·업적 알림)
+- 낙서·크레용 그림 (귀여움)
+- 편지·서신·일기장 (클래식)
+- 네온사인·전광판 (도시)
+- 레트로 포스터·전단 (빈티지)
+- 악보·앨범 커버 (음악)
+- 메뉴판·가격표 (식당·가게)
+- 조선 궁중 서찰·한지 (역사극)
+- 주술 부적·마법진 (판타지)
+...상상력 전부 풀어
 
-혼합된 NPC(알려진 NPC + 이 장소에 어울리는 신규 NPC/동물 1~2명)로 4~5개 포스트 생성.
+장르·시대 스타일:
+- 조선/중세: 한지 베이지(#F5E6C8), serif, 세피아
+- 현대 도시: 네온, 글래스모피즘, gradient
+- SF/사이버펑크: 홀로그램, 글리치, 모노스페이스
+- 로맨스: 파스텔, 꽃 이모지, 손글씨
+- 공포/스릴러: 다크톤, 찢어진 효과, 빨간 얼룩
+
+씬 반응 (${recentChat ? '최근 RP 맥락 반영' : ''}):
+- 비/폭풍 → 물방울 효과, 어두운 톤
+- 전투/긴장 → 빨강/노랑 경고색, 스캔라인 애니메이션
+- 평온 → 부드러운 파스텔
+- 야간 → 다크 배경, 네온 악센트
+
+CSS 규칙:
+- 모바일 세로 기준: width:100%, max-width:100%, box-sizing:border-box 필수
+- inline style만 (background, padding, border, border-radius, box-shadow, linear-gradient, font-family, letter-spacing, transform, opacity, display:flex, animation 전부 OK)
+- 이모지 아이콘 활용: ⚠️🚨📸📝📰🔮💿📡🎮❤️🩸🔒🌸🗡️👑🕯️📜
+- animation은 단순한 것만 (pulse, fadeIn 등 — keyframes 정의 없이 CSS 기본값 사용)
+- 이미지 OK: <img src='https://image.pollinations.ai/prompt/<URLEncoded 설명>?nologo=true' style='width:100%;max-width:100%;border-radius:8px'>
+  예시: <img src='https://image.pollinations.ai/prompt/dark%20foggy%20forest%20at%20night?nologo=true' ...>
+- 금지: <script>, <iframe>, onclick/onload/onerror 등, javascript: URL, <style> 태그
+
+혼합된 NPC(알려진 NPC + 장소에 어울리는 신규 NPC/동물 1~2명)로 4~5개 포스트.
 
 JSON만 응답:
 {"posts":[
   {"name":"야옹이","avatar":"🐱","type":"animal","mood":"chill","moodLabel":"😌 나른","text":"창가 자리 사수했다냥 #냥스타그램","likes":12},
-  {"name":"Price","avatar":"🥃","type":"npc","mood":"tense","moodLabel":"😰 초조","text":"<div style=\\"background:linear-gradient(135deg,#0A1929,#101F2E);padding:16px;border-radius:10px;color:#E0E7EF;font-family:monospace;border:1px solid rgba(255,70,85,0.3)\\"><div style=\\"color:#ff4655;font-weight:700;letter-spacing:2px;font-size:12px\\">⚠ SYSTEM ALERT</div><div style=\\"margin-top:8px;font-size:13px\\">외부 자극원 감지. 각자 위치 사수.</div></div>","likes":25}
+  {"name":"Price","avatar":"🥃","type":"npc","mood":"tense","moodLabel":"😰 초조","text":"<div style='background:linear-gradient(135deg,#0A1929,#101F2E);padding:14px;border-radius:10px;color:#E0E7EF;font-family:monospace;border:1px solid rgba(255,70,85,0.3);width:100%;max-width:100%;box-sizing:border-box'><div style='color:#ff4655;font-weight:700;letter-spacing:2px;font-size:11px'>⚠ SYSTEM ALERT</div><div style='margin-top:6px;font-size:12px;line-height:1.5'>외부 자극원 감지. 위치 사수.</div></div>","likes":25},
+  {"name":"Ghost","avatar":"💀","type":"npc","mood":"sleepy","moodLabel":"😮‍💨 지침","text":"<div style='background:#FFFBE6;padding:14px;border-radius:4px;box-shadow:2px 3px 8px rgba(0,0,0,0.1);font-family:serif;font-size:13px;color:#4A3E2A;width:100%;max-width:100%;box-sizing:border-box;position:relative'><div style='position:absolute;top:-4px;left:14px;width:10px;height:10px;border-radius:50%;background:#D63851'></div>오늘만 세 번째… 냉장고 찬물 좀 채워놔 제발<br><div style='text-align:right;font-style:italic;margin-top:4px;color:#8B7A5A'>— 익명</div></div>","likes":8}
 ]}
 
-{로 시작해서 }로 끝.`;
+{로 시작 }로 끝.`;
 
             const result = await callLLM(prompt);
             if (!result) {

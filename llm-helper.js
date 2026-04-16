@@ -203,6 +203,32 @@ async function _callClaude(key, model, prompt, url) {
     return data?.content?.[0]?.text || '';
 }
 
+// r27: Google API 503/과부하 때 다른 Gemini 모델로 자동 폴백
+async function _callGoogleWithFallback(key, primaryModel, prompt) {
+    try {
+        return await _callGoogle(key, primaryModel, prompt);
+    } catch(e) {
+        const msg = e?.message || '';
+        // 서버 과부하/타임아웃 계열 에러만 모델 폴백 시도
+        if (/\b(503|429|500|502|504)\b|AbortError|timeout|overload/i.test(msg)) {
+            const fallbacks = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash']
+                .filter(m => m !== primaryModel);
+            for (const fm of fallbacks) {
+                try {
+                    dbg(`🔁 ${primaryModel} 과부하 → ${fm} 시도`);
+                    const r = await _callGoogle(key, fm, prompt);
+                    if (r) { dbg(`✅ ${fm} 성공!`); return r; }
+                } catch(e2) {
+                    dbg(`⚠️ ${fm} 도 실패: ${e2.message?.substring(0, 60)}`);
+                    continue;
+                }
+            }
+            throw new Error(`Google 서버 과부하 — 모든 Gemini 모델 폴백 실패. 1~2분 후 다시 시도해주세요. (마지막: ${msg.substring(0, 80)})`);
+        }
+        throw e;
+    }
+}
+
 // ========== 메인 호출 함수 ==========
 export async function callLLM(prompt) {
     // ★ 마지막 에러 저장 (디버깅용)
@@ -214,7 +240,7 @@ export async function callLLM(prompt) {
         try {
             dbg(`🔧 LLM calling ${cfg.type} (${cfg.model}), prompt ${prompt.length}c`);
             let result = '';
-            if (cfg.type === 'google') result = await _callGoogle(cfg.key, cfg.model, prompt);
+            if (cfg.type === 'google') result = await _callGoogleWithFallback(cfg.key, cfg.model, prompt);
             else if (cfg.type === 'openai') result = await _callOpenAI(cfg.key, cfg.model, prompt, cfg.url);
             else if (cfg.type === 'claude') result = await _callClaude(cfg.key, cfg.model, prompt, cfg.url);
 

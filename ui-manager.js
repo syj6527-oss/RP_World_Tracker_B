@@ -202,7 +202,7 @@ export class UIManager {
     createSettingsPanel() {
         const html = `<div id="wt-settings" class="wt-settings"><div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>🐶 World Tracker <span class="wt-version" style="cursor:default;user-select:none">v0.6.0-beta-r26</span></b>
+                <b>🐶 World Tracker <span class="wt-version" style="cursor:default;user-select:none">v0.6.1-beta-r1</span></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div><div class="inline-drawer-content">
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-enabled"/> 활성화</label></div>
@@ -240,9 +240,6 @@ export class UIManager {
                 <span id="wt-s-llm-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px">미설정 → 기본(generateQuietPrompt) 사용</span>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label><input type="checkbox" id="wt-s-worldcont"/> 🌍 세계관 이어가기</label></div>
-                <div class="wt-divider"></div>
-                <div class="wt-s-row"><label><input type="checkbox" id="wt-s-debug"/> 🔍 모바일 디버그 패널</label></div>
-                <span style="font-size:10px;color:#9A8A7A;display:block;margin-top:-4px">오류 추적용 우측 상단 로그 패널 (버그 발생 시 켜기)</span>
                 <span id="wt-s-worldcont-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:1px;margin-bottom:4px">새 채팅에서도 같은 캐릭터의 세계관 유지</span>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row"><label>📦 전체 데이터 관리</label></div>
@@ -1882,6 +1879,7 @@ export class UIManager {
                 <div class="wt-bs-tab" data-tab="review" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">리뷰</div>
                 <div class="wt-bs-tab" data-tab="rooms" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">내부</div>
                 <div class="wt-bs-tab" data-tab="nodemap" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">약도</div>
+                <div class="wt-bs-tab" data-tab="community" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px;white-space:nowrap">🟢 실시간</div>
             </div>
             <div id="wt-bs-tab-overview" style="padding:10px 14px;overflow-y:auto">
                 <!-- 분위기 카드 / 사진 갤러리 -->
@@ -1988,6 +1986,26 @@ export class UIManager {
                 <div style="margin-top:12px;padding:10px;background:#E8F0FE;border-radius:10px;font-size:11px;color:#1A73E8;line-height:1.5">
                     💡 현재 장소를 중심으로 주변 등록된 장소들의 관계를 보여줍니다. 도보 거리 기준.
                 </div>
+            </div>
+            <!-- 🟢 실시간 탭 (v0.6.1 NEW) — 커뮤니티 피드 인라인 -->
+            <div id="wt-bs-tab-community" style="display:none;overflow-y:auto;position:relative;background:#fff">
+                <!-- Sticky 헤더: 개수 + ⛶ 전체화면 + ✨ 새 반응 -->
+                <div id="wt-bs-comm-sticky" style="position:sticky;top:0;z-index:5;background:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #EFF3F4">
+                    <div style="font-size:12px;color:#536471;display:flex;align-items:center;gap:6px">
+                        <span style="width:7px;height:7px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span>
+                        실시간 반응 <b id="wt-bs-comm-count" style="color:#0F1419;font-weight:700">${(loc.community || []).length}</b>개
+                    </div>
+                    <div style="display:flex;gap:6px">
+                        <button class="wt-bs-comm-fs" style="padding:6px 10px;background:#F7F9F9;border:1px solid #EFF3F4;border-radius:18px;font-size:11px;color:#536471;cursor:pointer;font-family:inherit;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,.1);min-height:32px" title="전체화면">⛶</button>
+                        <button class="wt-bs-comm-gen-inline" style="padding:6px 14px;background:#1D9BF0;color:#fff;border:none;border-radius:18px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 1px 3px rgba(29,155,240,.3);touch-action:manipulation;-webkit-tap-highlight-color:rgba(29,155,240,.4);min-height:32px;display:flex;align-items:center;gap:4px">✨ <span>새 반응</span></button>
+                    </div>
+                </div>
+                <!-- 피드 본문 -->
+                <div id="wt-bs-comm-feed" style="background:#fff">
+                    ${(loc.community && loc.community.length) ? loc.community.map(p => this._renderCommunityPostCard(p)).join('') : `<div style="padding:60px 20px;text-align:center;color:#8B98A5;font-size:13px"><div style="font-size:40px;margin-bottom:12px">💭</div><div style="font-size:13px;color:#536471;font-weight:500;margin-bottom:4px">아직 반응이 없어요</div><div style="font-size:11px;color:#8B98A5">✨ 버튼을 눌러 실시간 반응을 생성해보세요</div></div>`}
+                </div>
+                <!-- FAB (우하단) -->
+                <button class="wt-bs-comm-fab" style="position:sticky;bottom:16px;margin-left:auto;margin-right:16px;margin-top:-60px;margin-bottom:16px;display:block;width:48px;height:48px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:22px;cursor:pointer;box-shadow:0 4px 14px rgba(29,155,240,.4);font-family:inherit;touch-action:manipulation;-webkit-tap-highlight-color:rgba(29,155,240,.4);z-index:4">✨</button>
             </div>`;
 
         bs.html(html).show().css({ background: '#fff' });
@@ -2010,13 +2028,13 @@ export class UIManager {
         bs.find('.wt-bs-tab').on('click', function(e) {
             e.stopPropagation();
             const tab = $(this).data('tab');
-            const tabColors = { overview: '#1A73E8', events: '#CF6E2E', review: '#1A73E8', rooms: '#8B6B4A', nodemap: '#34A853' };
+            const tabColors = { overview: '#1A73E8', events: '#CF6E2E', review: '#1A73E8', rooms: '#8B6B4A', nodemap: '#34A853', community: '#1D9BF0' };
             const color = tabColors[tab] || '#2B8A6E';
             bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
             $(this).css({ color, borderBottomColor: color });
             bs.find('[id^="wt-bs-tab-"]').hide();
             bs.find(`#wt-bs-tab-${tab}`).show();
-            // 이벤트/리뷰 탭은 full로 확장
+            // 이벤트/리뷰/커뮤니티 탭은 full로 확장
             if (tab !== 'overview' && self._bsStage < 3) self._applyBsStage(3);
         });
         // 7. 이벤트 아코디언 클릭 → 펼치기
@@ -2204,6 +2222,18 @@ export class UIManager {
         };
         bs.find('.wt-bs-comm-gen').on('click touchend', commGenHandler);
 
+        // v0.6.1: 🟢 실시간 탭 내부 버튼들 (인라인 ✨ 새 반응 + 우하단 FAB) — 동일 핸들러
+        bs.find('.wt-bs-comm-gen-inline, .wt-bs-comm-fab').on('click touchend', commGenHandler);
+
+        // v0.6.1: ⛶ 전체화면 버튼 → 기존 풀스크린 오버레이 호출
+        bs.find('.wt-bs-comm-fs').on('click touchend', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window._wtTapFireLock) return;
+            const lid = bs.attr('data-id');
+            if (lid) self._showCommunityFullFeed(lid);
+        });
+
         // r13: document-level delegated event로 변경 — DOM 재생성/모바일 scroll intercept 이슈에도 안전
         // 기존 bs.find() 바인딩은 _showBottomSheet마다 재생성되면서 놓칠 수 있음
         $(document).off('click.wtCommMore touchend.wtCommMore');
@@ -2215,10 +2245,17 @@ export class UIManager {
             if (_commMoreLock) return;
             _commMoreLock = true;
             setTimeout(() => _commMoreLock = false, 500);
-            window._wtDlog?.('click FIRE COMM', '#0f8');
-            const curBs = document.getElementById('wt-bottomsheet');
-            const lid = curBs?.getAttribute('data-id');
-            if (lid) self._showCommunityFullFeed(lid);
+            window._wtDlog?.('click FIRE COMM → community tab', '#0f8');
+            // v0.6.1: 오버레이 대신 🟢 실시간 탭으로 전환
+            const curBs = $('#wt-bottomsheet');
+            const commTab = curBs.find('.wt-bs-tab[data-tab="community"]');
+            if (commTab.length) {
+                commTab.click();
+            } else {
+                // 폴백: 탭이 없으면 기존 오버레이
+                const lid = curBs.attr('data-id');
+                if (lid) self._showCommunityFullFeed(lid);
+            }
         });
         bs.find('#wt-bs-rv-more').on('click', (e) => {
             e.stopPropagation();
@@ -3985,73 +4022,54 @@ ${charDesc ? `캐릭터 설정: ${charDesc}` : ''}
 ${langInst}
 ${recentChat ? `\n[최근 RP]:\n${recentChat.substring(0, 600)}\n` : ''}
 
-작성 규칙 — 한국 트위터(X) 감성 + 디제틱 인게임 SNS 포스트:
+작성 규칙 — 진짜 한국 트위터(X) 감성:
 
-[핵심 원칙]
-- 각 트윗은 "${charName}의 세계관 안에서 캐릭터가 실제로 쓰는 SNS 앱의 실재 포스트"다.
-- 트윗 본문은 **디제틱 요소만** 포함 — 화자의 내레이션이나 장면 설명 같은 메타 텍스트 금지.
-- 캐릭터가 실제 감각으로 느끼고 공유하는 콘텐츠만 (사진, 스샷, 시스템 경고, 메모, 영수증 등).
+[기본 원칙]
+- 각 트윗은 캐릭터가 SNS에 실제로 쓰는 짧은 글이다.
+- 메타 내레이션/장면 설명 금지 — 캐릭터 본인이 직접 쓴 글만.
 
-[기본 텍스트 트윗 — 전체의 60~70%]
+[텍스트 트윗 — 전체의 70~80%]
 - 1~3줄 짧은 한국어 트윗. @멘션·#해시태그 자연스럽게 (2~3개)
 - 캐릭터별 말투/어휘/성격 뚜렷 (설정 반영)
 - "*행동*" 별표 액션 서술 금지 — 그냥 트윗처럼 써
 - 동물은 동물 시점 (고양이 "창가 자리 사수했다냥")
 - 금지 유행어: ㅇㅇ/ㄴㄴ/팩트/ㄱㅈㅇㅈ/ㅇㄱㄹㅇ/~노/~근/킹받네/~하노/~꺼라/디시/일베/아재개그
 
-[✨ 창의적 HTML 디제틱 카드 — 4~5개 중 1~2개 반드시 포함]
-text 필드 안에 HTML+CSS 통째로 작성. **캐릭터가 공유하는 실재 아티팩트**여야 함.
+[📸 이미지 첨부 트윗 — 4~5개 중 1~2개]
+트위터처럼 "텍스트 + 사진 첨부" 형태. text에 글 쓰고 아래에 img 태그 삽입.
+이미지 URL: https://image.pollinations.ai/prompt/<영어 설명 URL 인코딩>?nologo=true&width=512&height=340
 
-⚠️ JSON 파싱 안전: CSS 속성값은 **반드시 작은따옴표(') 사용 또는 생략**. 큰따옴표는 JSON 깨뜨림.
-  ✅ 좋은 예: style='background:#000;color:#fff'
-  ❌ 나쁜 예: style=\\"background:#000\\"
+이미지 설명은 **장소·상황·분위기에 맞는 영어 키워드**로 (realistic, cinematic 스타일 추가 권장)
 
-자유 창작 방향 (아무거나 OK, 반복 금지):
-- SYSTEM ALERT/CCTV HUD/터미널 (군사·SF)
-- 뉴스 속보 스샷 (사건·속보)
-- 폴라로이드·필름 사진 (감성·추억)
-- 포스트잇·손글씨 메모 (일상)
-- 영수증·티켓·서류 (사건·유머)
-- 게임 UI (HP바·스탯·업적 알림)
-- 낙서·크레용 그림 (귀여움)
-- 편지·서신·일기장 (클래식)
-- 네온사인·전광판 (도시)
-- 레트로 포스터·전단 (빈티지)
-- 악보·앨범 커버 (음악)
-- 메뉴판·가격표 (식당·가게)
-- 조선 궁중 서찰·한지 (역사극)
-- 주술 부적·마법진 (판타지)
-...상상력 전부 풀어
+⚠️ JSON 파싱 안전: HTML 태그 안에서는 **작은따옴표(') 사용**. 큰따옴표 금지.
+  ✅ style='width:100%;border-radius:10px;margin-top:8px'
+  ❌ style="width:100%"
 
-장르·시대 스타일:
-- 조선/중세: 한지 베이지(#F5E6C8), serif, 세피아
-- 현대 도시: 네온, 글래스모피즘, gradient
-- SF/사이버펑크: 홀로그램, 글리치, 모노스페이스
-- 로맨스: 파스텔, 꽃 이모지, 손글씨
-- 공포/스릴러: 다크톤, 찢어진 효과, 빨간 얼룩
+이미지 종류 자유 — 장소·상황에 맞게:
+- 풍경/배경 (사막, 도시, 숲, 실내 등)
+- 음식/음료 사진
+- 풍경 셀카 느낌 (배경 중심)
+- 동물 사진
+- 물건/소품 클로즈업
+- 하늘/날씨
 
-씬 반응 (${recentChat ? '최근 RP 맥락 반영' : ''}):
-- 비/폭풍 → 물방울 효과, 어두운 톤
-- 전투/긴장 → 빨강/노랑 경고색, 스캔라인 애니메이션
-- 평온 → 부드러운 파스텔
-- 야간 → 다크 배경, 네온 악센트
+[간단 인용문 — 가끔 (선택)]
+트윗 안에 짧은 인용 블록을 넣을 수 있음. 반드시 트윗 카드 안에 들어갈 크기로.
+예: <div style='border-left:3px solid #B0A898;padding:8px 12px;margin-top:8px;background:#F8F8F5;border-radius:0 8px 8px 0;font-size:13px;color:#4A4A4A;font-style:italic'>인용문 내용<br><span style='font-style:normal;color:#8B98A5;font-size:11px'>— 출처</span></div>
 
-CSS 규칙:
-- 모바일 세로 기준: width:100%, max-width:100%, box-sizing:border-box 필수
-- inline style만 (background, padding, border, border-radius, box-shadow, linear-gradient, font-family, letter-spacing, transform, opacity, display:flex, animation 전부 OK)
-- 이모지 아이콘 활용: ⚠️🚨📸📝📰🔮💿📡🎮❤️🩸🔒🌸🗡️👑🕯️📜
-- animation은 단순한 것만 (pulse, fadeIn 등 — keyframes 정의 없이 CSS 기본값 사용)
-- 이미지 OK: <img src='https://image.pollinations.ai/prompt/<URLEncoded 설명>?nologo=true' style='width:100%;max-width:100%;border-radius:8px'>
-  예시: <img src='https://image.pollinations.ai/prompt/dark%20foggy%20forest%20at%20night?nologo=true' ...>
-- 금지: <script>, <iframe>, onclick/onload/onerror 등, javascript: URL, <style> 태그
+[❌ 금지]
+- 복잡한 HTML 레이아웃 (큰 박스 카드, SYSTEM ALERT 패널, 네온 박스 등)
+- display:flex/grid 같은 레이아웃 속성으로 복잡한 구조
+- <script>, <iframe>, onclick 등 이벤트 핸들러
 
 혼합된 NPC(알려진 NPC + 장소에 어울리는 신규 NPC/동물 1~2명)로 4~5개 포스트.
+감정 라벨 (excited/chill/tense/sleepy/romantic) 선택.
 
 JSON만 응답:
 {"posts":[
   {"name":"야옹이","avatar":"🐱","type":"animal","mood":"chill","moodLabel":"😌 나른","text":"창가 자리 사수했다냥 #냥스타그램","likes":12},
-  {"name":"Price","avatar":"🥃","type":"npc","mood":"tense","moodLabel":"😰 초조","text":"<div style='background:linear-gradient(135deg,#0A1929,#101F2E);padding:14px;border-radius:10px;color:#E0E7EF;font-family:monospace;border:1px solid rgba(255,70,85,0.3);width:100%;max-width:100%;box-sizing:border-box'><div style='color:#ff4655;font-weight:700;letter-spacing:2px;font-size:11px'>⚠ SYSTEM ALERT</div><div style='margin-top:6px;font-size:12px;line-height:1.5'>외부 자극원 감지. 위치 사수.</div></div>","likes":25},
-  {"name":"Ghost","avatar":"💀","type":"npc","mood":"sleepy","moodLabel":"😮‍💨 지침","text":"<div style='background:#FFFBE6;padding:14px;border-radius:4px;box-shadow:2px 3px 8px rgba(0,0,0,0.1);font-family:serif;font-size:13px;color:#4A3E2A;width:100%;max-width:100%;box-sizing:border-box;position:relative'><div style='position:absolute;top:-4px;left:14px;width:10px;height:10px;border-radius:50%;background:#D63851'></div>오늘만 세 번째… 냉장고 찬물 좀 채워놔 제발<br><div style='text-align:right;font-style:italic;margin-top:4px;color:#8B7A5A'>— 익명</div></div>","likes":8}
+  {"name":"Price","avatar":"🥃","type":"npc","mood":"tense","moodLabel":"😰 경계","text":"사막 한가운데서 헬기 소리가 끊이질 않는다. 잠은 언제 자나. #TF141 #임무중<br><img src='https://image.pollinations.ai/prompt/military%20desert%20night%20helicopter%20silhouette%20cinematic?nologo=true&width=512&height=340' style='width:100%;border-radius:10px;margin-top:8px'>","likes":42},
+  {"name":"Ghost","avatar":"💀","type":"npc","mood":"sleepy","moodLabel":"😮‍💨 피곤","text":"이 좆같은 더위는 뭐냐. 물이라도 좀 시원한 거 마시고 싶다.<div style='border-left:3px solid #B0A898;padding:8px 12px;margin-top:8px;background:#F8F8F5;border-radius:0 8px 8px 0;font-size:13px;color:#4A4A4A;font-style:italic'>물 배급은 0600시 이후.<br><span style='font-style:normal;color:#8B98A5;font-size:11px'>— 보급 담당</span></div>","likes":18}
 ]}
 
 {로 시작 }로 끝.`;
@@ -4059,7 +4077,12 @@ JSON만 응답:
             const result = await callLLM(prompt);
             if (!result) {
                 const err = window._wtLastLLMError || '알 수 없는 오류';
-                toastWarn(`⚠️ LLM 응답 없음: ${err}`);
+                // r27: Google 과부하 전용 안내
+                if (/503|429|500|502|504|과부하|overload/i.test(err)) {
+                    toastWarn(`⚠️ Google 서버 과부하 중 (503). 1~2분 후 다시 시도해주세요`);
+                } else {
+                    toastWarn(`⚠️ LLM 응답 없음: ${err}`);
+                }
                 console.error('[wt] Community gen failed:', err);
                 return;
             }
@@ -4090,8 +4113,17 @@ JSON만 응답:
             // 오버레이 닫힌 상태에서 바텀시트의 미니피드만 갱신할 때만 _showBottomSheet 호출
             if (!this._commOverlayOpen) {
                 const prevStage = this._bsStage || 2;
+                // v0.6.1: 현재 활성 탭 기억 → 재렌더 후 복원 (🟢 실시간 탭에서 생성 시 탭 유지)
+                const prevTab = $('#wt-bottomsheet .wt-bs-tab').filter(function() {
+                    return $(this).css('borderBottomColor') !== 'rgba(0, 0, 0, 0)' && $(this).css('borderBottomColor') !== 'transparent';
+                }).data('tab') || 'overview';
                 this._showBottomSheet(locId);
-                setTimeout(() => this._applyBsStage(prevStage), 100);
+                setTimeout(() => {
+                    this._applyBsStage(prevStage);
+                    if (prevTab && prevTab !== 'overview') {
+                        $('#wt-bottomsheet').find(`.wt-bs-tab[data-tab="${prevTab}"]`).click();
+                    }
+                }, 100);
             }
         } catch(e) {
             console.error('[wt] Community gen error:', e);

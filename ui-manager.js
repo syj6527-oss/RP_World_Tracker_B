@@ -3951,7 +3951,7 @@ JSON만 응답해:
         const posts = loc.community || [];
         const postsHtml = posts.length ? posts.map(p => this._renderCommunityPostCard(p)).join('') : '<div style="padding:60px 20px;text-align:center;color:#8B98A5;font-size:13px">아직 반응이 없어요<br><span style="font-size:11px">✨ 버튼을 눌러 실시간 반응을 생성해보세요</span></div>';
 
-        const overlay = $(`<div id="wt-community-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#fff;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
+        const overlay = $(`<div id="wt-community-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#fff;z-index:10200;display:flex;flex-direction:column">
             <div style="padding:14px 16px 0;background:#fff;border-bottom:1px solid #EFF3F4;position:sticky;top:0;z-index:50">
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
                     <div id="wt-comm-back" style="font-size:20px;color:#0F1419;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
@@ -3966,7 +3966,7 @@ JSON만 응답해:
             <button id="wt-comm-fab" style="position:absolute;bottom:20px;right:16px;width:52px;height:52px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 2px 12px rgba(29,155,240,.4);display:flex;align-items:center;justify-content:center">✨</button>
         </div>`);
         $('body').append(overlay);
-        // r18: append 후 즉시 상태 진단 + 조상 transform 간섭 체크
+        // r20: requestAnimationFrame/슬라이드 애니메이션 제거 (모바일에서 transform 변경 타이밍 꼬임 - overlay가 viewport 밖 고정)
         try {
             const r0 = overlay[0].getBoundingClientRect();
             const bcs = getComputedStyle(document.body);
@@ -3974,25 +3974,11 @@ JSON만 응답해:
             window._wtDlog?.(`sCFF ap ${r0.width.toFixed(0)}x${r0.height.toFixed(0)}@(${r0.left.toFixed(0)},${r0.top.toFixed(0)})`, '#0f0');
             window._wtDlog?.(`body.tf=${bcs.transform.substring(0,20)} html.tf=${hcs.transform.substring(0,20)}`, '#0af');
         } catch(e) {}
-        requestAnimationFrame(() => {
-            overlay.css('transform', 'translateY(0)');
-            setTimeout(() => {
-                const stillThere = document.getElementById('wt-community-overlay') === overlay[0];
-                window._wtDlog?.(`sCFF 200ms still=${stillThere}`, stillThere ? '#0f0' : '#f55');
-                if (stillThere) {
-                    const r1 = overlay[0].getBoundingClientRect();
-                    const cs = getComputedStyle(overlay[0]);
-                    window._wtDlog?.(` r=(${r1.left.toFixed(0)},${r1.top.toFixed(0)}) tf=${cs.transform.substring(0,20)} v=${cs.visibility} z=${cs.zIndex}`, '#0af');
-                }
-            }, 200);
-        });
 
         const self = this;
         const close = () => {
-            // r13: 즉시 상호작용 차단 (애니메이션 중 다른 이벤트 방지) + 확실한 remove
-            overlay.css({ 'transform': 'translateY(100%)', 'pointer-events': 'none' });
-            overlay.attr('data-closing', '1');
-            setTimeout(() => { if (document.getElementById('wt-community-overlay') === overlay[0]) overlay.remove(); }, 360);
+            // r20: 즉시 제거 (애니메이션 없음)
+            overlay.remove();
         };
         let _closeLock = false;
         overlay.find('#wt-comm-back').on('click touchend', (e) => {
@@ -4056,7 +4042,7 @@ JSON만 응답해:
     _showNodemapFullscreen(anchorLocId) {
         $('#wt-nodemap-overlay').remove();
 
-        const overlay = $(`<div id="wt-nodemap-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#F8F9FA;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
+        const overlay = $(`<div id="wt-nodemap-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#F8F9FA;z-index:10200;display:flex;flex-direction:column">
             <div style="padding:12px 16px;background:#fff;border-bottom:1px solid #DADCE0;display:flex;align-items:center;gap:12px;box-shadow:0 1px 3px rgba(60,64,67,.15)">
                 <div id="wt-nodemap-back" style="font-size:20px;color:#202124;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
                 <div style="flex:1">
@@ -4068,14 +4054,12 @@ JSON만 응답해:
             <div id="wt-nodemap-full-container" style="flex:1;background:#fff;position:relative;overflow:hidden"></div>
         </div>`);
         $('body').append(overlay);
-        requestAnimationFrame(() => overlay.css('transform', 'translateY(0)'));
+        // r20: 슬라이드 애니메이션 제거
 
         const self = this;
         const close = () => {
-            // r13: 즉시 상호작용 차단 + 확실한 remove
-            overlay.css({ 'transform': 'translateY(100%)', 'pointer-events': 'none' });
-            overlay.attr('data-closing', '1');
-            setTimeout(() => { if (document.getElementById('wt-nodemap-overlay') === overlay[0]) overlay.remove(); }, 360);
+            // r20: 즉시 제거
+            overlay.remove();
         };
         overlay.find('#wt-nodemap-back').on('click touchend', (e) => { e.preventDefault(); close(); });
 

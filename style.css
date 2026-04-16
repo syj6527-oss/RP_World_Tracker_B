@@ -261,3 +261,6 @@
 
 /* Paw Maps 풀스크린 최적화 (v0.6.0) */
 .wt-leaflet-full .wt-map-mode-bar{display:none!important}
+
+/* r22: pull-to-refresh 스핀 */
+@keyframes wtSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}

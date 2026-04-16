@@ -30,193 +30,11 @@ export class UIManager {
         this.panelVisible=false;
         this._reviewCache = new Map();
         this._reviewPending = new Set();
-        // r15: 모바일 버튼 탭 디버그 + touch capture 우회 경로 설치
-        this._installMobileTapDebug();
+        // r22: 디버그 패널 제거 — no-op으로 유지 (기존 dlog 호출 안전 보장)
+        window._wtDlog = () => {};
+        window._wtTapFireLock = false;
     }
 
-    // r15: 모바일 전용 디버그 패널 + capture-phase touch 우회 경로
-    _installMobileTapDebug() {
-        if (window._wtTapDebugInstalled) return;
-        window._wtTapDebugInstalled = true;
-        const self = this;
-
-        const setup = () => {
-            if (!document.body) { setTimeout(setup, 100); return; }
-
-            // 1) 화면 고정 디버그 패널 (모바일 + 콘솔 접근 불가 대응)
-            const panel = document.createElement('div');
-            panel.id = 'wt-tap-debug';
-            panel.style.cssText = 'position:fixed;top:8px;right:8px;width:240px;max-height:180px;background:rgba(0,0,0,0.85);color:#0f0;font-family:monospace;font-size:10px;padding:4px 6px;border-radius:6px;z-index:2147483647;overflow-y:auto;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.3);pointer-events:auto';
-            panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px"><span style="color:#ff0;font-weight:700">🔍 WT DEBUG</span><span style="display:flex;gap:3px"><span id="wt-dbg-diag" style="cursor:pointer;color:#fa0;padding:0 3px;font-weight:700">DIAG</span><span id="wt-dbg-all" style="cursor:pointer;color:#888;padding:0 3px;font-weight:700">ALL</span><span id="wt-dbg-clr" style="cursor:pointer;color:#0af;padding:0 3px">CLR</span><span id="wt-dbg-x" style="cursor:pointer;color:#f55;padding:0 3px">✕</span></span></div><div id="wt-dbg-log"></div>';
-            document.body.appendChild(panel);
-
-            const log = document.getElementById('wt-dbg-log');
-            const dlog = (msg, color) => {
-                const d = document.createElement('div');
-                d.style.cssText = `color:${color||'#0f0'};margin-bottom:1px;word-break:break-all`;
-                const ts = new Date();
-                const tm = `${String(ts.getSeconds()).padStart(2,'0')}.${String(ts.getMilliseconds()).padStart(3,'0')}`;
-                d.textContent = `${tm} ${msg}`;
-                log.insertBefore(d, log.firstChild);
-                while (log.children.length > 50) log.removeChild(log.lastChild);
-            };
-            window._wtDlog = dlog;
-            dlog('debug ready', '#ff0');
-
-            document.getElementById('wt-dbg-clr').addEventListener('click', (e) => { e.stopPropagation(); log.innerHTML = ''; }, true);
-            document.getElementById('wt-dbg-x').addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); }, true);
-
-            // r17: DIAG 진단 — 버튼 위치에 뭐가 덮여있는지, 조상 pointer-events 검사
-            const describeEl = (el) => {
-                if (!el) return 'NULL';
-                const id = el.id ? `#${el.id}` : '';
-                const cls = (el.className && typeof el.className === 'string') ? `.${el.className.split(' ').slice(0,2).join('.')}` : '';
-                return `${el.tagName}${id}${cls}`.substring(0, 50);
-            };
-            const runDiag = () => {
-                dlog('=== DIAG START ===', '#ff0');
-                const targets = [
-                    { sel: '.wt-bs-comm-more', label: 'COMM_MORE' },
-                    { sel: '#wt-bs-nodemap-expand', label: 'NMAP_EXP' },
-                ];
-                for (const { sel, label } of targets) {
-                    const el = document.querySelector(sel);
-                    if (!el) { dlog(`${label}: NOT IN DOM`, '#f55'); continue; }
-                    const r = el.getBoundingClientRect();
-                    dlog(`${label}: ${r.width.toFixed(0)}x${r.height.toFixed(0)} @(${r.left.toFixed(0)},${r.top.toFixed(0)})`, '#0f0');
-                    const cs = getComputedStyle(el);
-                    dlog(` pe=${cs.pointerEvents} vis=${cs.visibility} disp=${cs.display} op=${cs.opacity} z=${cs.zIndex}`, '#0af');
-                    if (r.width === 0 || r.height === 0) { dlog(` ! zero-size button`, '#f55'); continue; }
-                    const vh = window.innerHeight;
-                    const vw = window.innerWidth;
-                    if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) {
-                        dlog(` ! offscreen (vh=${vh})`, '#f55'); continue;
-                    }
-                    const cx = Math.min(Math.max(r.left + r.width/2, 0), vw-1);
-                    const cy = Math.min(Math.max(r.top + r.height/2, 0), vh-1);
-                    const topEl = document.elementFromPoint(cx, cy);
-                    const isSame = topEl === el || (topEl && el.contains(topEl));
-                    dlog(` topAt(${cx.toFixed(0)},${cy.toFixed(0)}): ${describeEl(topEl)}`, isSame ? '#0f0' : '#f55');
-                    if (!isSame && topEl) {
-                        const tcs = getComputedStyle(topEl);
-                        dlog(` !! COVERED BY pe=${tcs.pointerEvents} z=${tcs.zIndex} pos=${tcs.position}`, '#f80');
-                    }
-                    // 조상 체인에서 pointer-events:none 찾기
-                    let cur = el.parentElement, depth = 0, found = false;
-                    while (cur && cur !== document.body && depth < 15) {
-                        const pcs = getComputedStyle(cur);
-                        if (pcs.pointerEvents === 'none') {
-                            dlog(` !! ANCESTOR pe=none: ${describeEl(cur)}`, '#f00');
-                            found = true;
-                        }
-                        cur = cur.parentElement;
-                        depth++;
-                    }
-                    if (!found && isSame) dlog(` ancestors OK`, '#0f0');
-                }
-                dlog('=== DIAG END ===', '#ff0');
-            };
-            document.getElementById('wt-dbg-diag').addEventListener('click', (e) => { e.stopPropagation(); runDiag(); }, true);
-            document.getElementById('wt-dbg-diag').addEventListener('touchend', (e) => { e.stopPropagation(); runDiag(); }, true);
-
-            // r17: ALL 토글 — 모든 touchstart 이벤트 추적 (어디서 터치가 실제로 발생하는지)
-            window._wtLogAll = false;
-            const toggleAll = () => {
-                window._wtLogAll = !window._wtLogAll;
-                const btn = document.getElementById('wt-dbg-all');
-                btn.style.color = window._wtLogAll ? '#0f0' : '#888';
-                dlog(`ALL ${window._wtLogAll ? 'ON' : 'OFF'}`, '#ff0');
-            };
-            document.getElementById('wt-dbg-all').addEventListener('click', (e) => { e.stopPropagation(); toggleAll(); }, true);
-            document.getElementById('wt-dbg-all').addEventListener('touchend', (e) => { e.stopPropagation(); toggleAll(); }, true);
-
-            // ALL 모드: 모든 touchstart/pointerdown 이벤트의 target 기록
-            document.addEventListener('touchstart', (e) => {
-                if (!window._wtLogAll) return;
-                // 디버그 패널 내부 터치는 무시
-                if (e.target.closest?.('#wt-tap-debug')) return;
-                const t = e.touches[0];
-                const topEl = document.elementFromPoint(t.clientX, t.clientY);
-                dlog(`TS @(${t.clientX.toFixed(0)},${t.clientY.toFixed(0)}) → ${describeEl(e.target)}`, '#0ff');
-                if (topEl && topEl !== e.target) {
-                    dlog(` topAt=${describeEl(topEl)}`, '#f80');
-                }
-            }, true);
-            document.addEventListener('pointerdown', (e) => {
-                if (!window._wtLogAll) return;
-                if (e.target.closest?.('#wt-tap-debug')) return;
-                dlog(`PD → ${describeEl(e.target)}`, '#aaf');
-            }, true);
-
-            // r16: COMM_GEN은 기존 handler가 잘 작동하니까 capture 우회에서 제외 (중복 호출/race 방지)
-            // 로그만 찍고 fire는 안 함
-            const isTarget = (t) => {
-                if (!t || !t.closest) return null;
-                if (t.closest('.wt-bs-comm-more')) return 'COMM_MORE';
-                if (t.closest('#wt-bs-nodemap-expand')) return 'NMAP_EXP';
-                return null;
-            };
-            const isLogOnly = (t) => {
-                if (!t || !t.closest) return null;
-                if (t.closest('.wt-bs-comm-gen')) return 'COMM_GEN';
-                return null;
-            };
-
-            ['pointerdown', 'touchstart', 'touchend', 'click'].forEach(ev => {
-                document.addEventListener(ev, (e) => {
-                    const kind = isTarget(e.target) || isLogOnly(e.target);
-                    if (!kind) return;
-                    const tag = e.target.tagName || '?';
-                    dlog(`${ev} → ${kind} [${tag}]`, '#0ff');
-                }, true); // capture
-            });
-
-            // 3) touch-based 우회 핸들러 (진짜 눌림 감지 → 직접 실행)
-            // 모바일에서 click 이벤트가 어딘가에서 씹혀도 touchstart/touchend는 살아있을 것
-            let tapStart = null;
-            document.addEventListener('touchstart', (e) => {
-                const kind = isTarget(e.target);
-                if (!kind) return;
-                const t = e.touches[0];
-                tapStart = { x: t.clientX, y: t.clientY, kind, time: Date.now() };
-                dlog(`tap START ${kind}`, '#ff0');
-            }, { passive: true, capture: true });
-
-            document.addEventListener('touchmove', (e) => {
-                if (!tapStart) return;
-                const t = e.touches[0];
-                const dx = Math.abs(t.clientX - tapStart.x);
-                const dy = Math.abs(t.clientY - tapStart.y);
-                if (dx > 15 || dy > 15) {
-                    dlog(`tap CANCEL (move ${dx.toFixed(0)},${dy.toFixed(0)})`, '#f80');
-                    tapStart = null;
-                }
-            }, { passive: true, capture: true });
-
-            document.addEventListener('touchend', (e) => {
-                if (!tapStart) return;
-                const dt = Date.now() - tapStart.time;
-                const kind = tapStart.kind;
-                tapStart = null;
-                if (dt > 800) { dlog(`tap TOO LONG ${dt}ms`, '#f80'); return; }
-                // 중복 실행 방지: click 리스너도 있으므로 짧은 lock
-                if (window._wtTapFireLock) { dlog(`tap locked ${kind}`, '#888'); return; }
-                window._wtTapFireLock = true;
-                setTimeout(() => window._wtTapFireLock = false, 600);
-                dlog(`tap FIRE ${kind}`, '#0f0');
-                const curBs = document.getElementById('wt-bottomsheet');
-                const lid = curBs?.getAttribute('data-id');
-                if (!lid) { dlog('no bs data-id', '#f55'); return; }
-                try {
-                    if (kind === 'COMM_MORE') self._showCommunityFullFeed(lid);
-                    else if (kind === 'NMAP_EXP') self._showNodemapFullscreen(lid);
-                } catch (err) {
-                    dlog(`ERR: ${err.message}`, '#f55');
-                }
-            }, { passive: true, capture: true });
-        };
-        setup();
-    }
 
     // ========== 설정 패널 (SillyTavern 확장 설정) ==========
     createSettingsPanel() {
@@ -1669,7 +1487,7 @@ export class UIManager {
                 <div style="display:flex;align-items:center;gap:5px">
                     <span style="font-size:12px">🗓️</span>
                     <span style="flex:1;font-weight:600;font-size:10.5px;color:#888">${p.text || p.title || ''}</span>
-                    <span class="wt-plan-del" data-plan-idx="${i}" style="cursor:pointer;color:#D0C0B0;font-size:11px;padding:2px 4px">✕</span>
+                    <span class="wt-plan-del" data-plan-idx="${i}" style="cursor:pointer;color:#E53935;background:#FFEBEE;font-size:14px;font-weight:700;padding:4px 8px;border-radius:10px;margin-left:4px;touch-action:manipulation;min-width:28px;text-align:center" title="삭제">✕</span>
                 </div>
                 ${p.planWhen ? `<div style="font-size:9px;color:#B0A898;margin-top:2px;padding-left:17px">📌 ${p.planDate ? p.planDate + ' (' + p.planWhen + ')' : p.planWhen}</div>` : ''}
             </div>`).join('')
@@ -1823,13 +1641,16 @@ export class UIManager {
         // 이벤트 HTML
         let eventsHtml = '';
         if (events.length) {
-            eventsHtml = events.slice(-5).reverse().map(ev => {
+            const recentEvents = events.slice(-5).reverse();
+            eventsHtml = recentEvents.map((ev, displayIdx) => {
                 const dateStr = ev.rpDate || (ev.timestamp ? new Date(ev.timestamp).toLocaleDateString('ko-KR', { month:'numeric', day:'numeric' }) : '');
                 const hasDetail = ev.text && ev.text !== ev.title && ev.text.length > 15;
                 const moodColors = { '💕': { bg:'#FFF0F3', border:'#F5C0CE', text:'#8B2252' }, '⚡': { bg:'#FFF3E0', border:'#F5C28A', text:'#8B4513' }, '📅': { bg:'#E8F5E9', border:'#A5D6A7', text:'#2E5E3E' } };
                 const mc = moodColors[ev.mood] || { bg:'#F5F5F5', border:'#E0E0E0', text:'#4A4A4A' };
-                return `<div class="wt-bs-ev-card" style="background:${mc.bg};border-radius:7px;padding:7px 9px;border:1px solid ${mc.border};margin-bottom:4px;cursor:${hasDetail ? 'pointer' : 'default'}">
-                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:${mc.text}">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span>${hasDetail ? '<span class="wt-bs-ev-arrow" style="font-size:8px;color:#B0A898">▼</span>' : ''}</div>
+                // r22: 이벤트 식별용 ts (timestamp) — 삭제 시 이걸로 find
+                const evTs = ev.timestamp || 0;
+                return `<div class="wt-bs-ev-card" data-ev-ts="${evTs}" style="background:${mc.bg};border-radius:7px;padding:7px 9px;border:1px solid ${mc.border};margin-bottom:4px;cursor:${hasDetail ? 'pointer' : 'default'}">
+                    <div style="display:flex;align-items:center;gap:5px"><span style="font-size:12px">${ev.mood||'📝'}</span><span style="flex:1;font-weight:600;font-size:10.5px;color:${mc.text}">${ev.title||ev.text||''}</span><span style="font-size:8px;color:#B0A898">${dateStr}</span>${hasDetail ? '<span class="wt-bs-ev-arrow" style="font-size:8px;color:#B0A898">▼</span>' : ''}<span class="wt-bs-ev-del" data-ev-ts="${evTs}" style="cursor:pointer;color:#E53935;background:#FFEBEE;font-size:14px;font-weight:700;padding:4px 8px;border-radius:10px;margin-left:6px;touch-action:manipulation;min-width:28px;text-align:center" title="삭제">✕</span></div>
                     ${hasDetail ? `<div class="wt-bs-ev-detail" style="display:none;margin-top:5px;padding-top:5px;border-top:1px dashed ${mc.border};font-size:9.5px;line-height:1.6;color:#7A7060">${ev.text}</div>` : ''}
                 </div>`;
             }).join('');
@@ -1921,11 +1742,11 @@ export class UIManager {
             </div>
             <div id="wt-bs-tab-events" style="display:none;padding:10px 14px;overflow-y:auto">
                 <div style="margin-bottom:8px;padding:8px 10px;background:#FAFAF5;border-radius:8px;border:1px solid #EAE6DC">
-                    <div style="font-size:10px;font-weight:600;color:#5A4030;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">🌡️ 분위기 지수 <span style="font-size:9px;color:#9AA0A6;font-weight:400">최근 7일</span></div>
+                    <div style="font-size:10px;font-weight:600;color:#5A4030;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">🌡️ 분위기 지수 <span style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:#9AA0A6;font-weight:400">최근 7일</span><button class="wt-bs-mood-reset" style="font-size:11px;font-weight:600;background:#FFF3E0;border:1px solid #F6A93A;border-radius:10px;padding:4px 12px;cursor:pointer;color:#CF6E2E;font-family:inherit;touch-action:manipulation;min-height:28px">↻ 리셋</button></span></div>
                     <div style="display:flex;align-items:flex-end;gap:3px;height:36px">
-                        ${(() => { const moods = events.slice(-7); const bars = []; for(let i=0;i<7;i++){const ev=moods[i]; const h=ev?(['💕','😊'].some(m=>m===ev.mood)?30:['⚡','🔍'].some(m=>m===ev.mood)?70:45):12; const c=ev?(['💕','😊'].some(m=>m===ev.mood)?'#A8D8EA':['⚡','🔍'].some(m=>m===ev.mood)?'#F5A8A8':'#F5C6AA'):'#E8E4D8'; bars.push(`<div style="flex:1;height:${h}%;background:${c};border-radius:2px 2px 0 0"></div>`);} return bars.join(''); })()}
+                        ${(() => { const filteredEvents = loc.moodResetAt ? events.filter(e => (e.timestamp||0) > loc.moodResetAt) : events; const moods = filteredEvents.slice(-7); const bars = []; for(let i=0;i<7;i++){const ev=moods[i]; const h=ev?(['💕','😊'].some(m=>m===ev.mood)?30:['⚡','🔍'].some(m=>m===ev.mood)?70:45):12; const c=ev?(['💕','😊'].some(m=>m===ev.mood)?'#A8D8EA':['⚡','🔍'].some(m=>m===ev.mood)?'#F5A8A8':'#F5C6AA'):'#E8E4D8'; bars.push(`<div style="flex:1;height:${h}%;background:${c};border-radius:2px 2px 0 0"></div>`);} return bars.join(''); })()}
                     </div>
-                    <div style="font-size:8px;color:#9AA0A6;text-align:center;margin-top:4px">${events.length ? `이벤트 ${events.length}건 기반` : '데이터 수집 중...'}</div>
+                    <div style="font-size:8px;color:#9AA0A6;text-align:center;margin-top:4px">${(() => { const filteredEvents = loc.moodResetAt ? events.filter(e => (e.timestamp||0) > loc.moodResetAt) : events; return filteredEvents.length ? `이벤트 ${filteredEvents.length}건 기반${loc.moodResetAt ? ' (리셋 후)' : ''}` : '데이터 수집 중...'; })()}</div>
                 </div>
                 ${eventsHtml}
                 ${this._buildPlanSectionHtml(loc)}
@@ -1956,6 +1777,7 @@ export class UIManager {
                         return `<div class="wt-bs-sub-item" data-subid="${s.id}" style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid ${isCur?'#2B8A6E':'#F0EDE5'};border-radius:10px;margin-bottom:6px;cursor:pointer;background:${isCur?'#F0FFF4':'#fff'};-webkit-tap-highlight-color:transparent">
                             <span style="font-size:16px">${getEmoji(s.name)}</span>
                             <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#202124">${s.name}${isCur?' <span style="font-size:9px;color:#2B8A6E;background:#E8F5E9;padding:1px 5px;border-radius:6px">현재</span>':''}</div><div style="font-size:10px;color:#70757A">${s.visitCount||0}회${evCount?' · 이벤트 '+evCount+'건':''}</div></div>
+                            <span class="wt-bs-sub-del" data-subid="${s.id}" style="cursor:pointer;color:#E53935;background:#FFEBEE;font-size:15px;font-weight:700;padding:6px 10px;border-radius:10px;margin-left:4px;touch-action:manipulation;min-width:32px;text-align:center" title="삭제">✕</span>
                             <span style="color:#9AA0A6;font-size:12px">></span>
                         </div>`;
                     }).join('');
@@ -2007,7 +1829,9 @@ export class UIManager {
             if (tab !== 'overview' && self._bsStage < 3) self._applyBsStage(3);
         });
         // 7. 이벤트 아코디언 클릭 → 펼치기
-        bs.find('.wt-bs-ev-card').on('click', function() {
+        bs.find('.wt-bs-ev-card').on('click', function(e) {
+            // r22: 삭제 버튼 클릭 시 토글 방지
+            if ($(e.target).hasClass('wt-bs-ev-del')) return;
             const det = $(this).find('.wt-bs-ev-detail');
             const arrow = $(this).find('.wt-bs-ev-arrow');
             if (det.length) {
@@ -2015,11 +1839,62 @@ export class UIManager {
                 arrow.text(det.is(':visible') ? '▼' : '▲');
             }
         });
-        // ★ 예정 일정 삭제
-        bs.find('.wt-plan-del').on('click', function(e) {
+        // r22: 바텀시트 내 삭제/리셋 버튼들 전부 document-delegated로 변경 — 모바일 호환성 (r14의 comm-more와 동일 이슈)
+        $(document).off('click.wtEvDel touchend.wtEvDel click.wtMoodRst touchend.wtMoodRst click.wtPlanDel touchend.wtPlanDel');
+
+        // 이벤트 카드 삭제
+        $(document).on('click.wtEvDel touchend.wtEvDel', '.wt-bs-ev-del', function(e) {
+            e.preventDefault();
             e.stopPropagation();
+            if (window._wtTapFireLock) return;
+            window._wtTapFireLock = true;
+            setTimeout(() => window._wtTapFireLock = false, 600);
+            const curBs = document.getElementById('wt-bottomsheet');
+            const lid = curBs?.getAttribute('data-id');
+            if (!lid) return;
+            const evTs = parseInt($(this).data('ev-ts'));
+            if (!evTs || !confirm('이 기억을 삭제할까요?')) return;
+            const loc = self.lm.locations.find(l => l.id === lid);
+            if (!loc) return;
+            const realIdx = (loc.events || []).findIndex(ev => ev.timestamp === evTs);
+            if (realIdx >= 0) {
+                loc.events.splice(realIdx, 1);
+                self.lm.updateLocation(lid, { events: loc.events });
+                self._showBottomSheet(lid);
+                setTimeout(() => self._applyBsStage(3), 100);
+                toastSuccess('✕ 기억 삭제');
+            }
+        });
+
+        // 분위기 지수 리셋
+        $(document).on('click.wtMoodRst touchend.wtMoodRst', '.wt-bs-mood-reset', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window._wtTapFireLock) return;
+            window._wtTapFireLock = true;
+            setTimeout(() => window._wtTapFireLock = false, 600);
+            const curBs = document.getElementById('wt-bottomsheet');
+            const lid = curBs?.getAttribute('data-id');
+            if (!lid) return;
+            if (!confirm('분위기 지수를 리셋할까요?\n(이후 이벤트만 차트에 반영됩니다)')) return;
+            self.lm.updateLocation(lid, { moodResetAt: Date.now() });
+            self._showBottomSheet(lid);
+            setTimeout(() => self._applyBsStage(3), 100);
+            toastSuccess('🌡️ 분위기 지수 리셋');
+        });
+
+        // 예정 일정 삭제
+        $(document).on('click.wtPlanDel touchend.wtPlanDel', '.wt-plan-del', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window._wtTapFireLock) return;
+            window._wtTapFireLock = true;
+            setTimeout(() => window._wtTapFireLock = false, 600);
+            const curBs = document.getElementById('wt-bottomsheet');
+            const lid = curBs?.getAttribute('data-id');
+            if (!lid) return;
             const idx = parseInt($(this).data('plan-idx'));
-            const loc = self.lm.locations.find(l => l.id === locId);
+            const loc = self.lm.locations.find(l => l.id === lid);
             if (!loc) return;
             const planEvents = (loc.events || []).filter(ev => ev.isPlan);
             if (idx >= 0 && idx < planEvents.length) {
@@ -2027,8 +1902,8 @@ export class UIManager {
                 const realIdx = loc.events.indexOf(target);
                 if (realIdx >= 0) {
                     loc.events.splice(realIdx, 1);
-                    self.lm.updateLocation(locId, { events: loc.events });
-                    self._showBottomSheet(locId); // 리렌더
+                    self.lm.updateLocation(lid, { events: loc.events });
+                    self._showBottomSheet(lid);
                     toastSuccess('✕ 일정 삭제');
                 }
             }
@@ -2185,9 +2060,33 @@ export class UIManager {
         });
         // ★ 내부 장소 클릭 → 서브 상세 뷰
         bs.find('.wt-bs-sub-item').on('click', function(e) {
+            // r22: 삭제 버튼 클릭 시 상세 뷰 전환 방지
+            if ($(e.target).hasClass('wt-bs-sub-del')) return;
             e.stopPropagation();
             const subId = $(this).data('subid');
             self._showSubLocationDetail(locId, subId);
+        });
+        // r22: 서브 장소 삭제 — document-delegated (모바일 대응)
+        $(document).off('click.wtSubDel touchend.wtSubDel');
+        $(document).on('click.wtSubDel touchend.wtSubDel', '.wt-bs-sub-del', async function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window._wtTapFireLock) return;
+            window._wtTapFireLock = true;
+            setTimeout(() => window._wtTapFireLock = false, 600);
+            const curBs = document.getElementById('wt-bottomsheet');
+            const lid = curBs?.getAttribute('data-id');
+            if (!lid) return;
+            const subId = $(this).data('subid');
+            const sub = self.lm.locations.find(l => l.id === subId);
+            if (!sub) return;
+            if (!confirm(`"${sub.name}" 장소를 삭제할까요?\n(이벤트도 모두 삭제됩니다)`)) return;
+            await self.lm.deleteLocation(subId);
+            toastSuccess(`✕ "${sub.name}" 삭제`);
+            self._showBottomSheet(lid);
+            setTimeout(() => {
+                $('#wt-bottomsheet').find('.wt-bs-tab[data-tab="rooms"]').click();
+            }, 100);
         });
         // ★ 내부 장소 추가 버튼
         bs.find('#wt-bs-add-sub-btn').on('click', async (e) => {
@@ -2243,7 +2142,7 @@ export class UIManager {
                     <div style="display:flex;align-items:center;gap:6px">
                         <span style="font-size:12px;flex-shrink:0">${ev.mood || '📝'}</span>
                         <span style="flex:1;font-weight:600;font-size:12px;color:#202124">${title}</span>
-                        <span class="wt-sub-ev-del" data-idx="${i}" style="cursor:pointer;color:#F5A8A8;font-size:11px;padding:2px 4px">✕</span>
+                        <span class="wt-sub-ev-del" data-idx="${i}" style="cursor:pointer;color:#E53935;background:#FFEBEE;font-size:14px;font-weight:700;padding:4px 8px;border-radius:10px;margin-left:4px;touch-action:manipulation;min-width:28px;text-align:center" title="삭제">✕</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px">
                         <span style="font-size:10px;color:#9AA0A6">${ev.timestamp ? this._fmt(ev.timestamp) : '—'}</span>
@@ -3959,11 +3858,15 @@ JSON만 응답해:
                         <div style="font-size:17px;font-weight:900;color:#0F1419">${loc.name}</div>
                         <div style="font-size:12px;color:#536471;display:flex;align-items:center;gap:4px" data-comm-count="1"><span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 실시간 · ${posts.length}개 반응</div>
                     </div>
-                    <div id="wt-comm-refresh" style="font-size:18px;cursor:pointer;padding:6px;border-radius:50%" title="새로고침">🔄</div>
                 </div>
             </div>
-            <div id="wt-comm-feed" style="flex:1;overflow-y:auto;background:#fff">${postsHtml}</div>
-            <button id="wt-comm-fab" style="position:absolute;bottom:20px;right:16px;width:52px;height:52px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 2px 12px rgba(29,155,240,.4);display:flex;align-items:center;justify-content:center">✨</button>
+            <div id="wt-comm-feed-wrap" style="flex:1;overflow-y:auto;background:#fff;position:relative;overscroll-behavior:contain">
+                <div id="wt-comm-ptr" style="position:absolute;top:0;left:0;right:0;height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#F7F9F9;transition:height .2s;pointer-events:none">
+                    <div id="wt-comm-ptr-inner" style="display:flex;align-items:center;gap:8px;font-size:12px;color:#536471;font-weight:500"><span id="wt-comm-ptr-icon" style="display:inline-block;font-size:16px;transition:transform .2s">⬇</span><span id="wt-comm-ptr-text">당겨서 새로고침</span></div>
+                </div>
+                <div id="wt-comm-feed">${postsHtml}</div>
+            </div>
+            <button id="wt-comm-fab" style="position:absolute;bottom:20px;right:16px;width:52px;height:52px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 2px 12px rgba(29,155,240,.4);display:flex;align-items:center;justify-content:center;touch-action:manipulation">✨</button>
         </div>`);
         $('body').append(overlay);
         // r21: z-index 최대치로 올림 + 중앙 elementFromPoint로 덮는 요소 확정
@@ -4009,27 +3912,105 @@ JSON만 응답해:
             _closeLock = true;
             close();
         });
+        // r22: 피드 갱신 공용 함수 (FAB + pull-to-refresh 둘 다 사용)
         let _refreshLock = false;
-        overlay.find('#wt-comm-refresh, #wt-comm-fab').on('click touchend', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (_refreshLock) return;
+        const refreshFeed = async () => {
+            if (_refreshLock) return false;
             _refreshLock = true;
-            setTimeout(() => _refreshLock = false, 1000);
             overlay.find('#wt-comm-fab').text('⏳').prop('disabled', true);
-            // r13: 오버레이가 열린 상태이므로 _commOverlayOpen 플래그로 바텀시트 재렌더 억제
             self._commOverlayOpen = true;
-            await self._generateCommunity(locId);
-            self._commOverlayOpen = false;
-            // 기존 오버레이를 닫지 않고 내용만 갱신 (race condition 원천 차단)
+            try {
+                await self._generateCommunity(locId);
+            } finally {
+                self._commOverlayOpen = false;
+                _refreshLock = false;
+            }
+            // 오버레이 내용 갱신 (race 없이)
             const loc = self.lm.locations.find(l => l.id === locId);
             const posts = loc?.community || [];
             const postsHtml = posts.length ? posts.map(p => self._renderCommunityPostCard(p)).join('') : '<div style="padding:60px 20px;text-align:center;color:#8B98A5;font-size:13px">아직 반응이 없어요<br><span style="font-size:11px">✨ 버튼을 눌러 실시간 반응을 생성해보세요</span></div>';
             overlay.find('#wt-comm-feed').html(postsHtml);
             overlay.find('#wt-comm-fab').text('✨').prop('disabled', false);
-            // 헤더 개수 갱신
             overlay.find('[data-comm-count]').html(`<span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 실시간 · ${posts.length}개 반응`);
+            return true;
+        };
+
+        // r22: FAB (✨) — 명시적 생성 버튼
+        overlay.find('#wt-comm-fab').on('click touchend', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await refreshFeed();
         });
+
+        // r22: Pull-to-refresh — 트위터 감성 당겨서 새로고침
+        const feedWrap = overlay.find('#wt-comm-feed-wrap')[0];
+        const ptr = overlay.find('#wt-comm-ptr')[0];
+        const ptrIcon = overlay.find('#wt-comm-ptr-icon');
+        const ptrText = overlay.find('#wt-comm-ptr-text');
+        const PTR_THRESHOLD = 70; // 임계값 (이상 당기면 새로고침)
+        const PTR_MAX = 100;
+        let ptrStartY = null, ptrActive = false, ptrDist = 0;
+
+        feedWrap.addEventListener('touchstart', (e) => {
+            if (_refreshLock) return;
+            if (feedWrap.scrollTop > 0) { ptrStartY = null; return; }
+            ptrStartY = e.touches[0].clientY;
+            ptrActive = false;
+            ptrDist = 0;
+        }, { passive: true });
+
+        feedWrap.addEventListener('touchmove', (e) => {
+            if (ptrStartY === null || _refreshLock) return;
+            const dy = e.touches[0].clientY - ptrStartY;
+            if (dy <= 0) { ptrStartY = null; return; }
+            // scrollTop이 0일 때만 pull 효과
+            if (feedWrap.scrollTop > 0) { ptrStartY = null; return; }
+            ptrActive = true;
+            // 저항 효과 — dy 늘릴수록 느려짐
+            ptrDist = Math.min(PTR_MAX, dy * 0.55);
+            ptr.style.height = ptrDist + 'px';
+            ptr.style.transition = 'none';
+            if (ptrDist >= PTR_THRESHOLD) {
+                ptrIcon.css('transform', 'rotate(180deg)').text('⬆');
+                ptrText.text('놓으면 새로고침');
+            } else {
+                ptrIcon.css('transform', 'rotate(0deg)').text('⬇');
+                ptrText.text('당겨서 새로고침');
+            }
+        }, { passive: true });
+
+        feedWrap.addEventListener('touchend', async () => {
+            if (!ptrActive) { ptrStartY = null; return; }
+            const shouldRefresh = ptrDist >= PTR_THRESHOLD;
+            ptrStartY = null;
+            ptrActive = false;
+            ptr.style.transition = 'height .25s';
+            if (shouldRefresh) {
+                // 로딩 상태 유지
+                ptr.style.height = '50px';
+                ptrIcon.text('🔄').css('transform', 'rotate(0deg)');
+                ptrText.text('생성 중...');
+                // 아이콘 회전 애니메이션
+                const spinInterval = setInterval(() => {
+                    const cur = parseInt(ptrIcon.css('transform').match(/-?\d+(\.\d+)?/g)?.[0] || 0);
+                    // 실제 회전은 css로 더 쉽게 - animation 프로퍼티 추가
+                }, 100);
+                ptrIcon[0].style.animation = 'wtSpin 0.8s linear infinite';
+                await refreshFeed();
+                clearInterval(spinInterval);
+                ptrIcon[0].style.animation = '';
+                ptrIcon.text('✓').css('transform', 'rotate(0deg)');
+                ptrText.text('완료!');
+                setTimeout(() => {
+                    ptr.style.height = '0';
+                    ptrIcon.text('⬇');
+                    ptrText.text('당겨서 새로고침');
+                }, 600);
+            } else {
+                ptr.style.height = '0';
+            }
+            ptrDist = 0;
+        }, { passive: true });
     }
 
     _renderCommunityPostCard(p) {

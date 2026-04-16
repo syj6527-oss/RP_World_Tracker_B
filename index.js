@@ -522,6 +522,14 @@ async function init() {
         if (extension_settings[EXTENSION_NAME][k] === undefined) extension_settings[EXTENSION_NAME][k] = v;
     }
     extension_settings[EXTENSION_NAME].debugMode = false;
+    // ★ v0.6.0 마이그레이션: 기존 'node' 유저 → 'leaflet' 강제 전환 (한 번만)
+    if (!extension_settings[EXTENSION_NAME]._migrated_v06) {
+        if (extension_settings[EXTENSION_NAME].mapMode === 'node') {
+            extension_settings[EXTENSION_NAME].mapMode = 'leaflet';
+            console.log(`[${EXTENSION_NAME}] 🎉 v0.6.0 migration: mapMode node → leaflet`);
+        }
+        extension_settings[EXTENSION_NAME]._migrated_v06 = true;
+    }
     saveSettingsDebounced();
 
     db = new WorldTrackerDB(); await db.open();

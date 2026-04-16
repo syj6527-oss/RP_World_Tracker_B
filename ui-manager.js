@@ -272,11 +272,11 @@ export class UIManager {
             </div>
             <div class="wt-panel-body" id="wt-panel-body">
 
-                <div class="wt-map-toggle" id="wt-map-toggle">🗺️ 지도 ▾</div>
+                <div class="wt-map-toggle" id="wt-map-toggle" style="display:none">🗺️ 지도 ▾</div>
                 <div id="wt-map-section" style="display:none">
                     <div class="wt-map-mode-bar" style="display:none">
-                        <button id="wt-mode-node" class="wt-mode-btn">🗺️ 약도</button>
                         <button id="wt-mode-leaflet" class="wt-mode-btn wt-mode-active">🐾 Paw Maps</button>
+                        <button id="wt-mode-node" class="wt-mode-btn">🗺️ 약도</button>
                         <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 지도</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar" style="position:relative">
@@ -658,16 +658,14 @@ export class UIManager {
                 $('#wt-mode-fantasy').hide();
             }
             this.refresh();
-            // B5: 약도 모드일 때 지도 섹션 자동 표시 + 렌더 트리거
-            const curMode = s?.mapMode || 'leaflet';
-            if (curMode === 'node' || curMode === 'fantasy') {
-                $('#wt-map-section').show();
-                $('#wt-map-toggle').text('🗺️ 지도 ▴');
-            }
+            // ★ v0.6.0: 패널 열면 자동으로 Paw Maps 풀스크린
+            $('#wt-map-section').show();
             setTimeout(() => {
-                if (this.mapRenderer) this.mapRenderer.render();
+                if (!this._isLeafletFull) this._setMapMode('leaflet');
+            }, 400);
+            setTimeout(() => {
                 if (this.leafletRenderer?.map) this.leafletRenderer.invalidateSize();
-            }, 350);
+            }, 600);
         }
         else { $('#wt-panel').removeClass('wt-panel-open'); this.hidePop(); }
     }

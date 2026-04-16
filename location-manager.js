@@ -501,4 +501,56 @@ export class LocationManager {
         loc.npcs = loc.npcs.filter(n => n.name.toLowerCase() !== npcName.toLowerCase());
         await this.db.saveLocation(loc);
     }
+
+    // ========== 💬 커뮤니티 피드 (v0.6.0 NEW) ==========
+    async addCommunityPost(locId, post) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc) return false;
+        if (!loc.community) loc.community = [];
+        loc.community.unshift({
+            id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: post.name,
+            handle: post.handle || `@${post.name.toLowerCase().replace(/\s+/g, '_')}`,
+            avatar: post.avatar || '👤',
+            type: post.type || 'npc', // 'npc' | 'animal' | 'user'
+            mood: post.mood || '',
+            moodLabel: post.moodLabel || '',
+            text: post.text,
+            mentions: post.mentions || [],
+            hashtags: post.hashtags || [],
+            likes: post.likes || 0,
+            replies: post.replies || [],
+            retweetOf: post.retweetOf || null,
+            timestamp: Date.now(),
+            rpDate: post.rpDate || '',
+        });
+        // 최대 30개 유지
+        if (loc.community.length > 30) loc.community = loc.community.slice(0, 30);
+        await this.db.saveLocation(loc);
+        return true;
+    }
+
+    async updateCommunityPost(locId, postId, updates) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc?.community) return false;
+        const post = loc.community.find(p => p.id === postId);
+        if (!post) return false;
+        Object.assign(post, updates);
+        await this.db.saveLocation(loc);
+        return true;
+    }
+
+    async removeCommunityPost(locId, postId) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc?.community) return;
+        loc.community = loc.community.filter(p => p.id !== postId);
+        await this.db.saveLocation(loc);
+    }
+
+    async clearCommunity(locId) {
+        const loc = this.locations.find(l => l.id === locId);
+        if (!loc) return;
+        loc.community = [];
+        await this.db.saveLocation(loc);
+    }
 }

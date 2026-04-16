@@ -252,3 +252,12 @@
 #wt-search-tabs .wt-mode-btn,.wt-map-mode-bar .wt-mode-btn{font-size:13px!important;padding:8px 6px!important}
 .wt-search-name{font-size:14px}
 .wt-search-empty{font-size:13px}
+
+/* 💬 커뮤니티 라이브 pulse (v0.6.0) */
+@keyframes wtLivePulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* 🗺️ Google Maps 색상 변수 (v0.6.0) */
+:root{--gm-blue:#1A73E8;--gm-red:#EA4335;--gm-yellow:#FBBC04;--gm-green:#34A853;--tw-blue:#1D9BF0;--tw-text:#0F1419;--tw-text-2:#536471}
+
+/* Paw Maps 풀스크린 최적화 (v0.6.0) */
+.wt-leaflet-full .wt-map-mode-bar{display:none!important}

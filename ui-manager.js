@@ -274,9 +274,9 @@ export class UIManager {
 
                 <div class="wt-map-toggle" id="wt-map-toggle">🗺️ 지도 ▾</div>
                 <div id="wt-map-section" style="display:none">
-                    <div class="wt-map-mode-bar">
-                        <button id="wt-mode-node" class="wt-mode-btn wt-mode-active">🗺️ 약도</button>
-                        <button id="wt-mode-leaflet" class="wt-mode-btn">🐾 Paw Maps</button>
+                    <div class="wt-map-mode-bar" style="display:none">
+                        <button id="wt-mode-node" class="wt-mode-btn">🗺️ 약도</button>
+                        <button id="wt-mode-leaflet" class="wt-mode-btn wt-mode-active">🐾 Paw Maps</button>
                         <button id="wt-mode-fantasy" class="wt-mode-btn" style="display:none">🏰 지도</button>
                     </div>
                     <div id="wt-search-bar" class="wt-search-bar" style="position:relative">
@@ -659,7 +659,7 @@ export class UIManager {
             }
             this.refresh();
             // B5: 약도 모드일 때 지도 섹션 자동 표시 + 렌더 트리거
-            const curMode = s?.mapMode || 'node';
+            const curMode = s?.mapMode || 'leaflet';
             if (curMode === 'node' || curMode === 'fantasy') {
                 $('#wt-map-section').show();
                 $('#wt-map-toggle').text('🗺️ 지도 ▴');
@@ -696,7 +696,7 @@ export class UIManager {
         if (isFantasy) {
             $('#wt-panel').addClass('wt-panel-fantasy');
             $('#wt-fantasy-btn').css({ background: '#DAA520', borderRadius: '6px' });
-            if (s.mapMode !== 'fantasy') s._prevMapMode = s.mapMode || 'node';
+            if (s.mapMode !== 'fantasy') s._prevMapMode = s.mapMode || 'leaflet';
             this._setMapMode('fantasy');
             wtNotify(`🐺 ${treat} 판타지 모드!`, 'move', 2000);
         } else {
@@ -741,7 +741,7 @@ export class UIManager {
     async refresh() {
         await this.lm.loadChat();
         const s = extension_settings[EXTENSION_NAME];
-        const mode = s?.mapMode || 'node';
+        const mode = s?.mapMode || 'leaflet';
 
         // 노드 그래프 (node + fantasy 공유)
         if (mode === 'node' || mode === 'fantasy') {
@@ -1684,8 +1684,8 @@ export class UIManager {
                 <div class="wt-bs-tab" data-tab="overview" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#2B8A6E;cursor:pointer;border-bottom:2.5px solid #2B8A6E;margin-bottom:-2px">개요</div>
                 <div class="wt-bs-tab" data-tab="events" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">이벤트</div>
                 <div class="wt-bs-tab" data-tab="review" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">리뷰</div>
-                <div class="wt-bs-tab" data-tab="npcs" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">터줏대감</div>
                 <div class="wt-bs-tab" data-tab="rooms" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">내부</div>
+                <div class="wt-bs-tab" data-tab="nodemap" style="flex:1;text-align:center;padding:8px;font-size:11px;font-weight:600;color:#B0A898;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px">약도</div>
             </div>
             <div id="wt-bs-tab-overview" style="padding:10px 14px;overflow-y:auto">
                 <!-- 분위기 카드 / 사진 갤러리 -->
@@ -1694,6 +1694,24 @@ export class UIManager {
                 <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE5;font-size:11px;color:#5A4030"><span style="font-size:13px;color:#9A8A7A">📊</span><div>방문 ${v}회<div style="font-size:9px;color:#B0A898">첫 ${loc.rpFirstVisited || (loc.firstVisited ? this._fmt(loc.firstVisited) : '—')} · 최근 ${loc.rpLastVisited || (loc.lastVisited ? this._fmt(loc.lastVisited) : '—')}</div></div></div>
                 ${specialHtml}
                 ${nearbyHtml}
+                <!-- 🟢 커뮤니티 실시간 미니 피드 (v0.6.0 NEW) -->
+                ${(loc.community?.length) ? `<div style="margin-top:10px;border:1px solid #EFF3F4;border-radius:14px;overflow:hidden">
+                    <div style="padding:10px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #EFF3F4;background:#fff">
+                        <div style="font-size:12px;font-weight:700;color:#0F1419;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 지금 이곳은</div>
+                        <span class="wt-bs-comm-more" style="font-size:11px;color:#1D9BF0;font-weight:500;cursor:pointer">전체 보기 ›</span>
+                    </div>
+                    ${loc.community.slice(0,3).map(p => `<div style="padding:8px 12px;display:flex;gap:8px;border-bottom:1px solid #EFF3F4">
+                        <div style="width:28px;height:28px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${p.avatar || '👤'}</div>
+                        <div style="flex:1;min-width:0">
+                            <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px;font-weight:600;color:#0F1419">${p.name}</span><span style="font-size:10px;color:#8B98A5">· ${this._timeAgo(p.timestamp)}</span></div>
+                            <div style="font-size:11px;color:#536471;line-height:1.4;margin-top:1px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${this._renderCommunityText(p.text)}</div>
+                        </div>
+                    </div>`).join('')}
+                    <button class="wt-bs-comm-gen" style="width:100%;padding:8px;background:#F7F9F9;border:none;border-top:1px solid #EFF3F4;font-size:11px;font-weight:500;color:#1D9BF0;cursor:pointer;font-family:inherit">🔄 실시간 반응 업데이트</button>
+                </div>` : `<div style="margin-top:10px;padding:14px;background:#F7F9F9;border:1px dashed #DADCE0;border-radius:14px;text-align:center">
+                    <div style="font-size:11px;color:#5F6368;margin-bottom:8px">💬 아직 이 장소의 커뮤니티 반응이 없어요</div>
+                    <button class="wt-bs-comm-gen" style="padding:8px 16px;background:#1D9BF0;color:#fff;border:none;border-radius:18px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">✨ 실시간 반응 생성</button>
+                </div>`}
                 ${(loc.npcs?.length) ? `<div style="margin-top:8px;padding:8px 10px;background:#F3EEFA;border-left:3px solid #8B6BB4;border-radius:0 8px 8px 0"><div style="font-size:10px;font-weight:600;color:#6B4F91;margin-bottom:3px">👥 터줏대감 (${loc.npcs.length})</div>${loc.npcs.slice(0,3).map(n => `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;color:#5A4070"><span style="font-size:12px">${n.avatar||(n.type==='animal'?'🐾':'👤')}</span><span style="font-weight:600">${n.name}</span>${n.role?` <span style="font-size:9px;color:#8B6BB4">(${n.role})</span>`:''}<span style="margin-left:auto;font-size:10px">${Array.from({length:5},(_,i)=>i<(n.affinity||3)?'❤️':'🤍').join('')}</span></div>`).join('')}${loc.npcs.length > 3 ? `<div style="font-size:10px;color:#8B6BB4;text-align:center;margin-top:4px">+${loc.npcs.length-3}명 더...</div>` : ''}<button class="wt-bs-npc-more" style="margin-top:6px;padding:8px;background:#FAFAF5;border:1px solid #E0D8F0;border-radius:20px;font-size:11px;font-weight:500;color:#6B4F91;text-align:center;cursor:pointer;width:100%;font-family:inherit">모든 터줏대감 보기 ›</button></div>` : ''}
                 ${this._buildPlanSectionHtml(loc)}
                 <!-- T3: 리뷰 미리보기 (개요 안) -->
@@ -1733,9 +1751,14 @@ export class UIManager {
                     <button id="wt-bs-gen-review" style="padding:8px 16px;background:#E8F0FE;border:1.5px solid #1A73E8;border-radius:18px;font-size:11px;font-weight:600;color:#1A73E8;cursor:pointer;font-family:inherit">🔄 랜덤 리뷰 생성</button>
                 </div>
                 <div id="wt-bs-review-list"></div>
-            </div>
-            <div id="wt-bs-tab-npcs" style="display:none;padding:10px 14px;overflow-y:auto">
-                <div id="wt-bs-npc-list"></div>
+                <!-- 터줏대감 섹션 (리뷰 아래) -->
+                <div id="wt-bs-npc-section" style="margin:16px 0 0;padding-top:14px;border-top:6px solid #F7F9F9">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                        <div style="font-size:14px;font-weight:700;color:#202124">👥 이 장소의 터줏대감</div>
+                        <span id="wt-bs-npc-count" style="font-size:12px;color:#9AA0A6">0명</span>
+                    </div>
+                    <div id="wt-bs-npc-list"></div>
+                </div>
             </div>
             <div id="wt-bs-tab-rooms" style="display:none;padding:10px 14px;overflow-y:auto">
                 ${(() => {
@@ -1756,6 +1779,17 @@ export class UIManager {
                 <div style="display:flex;gap:4px;margin-top:8px">
                     <input type="text" id="wt-bs-add-sub" placeholder="장소 이름 (EX. 거실)" style="flex:1;padding:7px 10px;border:1.5px solid #E8E4D8;border-radius:8px;font-size:12px;font-family:inherit"/>
                     <button id="wt-bs-add-sub-btn" style="width:34px;height:34px;background:#5E84E2;border:none;border-radius:8px;color:#fff;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+                </div>
+            </div>
+            <!-- 🗺️ 약도 탭 (v0.6.0 NEW) -->
+            <div id="wt-bs-tab-nodemap" style="display:none;padding:12px;overflow-y:auto">
+                <div style="background:#F8F9FA;border-radius:12px;padding:12px;text-align:center">
+                    <div style="font-size:11px;font-weight:600;color:#5F6368;margin-bottom:6px;text-align:left">🔗 주변 관계도</div>
+                    <div id="wt-bs-nodemap-svg" style="width:100%;height:180px;background:#fff;border-radius:8px;border:1px solid #E8EAED;overflow:hidden"></div>
+                    <button id="wt-bs-nodemap-expand" style="margin-top:10px;padding:8px 16px;border-radius:20px;border:1px solid #DADCE0;background:#fff;font-size:12px;font-weight:500;color:#1A73E8;cursor:pointer;font-family:inherit">🗺️ 전체 약도 보기</button>
+                </div>
+                <div style="margin-top:12px;padding:10px;background:#E8F0FE;border-radius:10px;font-size:11px;color:#1A73E8;line-height:1.5">
+                    💡 현재 장소를 중심으로 주변 등록된 장소들의 관계를 보여줍니다. 도보 거리 기준.
                 </div>
             </div>`;
 
@@ -1779,7 +1813,7 @@ export class UIManager {
         bs.find('.wt-bs-tab').on('click', function(e) {
             e.stopPropagation();
             const tab = $(this).data('tab');
-            const tabColors = { overview: '#2B8A6E', events: '#CF6E2E', review: '#5E84E2', npcs: '#8B6BB4', rooms: '#8B6B4A' };
+            const tabColors = { overview: '#1A73E8', events: '#CF6E2E', review: '#1A73E8', rooms: '#8B6B4A', nodemap: '#34A853' };
             const color = tabColors[tab] || '#2B8A6E';
             bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
             $(this).css({ color, borderBottomColor: color });
@@ -1888,6 +1922,24 @@ export class UIManager {
         this._renderReviewPreview(locId);
         // ★ 터줏대감 탭 렌더
         this._renderNpcTab(locId);
+        this._renderMiniNodemap(locId);
+        // 🗺️ 전체 약도 보기 버튼
+        bs.find('#wt-bs-nodemap-expand').on('click', (e) => {
+            e.stopPropagation();
+            self._hideBottomSheet();
+            self._setMapMode('node');
+            toastSuccess('🗺️ 약도 모드');
+        });
+        // 💬 커뮤니티 버튼 핸들러
+        bs.find('.wt-bs-comm-gen').on('click', async (e) => {
+            e.stopPropagation();
+            $(e.currentTarget).text('⏳ 생성 중...').prop('disabled', true);
+            await self._generateCommunity(locId);
+        });
+        bs.find('.wt-bs-comm-more').on('click', (e) => {
+            e.stopPropagation();
+            self._showCommunityFullFeed(locId);
+        });
         bs.find('#wt-bs-rv-more').on('click', (e) => {
             e.stopPropagation();
             // 리뷰 탭으로 전환
@@ -1901,10 +1953,12 @@ export class UIManager {
         bs.find('.wt-bs-npc-more').on('click', (e) => {
             e.stopPropagation();
             bs.find('.wt-bs-tab').css({ color: '#B0A898', borderBottomColor: 'transparent' });
-            bs.find('.wt-bs-tab[data-tab="npcs"]').css({ color: '#8B6BB4', borderBottomColor: '#8B6BB4' });
+            bs.find('.wt-bs-tab[data-tab="review"]').css({ color: '#1A73E8', borderBottomColor: '#1A73E8' });
             bs.find('[id^="wt-bs-tab-"]').hide();
-            bs.find('#wt-bs-tab-npcs').show();
+            bs.find('#wt-bs-tab-review').show();
             if (self._bsStage < 3) self._applyBsStage(3);
+            // NPC 섹션으로 스크롤
+            setTimeout(() => bs.find('#wt-bs-npc-section')[0]?.scrollIntoView({ behavior: 'smooth' }), 100);
         });
         // T4: 기억 링크 클릭 → 이벤트 탭으로 전환
         bs.find('.wt-bs-mem-link').on('click', function(e) {
@@ -3048,7 +3102,7 @@ export class UIManager {
                 $('#wt-search-results').hide();
                 $('#wt-search-input').val('');
                 const s = extension_settings[EXTENSION_NAME];
-                const mode = s?.mapMode || 'node';
+                const mode = s?.mapMode || 'leaflet';
 
                 // Leaflet/판타지 모드 → 지도에서 해당 장소 포커스 + 하이라이트
                 if ((mode === 'leaflet' || mode === 'fantasy') && this.leafletRenderer?.map && loc.lat && loc.lng) {
@@ -3529,11 +3583,258 @@ export class UIManager {
         toastSuccess('📝 이벤트 추가!');
     }
 
+    // ========== 💬 커뮤니티 피드 시스템 (v0.6.0 NEW) ==========
+    _renderCommunityText(text) {
+        if (!text) return '';
+        // @멘션 → 파란색
+        let t = text.replace(/@([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0;font-weight:500">@$1</span>');
+        // #해시태그 → 파란색
+        t = t.replace(/#([A-Za-z가-힣0-9_]+)/g, '<span style="color:#1D9BF0">#$1</span>');
+        // *액션* → 이탤릭 회색
+        t = t.replace(/\*([^*]+)\*/g, '<span style="font-style:italic;color:#536471">*$1*</span>');
+        // 줄바꿈
+        t = t.replace(/\n/g, '<br>');
+        return t;
+    }
+
+    async _generateCommunity(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+        if (this._commPending === locId) return;
+        this._commPending = locId;
+
+        try {
+            const ctx = getContext();
+            const userName = ctx.name1 || 'User';
+            const charName = ctx.name2 || 'Character';
+            const charDesc = (ctx.characters?.[ctx.characterId]?.description || '').substring(0, 300);
+            const recentChat = getRecentChatContext(1500);
+            const npcList = (loc.npcs || []).map(n => `"${n.name}"(${n.role || n.type}, ❤️${n.affinity||3}/5, ${n.bio||''})`).join(', ');
+            const evSummary = (loc.events || []).slice(-3).map(e => `${e.mood||'📝'} ${e.title||e.text}`).join(', ') || 'none';
+            const s = extension_settings[EXTENSION_NAME];
+            const eLang = s?.eventLang || 'auto';
+            const langInst = eLang === 'ko' ? 'Write in Korean (natural, casual tone).' : eLang === 'en' ? 'Write in English (casual).' : 'Write in the same language as the RP.';
+
+            const prompt = `You are writing Twitter-style real-time social posts for NPCs and animals currently at an RP location. These are short, casual posts showing what they're doing RIGHT NOW.
+
+Location: "${loc.name}" (${loc.memo || 'RP location'})
+Characters: User="${userName}", Char="${charName}"
+${charDesc ? `Character context: ${charDesc}` : ''}
+Known NPCs at this location: ${npcList || 'none yet'}
+Recent events here: ${evSummary}
+${langInst}
+${recentChat ? `\n[Recent RP scenes for tone & context]:\n${recentChat}\n` : ''}
+
+TWITTER-STYLE RULES:
+- Each post: 1-3 short sentences, like real tweets
+- Use @mentions (e.g., @${userName}, @${charName})
+- Use #hashtags (2-3 per post)
+- Use *action in asterisks* for physical actions (e.g., *stretches*, *sips coffee*)
+- Match each character's unique voice and speech patterns
+- Animals post from their own perspective (a dog: "꼬리 터보모드!!!", a cat: "...인간들 시끄러움")
+- Include a mood label (chill/excited/tense/sleepy/romantic)
+- Some posts should reference each other or respond to recent events
+
+Generate 4-6 posts from different characters (mix of known NPCs and 1-2 new NPCs/animals that would fit this location). Mix humans and animals if it fits.
+
+Respond with ONLY valid JSON:
+{"posts":[{"name":"CharName","avatar":"emoji","type":"npc|animal","mood":"excited","moodLabel":"🔥 신남","text":"post content with @mentions and #hashtags and *actions*","likes":5}]}
+
+CRITICAL: Start with { end with }. No markdown, no explanation.`;
+
+            const result = await callLLM(prompt);
+            if (!result) { toastWarn('⚠️ LLM 응답 없음'); return; }
+            const parsed = parseLLMJson(result);
+            if (!parsed?.posts || !Array.isArray(parsed.posts)) { toastWarn('⚠️ 커뮤니티 파싱 실패'); return; }
+
+            // 기존 커뮤니티 초기화하고 새로 추가 (최신순)
+            await this.lm.clearCommunity(locId);
+            for (const p of parsed.posts.filter(p => p && p.text)) {
+                // 멘션/해시태그 추출
+                const mentions = (p.text.match(/@([A-Za-z가-힣0-9_]+)/g) || []).map(m => m.substring(1));
+                const hashtags = (p.text.match(/#([A-Za-z가-힣0-9_]+)/g) || []).map(h => h.substring(1));
+                await this.lm.addCommunityPost(locId, {
+                    name: p.name || 'Unknown',
+                    avatar: p.avatar || '👤',
+                    type: p.type || 'npc',
+                    mood: p.mood || '',
+                    moodLabel: p.moodLabel || '',
+                    text: p.text,
+                    mentions,
+                    hashtags,
+                    likes: p.likes || 0,
+                });
+            }
+            toastSuccess(`💬 ${parsed.posts.length}개 반응 생성!`);
+            this.pi?.inject();
+            this._showBottomSheet(locId); // 리렌더
+        } catch(e) {
+            console.error('[wt] Community gen error:', e);
+            toastWarn('❌ 생성 실패');
+        } finally {
+            this._commPending = null;
+        }
+    }
+
+    _showCommunityFullFeed(locId) {
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+        $('#wt-community-overlay').remove();
+
+        const posts = loc.community || [];
+        const postsHtml = posts.length ? posts.map(p => this._renderCommunityPostCard(p)).join('') : '<div style="padding:60px 20px;text-align:center;color:#8B98A5;font-size:13px">아직 반응이 없어요<br><span style="font-size:11px">✨ 버튼을 눌러 실시간 반응을 생성해보세요</span></div>';
+
+        const overlay = $(`<div id="wt-community-overlay" style="position:fixed;inset:0;background:#fff;z-index:10200;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)">
+            <div style="padding:14px 16px 0;background:#fff;border-bottom:1px solid #EFF3F4;position:sticky;top:0;z-index:50">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                    <div id="wt-comm-back" style="font-size:20px;color:#0F1419;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
+                    <div style="flex:1">
+                        <div style="font-size:17px;font-weight:900;color:#0F1419">${loc.name}</div>
+                        <div style="font-size:12px;color:#536471;display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 실시간 · ${posts.length}개 반응</div>
+                    </div>
+                    <div id="wt-comm-refresh" style="font-size:18px;cursor:pointer;padding:6px;border-radius:50%" title="새로고침">🔄</div>
+                </div>
+            </div>
+            <div id="wt-comm-feed" style="flex:1;overflow-y:auto;background:#fff">${postsHtml}</div>
+            <button id="wt-comm-fab" style="position:absolute;bottom:20px;right:16px;width:52px;height:52px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 2px 12px rgba(29,155,240,.4);display:flex;align-items:center;justify-content:center">✨</button>
+        </div>`);
+        $('body').append(overlay);
+        requestAnimationFrame(() => overlay.css('transform', 'translateY(0)'));
+
+        const self = this;
+        const close = () => {
+            overlay.css('transform', 'translateY(100%)');
+            setTimeout(() => overlay.remove(), 350);
+        };
+        overlay.find('#wt-comm-back').on('click', close);
+        overlay.find('#wt-comm-refresh, #wt-comm-fab').on('click', async () => {
+            overlay.find('#wt-comm-fab').text('⏳').prop('disabled', true);
+            await self._generateCommunity(locId);
+            close();
+            setTimeout(() => self._showCommunityFullFeed(locId), 400);
+        });
+    }
+
+    _renderCommunityPostCard(p) {
+        const moodColors = {
+            excited: 'background:#FFF3E0;color:#B36B00',
+            chill: 'background:#E8F5FD;color:#1D6FAD',
+            tense: 'background:#FBE9E7;color:#C62828',
+            romantic: 'background:#FCE4EC;color:#AD1457',
+            sleepy: 'background:#EDE7F6;color:#4527A0',
+        };
+        const moodStyle = moodColors[p.mood] || 'background:#F7F9F9;color:#536471';
+        return `<div style="padding:12px 16px;border-bottom:1px solid #EFF3F4;display:flex;gap:12px">
+            <div style="width:40px;height:40px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${p.avatar || '👤'}</div>
+            <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:2px">
+                    <span style="font-size:14px;font-weight:700;color:#0F1419">${p.name}</span>
+                    <span style="font-size:13px;color:#536471">${p.handle || ''}</span>
+                    <span style="font-size:13px;color:#536471">· ${this._timeAgo(p.timestamp)}</span>
+                </div>
+                ${p.moodLabel ? `<div style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:11px;font-weight:600;margin-bottom:6px;${moodStyle}">${p.moodLabel}</div>` : ''}
+                <div style="font-size:14px;color:#0F1419;line-height:1.55;margin-bottom:4px;word-break:break-word">${this._renderCommunityText(p.text)}</div>
+                <div style="display:flex;gap:8px;margin-top:4px;margin-left:-8px">
+                    <div style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:50px;font-size:12px;color:#536471;cursor:pointer">💬 ${(p.replies||[]).length}</div>
+                    <div style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:50px;font-size:12px;color:#536471;cursor:pointer">🔁 0</div>
+                    <div style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:50px;font-size:12px;color:#F91880;cursor:pointer">❤️ ${p.likes||0}</div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // ========== 🗺️ 미니 약도 (장소 주변 관계도) ==========
+    _renderMiniNodemap(locId) {
+        const svg = $('#wt-bs-nodemap-svg');
+        if (!svg.length) return;
+        const loc = this.lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+
+        // 주변 장소 찾기 (거리 정보 있는 것들)
+        const neighbors = [];
+        for (const d of this.lm.distances || []) {
+            let otherId = null;
+            if (d.fromId === locId) otherId = d.toId;
+            else if (d.toId === locId) otherId = d.fromId;
+            if (otherId) {
+                const other = this.lm.locations.find(l => l.id === otherId);
+                if (other) neighbors.push({ loc: other, distance: d.distanceText, walkTime: d.walkTime });
+            }
+        }
+        // 거리 정보 없으면 같은 지역의 다른 장소 최대 4개
+        if (!neighbors.length) {
+            const others = this.lm.locations.filter(l => l.id !== locId && !l.parentId).slice(0, 4);
+            others.forEach(o => neighbors.push({ loc: o, distance: '?', walkTime: null }));
+        }
+        const shown = neighbors.slice(0, 5);
+
+        if (!shown.length) {
+            svg.html('<div style="padding:40px 20px;text-align:center;color:#9AA0A6;font-size:12px">주변에 등록된 장소가 없어요</div>');
+            return;
+        }
+
+        // 원형 배치
+        const cx = 150, cy = 90, radius = 60;
+        const emojis = { '카페':'☕','커피':'☕','cafe':'☕','coffee':'☕','집':'🏠','house':'🏠','home':'🏠','학교':'🏫','school':'🏫','병원':'🏥','의무실':'🏥','hospital':'🏥','공원':'🌳','park':'🌳','마트':'🛒','mart':'🛒','market':'🛒','store':'🛒','barracks':'🪖','막사':'🪖','base':'🪖','기지':'🪖' };
+        const getEmoji = (name) => {
+            const low = name.toLowerCase();
+            for (const [k, v] of Object.entries(emojis)) if (low.includes(k)) return v;
+            return '📍';
+        };
+
+        let svgContent = `<svg width="100%" height="100%" viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">`;
+
+        // 연결선 먼저
+        shown.forEach((n, i) => {
+            const angle = (Math.PI * 2 * i) / shown.length - Math.PI / 2;
+            const nx = cx + Math.cos(angle) * radius;
+            const ny = cy + Math.sin(angle) * radius;
+            const mid_x = (cx + nx) / 2, mid_y = (cy + ny) / 2;
+            svgContent += `<line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="#DADCE0" stroke-width="1.5" stroke-dasharray="3"/>`;
+            if (n.walkTime) {
+                svgContent += `<text x="${mid_x}" y="${mid_y - 3}" font-size="8" fill="#9AA0A6" text-anchor="middle" font-family="sans-serif">도보 ${n.walkTime}분</text>`;
+            }
+        });
+
+        // 현재 장소 (중앙, 구글맵 블루)
+        svgContent += `<circle cx="${cx}" cy="${cy}" r="22" fill="#1A73E8" stroke="#fff" stroke-width="3"/>`;
+        svgContent += `<text x="${cx}" y="${cy + 5}" text-anchor="middle" fill="#fff" font-size="14">${getEmoji(loc.name)}</text>`;
+        svgContent += `<text x="${cx}" y="${cy + 38}" text-anchor="middle" fill="#202124" font-size="9" font-weight="700" font-family="sans-serif">${loc.name.substring(0, 10)}</text>`;
+
+        // 주변 장소들
+        shown.forEach((n, i) => {
+            const angle = (Math.PI * 2 * i) / shown.length - Math.PI / 2;
+            const nx = cx + Math.cos(angle) * radius;
+            const ny = cy + Math.sin(angle) * radius;
+            const color = n.loc.tags?.includes('wantToGo') ? '#FBBC04' : '#EA4335';
+            svgContent += `<circle cx="${nx}" cy="${ny}" r="14" fill="${color}" stroke="#fff" stroke-width="2" class="wt-mini-pin" data-id="${n.loc.id}" style="cursor:pointer"/>`;
+            svgContent += `<text x="${nx}" y="${ny + 4}" text-anchor="middle" fill="#fff" font-size="10" pointer-events="none">${getEmoji(n.loc.name)}</text>`;
+            // 라벨 위치 (원 바깥쪽)
+            const labelRadius = radius + 20;
+            const lx = cx + Math.cos(angle) * labelRadius;
+            const ly = cy + Math.sin(angle) * labelRadius;
+            svgContent += `<text x="${lx}" y="${ly}" text-anchor="middle" fill="#5F6368" font-size="8" font-family="sans-serif">${n.loc.name.substring(0, 8)}</text>`;
+        });
+
+        svgContent += `</svg>`;
+        svg.html(svgContent);
+
+        // 핀 클릭 → 해당 장소 바텀시트
+        const self = this;
+        svg.find('.wt-mini-pin').on('click', function(e) {
+            e.stopPropagation();
+            const id = $(this).attr('data-id');
+            self._hideBottomSheet();
+            setTimeout(() => self._showBottomSheet(id), 300);
+        });
+    }
+
     // ========== 👥 터줏대감 풀 시스템 ==========
     _renderNpcTab(locId) {
         const loc = this.lm.locations.find(l => l.id === locId);
         const list = $('#wt-bs-npc-list');
         list.empty();
+        $('#wt-bs-npc-count').text(`${loc?.npcs?.length || 0}명`);
         if (!loc?.npcs?.length) {
             list.html('<div style="text-align:center;padding:24px 10px;color:#9AA0A6;font-size:12px">아직 감지된 인물이 없어요<br><span style="font-size:11px;color:#B0A898">RP 중 등장하는 NPC가 자동 등록돼요!</span></div>');
             return;

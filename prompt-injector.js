@@ -127,6 +127,19 @@ export class PromptInjector {
             L.push(`👥 People here: ${npcList}`);
         }
 
+        // 8.7. 💬 실시간 커뮤니티 (v0.6.0 NEW) — 장소의 현재 분위기/NPC 활동
+        if (cur.community?.length) {
+            const recent = cur.community.slice(0, 4);
+            const liveStatus = recent.map(p => {
+                // 텍스트에서 액션/감정 추출
+                const actions = (p.text.match(/\*([^*]+)\*/g) || []).map(s => s.replace(/\*/g, ''));
+                const cleanText = p.text.replace(/\*[^*]+\*/g, '').replace(/#\S+/g, '').replace(/\s+/g, ' ').trim().substring(0, 60);
+                const action = actions[0] ? ` (${actions[0]})` : '';
+                return `${p.name}${action}: "${cleanText}"`;
+            }).join('\n  ');
+            L.push(`🟢 NOW at this location (use for natural scene description):\n  ${liveStatus}`);
+        }
+
         // 9. 마지막 이동
         const last = this._last(); if (last) L.push(`🚶 Last move: ${last}`);
 

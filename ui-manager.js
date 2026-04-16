@@ -30,6 +30,110 @@ export class UIManager {
         this.panelVisible=false;
         this._reviewCache = new Map();
         this._reviewPending = new Set();
+        // r15: 모바일 버튼 탭 디버그 + touch capture 우회 경로 설치
+        this._installMobileTapDebug();
+    }
+
+    // r15: 모바일 전용 디버그 패널 + capture-phase touch 우회 경로
+    _installMobileTapDebug() {
+        if (window._wtTapDebugInstalled) return;
+        window._wtTapDebugInstalled = true;
+        const self = this;
+
+        const setup = () => {
+            if (!document.body) { setTimeout(setup, 100); return; }
+
+            // 1) 화면 고정 디버그 패널 (모바일 + 콘솔 접근 불가 대응)
+            const panel = document.createElement('div');
+            panel.id = 'wt-tap-debug';
+            panel.style.cssText = 'position:fixed;top:8px;right:8px;width:240px;max-height:180px;background:rgba(0,0,0,0.85);color:#0f0;font-family:monospace;font-size:10px;padding:4px 6px;border-radius:6px;z-index:2147483647;overflow-y:auto;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.3);pointer-events:auto';
+            panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px"><span style="color:#ff0;font-weight:700">🔍 WT TAP DEBUG</span><span style="display:flex;gap:4px"><span id="wt-dbg-clr" style="cursor:pointer;color:#0af;padding:0 4px">CLR</span><span id="wt-dbg-x" style="cursor:pointer;color:#f55;padding:0 4px">✕</span></span></div><div id="wt-dbg-log"></div>';
+            document.body.appendChild(panel);
+
+            const log = document.getElementById('wt-dbg-log');
+            const dlog = (msg, color) => {
+                const d = document.createElement('div');
+                d.style.cssText = `color:${color||'#0f0'};margin-bottom:1px`;
+                const ts = new Date();
+                const tm = `${String(ts.getSeconds()).padStart(2,'0')}.${String(ts.getMilliseconds()).padStart(3,'0')}`;
+                d.textContent = `${tm} ${msg}`;
+                log.insertBefore(d, log.firstChild);
+                while (log.children.length > 30) log.removeChild(log.lastChild);
+            };
+            window._wtDlog = dlog;
+            dlog('debug ready', '#ff0');
+
+            document.getElementById('wt-dbg-clr').addEventListener('click', (e) => { e.stopPropagation(); log.innerHTML = ''; }, true);
+            document.getElementById('wt-dbg-x').addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); }, true);
+
+            // r16: COMM_GEN은 기존 handler가 잘 작동하니까 capture 우회에서 제외 (중복 호출/race 방지)
+            // 로그만 찍고 fire는 안 함
+            const isTarget = (t) => {
+                if (!t || !t.closest) return null;
+                if (t.closest('.wt-bs-comm-more')) return 'COMM_MORE';
+                if (t.closest('#wt-bs-nodemap-expand')) return 'NMAP_EXP';
+                return null;
+            };
+            const isLogOnly = (t) => {
+                if (!t || !t.closest) return null;
+                if (t.closest('.wt-bs-comm-gen')) return 'COMM_GEN';
+                return null;
+            };
+
+            ['pointerdown', 'touchstart', 'touchend', 'click'].forEach(ev => {
+                document.addEventListener(ev, (e) => {
+                    const kind = isTarget(e.target) || isLogOnly(e.target);
+                    if (!kind) return;
+                    const tag = e.target.tagName || '?';
+                    dlog(`${ev} → ${kind} [${tag}]`, '#0ff');
+                }, true); // capture
+            });
+
+            // 3) touch-based 우회 핸들러 (진짜 눌림 감지 → 직접 실행)
+            // 모바일에서 click 이벤트가 어딘가에서 씹혀도 touchstart/touchend는 살아있을 것
+            let tapStart = null;
+            document.addEventListener('touchstart', (e) => {
+                const kind = isTarget(e.target);
+                if (!kind) return;
+                const t = e.touches[0];
+                tapStart = { x: t.clientX, y: t.clientY, kind, time: Date.now() };
+                dlog(`tap START ${kind}`, '#ff0');
+            }, { passive: true, capture: true });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!tapStart) return;
+                const t = e.touches[0];
+                const dx = Math.abs(t.clientX - tapStart.x);
+                const dy = Math.abs(t.clientY - tapStart.y);
+                if (dx > 15 || dy > 15) {
+                    dlog(`tap CANCEL (move ${dx.toFixed(0)},${dy.toFixed(0)})`, '#f80');
+                    tapStart = null;
+                }
+            }, { passive: true, capture: true });
+
+            document.addEventListener('touchend', (e) => {
+                if (!tapStart) return;
+                const dt = Date.now() - tapStart.time;
+                const kind = tapStart.kind;
+                tapStart = null;
+                if (dt > 800) { dlog(`tap TOO LONG ${dt}ms`, '#f80'); return; }
+                // 중복 실행 방지: click 리스너도 있으므로 짧은 lock
+                if (window._wtTapFireLock) { dlog(`tap locked ${kind}`, '#888'); return; }
+                window._wtTapFireLock = true;
+                setTimeout(() => window._wtTapFireLock = false, 600);
+                dlog(`tap FIRE ${kind}`, '#0f0');
+                const curBs = document.getElementById('wt-bottomsheet');
+                const lid = curBs?.getAttribute('data-id');
+                if (!lid) { dlog('no bs data-id', '#f55'); return; }
+                try {
+                    if (kind === 'COMM_MORE') self._showCommunityFullFeed(lid);
+                    else if (kind === 'NMAP_EXP') self._showNodemapFullscreen(lid);
+                } catch (err) {
+                    dlog(`ERR: ${err.message}`, '#f55');
+                }
+            }, { passive: true, capture: true });
+        };
+        setup();
     }
 
     // ========== 설정 패널 (SillyTavern 확장 설정) ==========
@@ -1925,12 +2029,14 @@ export class UIManager {
         // bs.find().on() 방식이 환경에 따라 유실되는 케이스 원천 차단
         $(document).off('click.wtNodemapExp touchend.wtNodemapExp');
         let _nodemapExpLock = false;
-        $(document).on('click.wtNodemapExp touchend.wtNodemapExp', '#wt-bs-nodemap-expand', function(e) {
+        $(document).on('click.wtNodemapExp', '#wt-bs-nodemap-expand', function(e) {
             e.preventDefault();
             e.stopPropagation();
+            if (window._wtTapFireLock) { window._wtDlog?.('click NMAP skipped (tap lock)', '#888'); return; }
             if (_nodemapExpLock) return;
             _nodemapExpLock = true;
             setTimeout(() => _nodemapExpLock = false, 500);
+            window._wtDlog?.('click FIRE NMAP', '#0f8');
             const curBs = document.getElementById('wt-bottomsheet');
             const lid = curBs?.getAttribute('data-id');
             if (lid) self._showNodemapFullscreen(lid);
@@ -1954,12 +2060,14 @@ export class UIManager {
         // 기존 bs.find() 바인딩은 _showBottomSheet마다 재생성되면서 놓칠 수 있음
         $(document).off('click.wtCommMore touchend.wtCommMore');
         let _commMoreLock = false;
-        $(document).on('click.wtCommMore touchend.wtCommMore', '.wt-bs-comm-more', function(e) {
+        $(document).on('click.wtCommMore', '.wt-bs-comm-more', function(e) {
             e.preventDefault();
             e.stopPropagation();
+            if (window._wtTapFireLock) { window._wtDlog?.('click COMM skipped (tap lock)', '#888'); return; }
             if (_commMoreLock) return;
             _commMoreLock = true;
             setTimeout(() => _commMoreLock = false, 500);
+            window._wtDlog?.('click FIRE COMM', '#0f8');
             const curBs = document.getElementById('wt-bottomsheet');
             const lid = curBs?.getAttribute('data-id');
             if (lid) self._showCommunityFullFeed(lid);
@@ -3653,6 +3761,14 @@ export class UIManager {
         if (!loc) return;
         if (this._commPending === locId) return;
         this._commPending = locId;
+        // r16: 영구 잠김 방지 — 60초 후 강제 해제 (LLM이 hang 걸려도 다음 호출 가능)
+        const pendingId = locId;
+        const safetyTimer = setTimeout(() => {
+            if (this._commPending === pendingId) {
+                console.warn('[wt] _commPending force-reset after timeout');
+                this._commPending = null;
+            }
+        }, 60000);
 
         try {
             const ctx = getContext();
@@ -3737,6 +3853,7 @@ JSON만 응답해:
             console.error('[wt] Community gen error:', e);
             toastWarn('❌ 생성 실패');
         } finally {
+            clearTimeout(safetyTimer);
             this._commPending = null;
         }
     }

@@ -3951,7 +3951,7 @@ JSON만 응답해:
         const posts = loc.community || [];
         const postsHtml = posts.length ? posts.map(p => this._renderCommunityPostCard(p)).join('') : '<div style="padding:60px 20px;text-align:center;color:#8B98A5;font-size:13px">아직 반응이 없어요<br><span style="font-size:11px">✨ 버튼을 눌러 실시간 반응을 생성해보세요</span></div>';
 
-        const overlay = $(`<div id="wt-community-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#fff;z-index:10200;display:flex;flex-direction:column">
+        const overlay = $(`<div id="wt-community-overlay" style="position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh;height:100dvh !important;background:#fff !important;z-index:2147483647 !important;display:flex !important;flex-direction:column !important;isolation:isolate">
             <div style="padding:14px 16px 0;background:#fff;border-bottom:1px solid #EFF3F4;position:sticky;top:0;z-index:50">
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
                     <div id="wt-comm-back" style="font-size:20px;color:#0F1419;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
@@ -3966,13 +3966,35 @@ JSON만 응답해:
             <button id="wt-comm-fab" style="position:absolute;bottom:20px;right:16px;width:52px;height:52px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 2px 12px rgba(29,155,240,.4);display:flex;align-items:center;justify-content:center">✨</button>
         </div>`);
         $('body').append(overlay);
-        // r20: requestAnimationFrame/슬라이드 애니메이션 제거 (모바일에서 transform 변경 타이밍 꼬임 - overlay가 viewport 밖 고정)
+        // r21: z-index 최대치로 올림 + 중앙 elementFromPoint로 덮는 요소 확정
         try {
             const r0 = overlay[0].getBoundingClientRect();
             const bcs = getComputedStyle(document.body);
             const hcs = getComputedStyle(document.documentElement);
             window._wtDlog?.(`sCFF ap ${r0.width.toFixed(0)}x${r0.height.toFixed(0)}@(${r0.left.toFixed(0)},${r0.top.toFixed(0)})`, '#0f0');
             window._wtDlog?.(`body.tf=${bcs.transform.substring(0,20)} html.tf=${hcs.transform.substring(0,20)}`, '#0af');
+            // 오버레이 중앙 좌표에서 실제 최상위 요소 확인
+            setTimeout(() => {
+                const cx = r0.left + r0.width/2, cy = r0.top + r0.height/2;
+                const topEl = document.elementFromPoint(cx, cy);
+                const isOv = topEl && (topEl === overlay[0] || overlay[0].contains(topEl));
+                const desc = topEl ? `${topEl.tagName}#${topEl.id||''}.${(typeof topEl.className === 'string' ? topEl.className.split(' ')[0] : '')}` : 'NULL';
+                window._wtDlog?.(`topAt center: ${desc.substring(0,40)}`, isOv ? '#0f0' : '#f55');
+                if (!isOv && topEl) {
+                    const tcs = getComputedStyle(topEl);
+                    window._wtDlog?.(` COVERING z=${tcs.zIndex} pos=${tcs.position}`, '#f80');
+                    // 덮는 요소의 조상 중 stacking context 범인 찾기
+                    let cur = topEl, depth = 0;
+                    while (cur && cur !== document.documentElement && depth < 8) {
+                        const cs = getComputedStyle(cur);
+                        if (cs.zIndex !== 'auto' && cs.position !== 'static') {
+                            window._wtDlog?.(`  sc:${cur.tagName}#${(cur.id||'').substring(0,15)} z=${cs.zIndex}`, '#f80');
+                        }
+                        cur = cur.parentElement;
+                        depth++;
+                    }
+                }
+            }, 30);
         } catch(e) {}
 
         const self = this;
@@ -4042,7 +4064,7 @@ JSON만 응답해:
     _showNodemapFullscreen(anchorLocId) {
         $('#wt-nodemap-overlay').remove();
 
-        const overlay = $(`<div id="wt-nodemap-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:#F8F9FA;z-index:10200;display:flex;flex-direction:column">
+        const overlay = $(`<div id="wt-nodemap-overlay" style="position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh;height:100dvh !important;background:#F8F9FA !important;z-index:2147483647 !important;display:flex !important;flex-direction:column !important;isolation:isolate">
             <div style="padding:12px 16px;background:#fff;border-bottom:1px solid #DADCE0;display:flex;align-items:center;gap:12px;box-shadow:0 1px 3px rgba(60,64,67,.15)">
                 <div id="wt-nodemap-back" style="font-size:20px;color:#202124;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
                 <div style="flex:1">

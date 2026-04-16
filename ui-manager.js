@@ -2205,10 +2205,12 @@ export class UIManager {
     }
 
     _hideBottomSheet() {
+        // r18: 호출자 추적 — _showCommunityFullFeed 직후 호출되는지 확인
+        window._wtDlog?.('_hideBS called', '#f80');
         // r13: 바텀시트 닫을 때 body에 남아있던 오버레이들 강제 제거 (잔존 헤더 버그 수정)
         ['wt-community-overlay', 'wt-nodemap-overlay', 'wt-npc-profile-overlay'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.remove();
+            if (el) { window._wtDlog?.(` removing ${id}`, '#f55'); el.remove(); }
         });
         // B1: 검색창 자동포커스 방지
         const activeEl = document.activeElement;
@@ -3941,8 +3943,9 @@ JSON만 응답해:
     }
 
     _showCommunityFullFeed(locId) {
+        window._wtDlog?.(`sCFF(${locId})`, '#ff0');
         const loc = this.lm.locations.find(l => l.id === locId);
-        if (!loc) return;
+        if (!loc) { window._wtDlog?.('sCFF !loc silent return', '#f55'); return; }
         $('#wt-community-overlay').remove();
 
         const posts = loc.community || [];
@@ -3963,7 +3966,26 @@ JSON만 응답해:
             <button id="wt-comm-fab" style="position:absolute;bottom:20px;right:16px;width:52px;height:52px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 2px 12px rgba(29,155,240,.4);display:flex;align-items:center;justify-content:center">✨</button>
         </div>`);
         $('body').append(overlay);
-        requestAnimationFrame(() => overlay.css('transform', 'translateY(0)'));
+        // r18: append 후 즉시 상태 진단 + 조상 transform 간섭 체크
+        try {
+            const r0 = overlay[0].getBoundingClientRect();
+            const bcs = getComputedStyle(document.body);
+            const hcs = getComputedStyle(document.documentElement);
+            window._wtDlog?.(`sCFF ap ${r0.width.toFixed(0)}x${r0.height.toFixed(0)}@(${r0.left.toFixed(0)},${r0.top.toFixed(0)})`, '#0f0');
+            window._wtDlog?.(`body.tf=${bcs.transform.substring(0,20)} html.tf=${hcs.transform.substring(0,20)}`, '#0af');
+        } catch(e) {}
+        requestAnimationFrame(() => {
+            overlay.css('transform', 'translateY(0)');
+            setTimeout(() => {
+                const stillThere = document.getElementById('wt-community-overlay') === overlay[0];
+                window._wtDlog?.(`sCFF 200ms still=${stillThere}`, stillThere ? '#0f0' : '#f55');
+                if (stillThere) {
+                    const r1 = overlay[0].getBoundingClientRect();
+                    const cs = getComputedStyle(overlay[0]);
+                    window._wtDlog?.(` r=(${r1.left.toFixed(0)},${r1.top.toFixed(0)}) tf=${cs.transform.substring(0,20)} v=${cs.visibility} z=${cs.zIndex}`, '#0af');
+                }
+            }, 200);
+        });
 
         const self = this;
         const close = () => {

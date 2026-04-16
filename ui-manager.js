@@ -1927,9 +1927,14 @@ export class UIManager {
             self._showNodemapFullscreen(locId);
         });
         // 💬 커뮤니티 버튼 핸들러 (click + touchend 둘 다 — 모바일 호환성)
+        // 💬 커뮤니티 버튼 핸들러 (debounce로 중복 호출 방지)
+        let _commHandlerLock = false;
         const commGenHandler = async (e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (_commHandlerLock) return;
+            _commHandlerLock = true;
+            setTimeout(() => _commHandlerLock = false, 500);
             const btn = $(e.currentTarget);
             if (btn.prop('disabled')) return;
             btn.prop('disabled', true).text('⏳ 생성 중...');
@@ -1937,9 +1942,13 @@ export class UIManager {
         };
         bs.find('.wt-bs-comm-gen').on('click touchend', commGenHandler);
 
+        let _commMoreLock = false;
         const commMoreHandler = (e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (_commMoreLock) return;
+            _commMoreLock = true;
+            setTimeout(() => _commMoreLock = false, 500);
             self._showCommunityFullFeed(locId);
         };
         bs.find('.wt-bs-comm-more').on('click touchend', commMoreHandler);
@@ -3700,7 +3709,10 @@ JSON만 응답해:
             }
             toastSuccess(`💬 ${parsed.posts.length}개 반응 생성!`);
             this.pi?.inject();
-            this._showBottomSheet(locId); // 리렌더
+            // ★ 바텀시트 stage 유지하면서 리렌더
+            const prevStage = this._bsStage || 2;
+            this._showBottomSheet(locId);
+            setTimeout(() => this._applyBsStage(prevStage), 100);
         } catch(e) {
             console.error('[wt] Community gen error:', e);
             toastWarn('❌ 생성 실패');
@@ -3739,10 +3751,20 @@ JSON만 응답해:
             overlay.css('transform', 'translateY(100%)');
             setTimeout(() => overlay.remove(), 350);
         };
-        overlay.find('#wt-comm-back').on('click touchend', (e) => { e.preventDefault(); close(); });
+        let _closeLock = false;
+        overlay.find('#wt-comm-back').on('click touchend', (e) => {
+            e.preventDefault();
+            if (_closeLock) return;
+            _closeLock = true;
+            close();
+        });
+        let _refreshLock = false;
         overlay.find('#wt-comm-refresh, #wt-comm-fab').on('click touchend', async (e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (_refreshLock) return;
+            _refreshLock = true;
+            setTimeout(() => _refreshLock = false, 1000);
             overlay.find('#wt-comm-fab').text('⏳').prop('disabled', true);
             await self._generateCommunity(locId);
             close();

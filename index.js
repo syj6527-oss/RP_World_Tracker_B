@@ -203,6 +203,19 @@ async function scanMessage(text, source = 'USER') {
                     if (lm.currentLocationId) { await _tryEvent(text, lm.currentLocationId, source); return true; }
                     return false;
                 }
+                // ★ v0.6.0: 영어 단일 단어 오탐 필터 (facility/scattered/blood 등)
+                const metaLow = metaLoc.toLowerCase().trim();
+                const singleWordBlacklist = new Set([
+                    'facility','facilities','scattered','blood','bloody','flesh','torn','broken','damaged','destroyed','ruined','burning','burnt','frozen','shattered','wounded','injured','dead','dying','silent','empty','crowded','abandoned','deserted','forgotten','hidden','secret','mysterious','unknown','familiar','strange','weird','normal','usual','regular','sudden','random','various','several','countless','numerous','endless','infinite','massive','huge','tiny','small','big','giant','enormous','distant','nearby','inside','outside','above','below','beyond','within','across','through','around','beside','behind','ahead',
+                    'attack','defense','retreat','advance','fight','battle','war','peace','escape','rescue','mission','operation','briefing','debrief','training','exercise','practice','drill','patrol','watch','guard','duty','shift',
+                    'anger','rage','fury','fear','terror','panic','shock','horror','pain','agony','sorrow','grief','joy','happiness','love','hate','calm','peace','chaos','silence','noise','darkness','brightness','warmth','coldness',
+                    'somewhere','anywhere','nowhere','everywhere','place','area','zone','spot','location','position','scene','setting',
+                ]);
+                if (/^[a-zA-Z\s]+$/.test(metaLow) && singleWordBlacklist.has(metaLow)) {
+                    dbg(`🚫 Meta loc is common English word (blacklist): "${metaLoc}" → skip`);
+                    if (lm.currentLocationId) { await _tryEvent(text, lm.currentLocationId, source); return true; }
+                    return false;
+                }
 
                 // ★ 영어 욕설/감탄사 접두 제거 — "Damn barracks" → "barracks"
                 metaLoc = metaLoc.replace(/^(?:damn|fucking|fuckin|freaking|goddamn|bloody|stupid|shit|holy)\s+/i, '').trim();

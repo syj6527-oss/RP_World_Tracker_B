@@ -485,6 +485,14 @@ export class LocationDetector {
             'plate','cup','mug','glass','bottle','bowl','spoon','fork','paper','card',
             'bag','box','case','pack','kit','vest','mask','hood','helmet','boot','glove',
             'toe','finger','hand','arm','leg','foot','head','face','eye','ear','nose','mouth','lip','neck','shoulder','knee','chest','chin',
+            // 🚫 일반 명사/형용사 오탐 (v0.6.0 r11)
+            'facility','facilities','scattered','blood','bloody','scattered','torn','broken','damaged','destroyed','ruined','burning','burnt','frozen','shattered','wounded','injured','dead','dying','silent','empty','crowded','abandoned','deserted','forgotten','hidden','secret','mysterious','unknown','familiar','strange','weird','normal','usual','regular','sudden','random','various','several','countless','numerous','endless','infinite','massive','huge','tiny','small','big','giant','enormous','distant','nearby','far','close','inside','outside','above','below','beyond','within','across','through','around','beside','behind','ahead','near','away','together','apart',
+            // 혈액/신체 관련
+            'flesh','skin','bone','muscle','nerve','vein','artery','tissue','organ','heart','brain','lung','liver','kidney','stomach','throat','spine',
+            // 상태/감정 관련
+            'anger','rage','fury','fear','terror','panic','shock','horror','pain','agony','sorrow','grief','joy','happiness','love','hate','rage','calm','peace','chaos','silence','noise','darkness','brightness','warmth','coldness',
+            // 액션/상황
+            'attack','defense','retreat','advance','fight','battle','war','peace','escape','rescue','mission','operation','briefing','debrief','training','exercise','practice','drill','patrol','watch','guard','duty','shift',
             'clear','clean','dark','bright','warm','cold','hot','cool','wet','dry','loud','quiet','soft','rough','sharp','dull','tight','loose',
             // ★ 성인 RP 오탐 방지
             'cum','climax','orgasm','thrust','moan','groan','pant','gasp','shudder',

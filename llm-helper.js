@@ -110,10 +110,19 @@ async function _callGoogle(key, model, prompt) {
             const data = await res.json();
             dbg('🔧 Google raw:', JSON.stringify(data).substring(0, 300));
             const parts = data?.candidates?.[0]?.content?.parts || [];
+            // ★ JSON으로 시작하는 part 우선 선택 (RP 텍스트 part 거부)
+            for (const part of parts) {
+                if (part.text && part.text.trim().startsWith('{')) {
+                    dbg(`🔧 Google OK (JSON mode, ${part.text.length}c, starts with {)`);
+                    return part.text;
+                }
+            }
+            // JSON으로 시작하는 게 없으면 { 포함하는 걸로 fallback
             for (const part of parts) {
                 if (part.text && part.text.includes('{')) {
-                    dbg(`🔧 Google OK (JSON mode, part ${parts.indexOf(part)}, ${part.text.length}c)`);
-                    return part.text;
+                    const jsonStart = part.text.indexOf('{');
+                    dbg(`🔧 Google OK (JSON mode, ${part.text.length}c, { at ${jsonStart})`);
+                    return part.text.substring(jsonStart);
                 }
             }
             dbg(`⚠️ Google JSON mode: no JSON found in ${parts.length} parts`);
@@ -134,10 +143,18 @@ async function _callGoogle(key, model, prompt) {
         if (!res2.ok) throw new Error(`Google API ${res2.status}: ${res2.statusText}`);
         const data2 = await res2.json();
         const parts2 = data2?.candidates?.[0]?.content?.parts || [];
+        // ★ JSON으로 시작하는 part 우선
         for (const part of parts2) {
-            if (part.text && part.text.includes('{')) {
+            if (part.text && part.text.trim().startsWith('{')) {
                 dbg(`🔧 Google API OK (fallback, ${part.text.length}c)`);
                 return part.text;
+            }
+        }
+        for (const part of parts2) {
+            if (part.text && part.text.includes('{')) {
+                const jsonStart = part.text.indexOf('{');
+                dbg(`🔧 Google API OK (fallback, { at ${jsonStart})`);
+                return part.text.substring(jsonStart);
             }
         }
         dbg(`⚠️ Google fallback: no JSON in parts either`);

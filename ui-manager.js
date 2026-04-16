@@ -1696,7 +1696,7 @@ export class UIManager {
                 ${(loc.community?.length) ? `<div style="margin-top:10px;border:1px solid #EFF3F4;border-radius:14px;overflow:hidden">
                     <div style="padding:10px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #EFF3F4;background:#fff">
                         <div style="font-size:12px;font-weight:700;color:#0F1419;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 지금 이곳은</div>
-                        <button class="wt-bs-comm-more" style="font-size:12px;color:#1D9BF0;font-weight:600;cursor:pointer;background:#E8F5FD;border:none;padding:6px 12px;border-radius:14px;font-family:inherit;-webkit-tap-highlight-color:rgba(29,155,240,.2);min-height:32px">전체 보기 ›</button>
+                        <button class="wt-bs-comm-more" style="font-size:12px;color:#1D9BF0;font-weight:600;cursor:pointer;background:#E8F5FD;border:none;padding:6px 12px;border-radius:14px;font-family:inherit;-webkit-tap-highlight-color:rgba(29,155,240,.2);min-height:32px;touch-action:manipulation;position:relative;z-index:2">전체 보기 ›</button>
                     </div>
                     ${loc.community.slice(0,3).map(p => `<div style="padding:8px 12px;display:flex;gap:8px;border-bottom:1px solid #EFF3F4">
                         <div style="width:28px;height:28px;border-radius:50%;background:${p.type==='animal'?'#FFF8E1':'#E8F0FE'};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${p.avatar || '👤'}</div>
@@ -1942,16 +1942,20 @@ export class UIManager {
         };
         bs.find('.wt-bs-comm-gen').on('click touchend', commGenHandler);
 
+        // r13: document-level delegated event로 변경 — DOM 재생성/모바일 scroll intercept 이슈에도 안전
+        // 기존 bs.find() 바인딩은 _showBottomSheet마다 재생성되면서 놓칠 수 있음
+        $(document).off('click.wtCommMore touchend.wtCommMore');
         let _commMoreLock = false;
-        const commMoreHandler = (e) => {
+        $(document).on('click.wtCommMore touchend.wtCommMore', '.wt-bs-comm-more', function(e) {
             e.preventDefault();
             e.stopPropagation();
             if (_commMoreLock) return;
             _commMoreLock = true;
             setTimeout(() => _commMoreLock = false, 500);
-            self._showCommunityFullFeed(locId);
-        };
-        bs.find('.wt-bs-comm-more').on('click touchend', commMoreHandler);
+            const curBs = document.getElementById('wt-bottomsheet');
+            const lid = curBs?.getAttribute('data-id');
+            if (lid) self._showCommunityFullFeed(lid);
+        });
         bs.find('#wt-bs-rv-more').on('click', (e) => {
             e.stopPropagation();
             // 리뷰 탭으로 전환
@@ -2003,6 +2007,11 @@ export class UIManager {
     }
 
     _hideBottomSheet() {
+        // r13: 바텀시트 닫을 때 body에 남아있던 오버레이들 강제 제거 (잔존 헤더 버그 수정)
+        ['wt-community-overlay', 'wt-nodemap-overlay', 'wt-npc-profile-overlay'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        });
         // B1: 검색창 자동포커스 방지
         const activeEl = document.activeElement;
         if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) activeEl.blur();
@@ -3709,10 +3718,13 @@ JSON만 응답해:
             }
             toastSuccess(`💬 ${parsed.posts.length}개 반응 생성!`);
             this.pi?.inject();
-            // ★ 바텀시트 stage 유지하면서 리렌더
-            const prevStage = this._bsStage || 2;
-            this._showBottomSheet(locId);
-            setTimeout(() => this._applyBsStage(prevStage), 100);
+            // r13: 오버레이가 열려있으면 바텀시트 재렌더 생략 (race condition 방지)
+            // 오버레이 닫힌 상태에서 바텀시트의 미니피드만 갱신할 때만 _showBottomSheet 호출
+            if (!this._commOverlayOpen) {
+                const prevStage = this._bsStage || 2;
+                this._showBottomSheet(locId);
+                setTimeout(() => this._applyBsStage(prevStage), 100);
+            }
         } catch(e) {
             console.error('[wt] Community gen error:', e);
             toastWarn('❌ 생성 실패');
@@ -3735,7 +3747,7 @@ JSON만 응답해:
                     <div id="wt-comm-back" style="font-size:20px;color:#0F1419;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</div>
                     <div style="flex:1">
                         <div style="font-size:17px;font-weight:900;color:#0F1419">${loc.name}</div>
-                        <div style="font-size:12px;color:#536471;display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 실시간 · ${posts.length}개 반응</div>
+                        <div style="font-size:12px;color:#536471;display:flex;align-items:center;gap:4px" data-comm-count="1"><span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 실시간 · ${posts.length}개 반응</div>
                     </div>
                     <div id="wt-comm-refresh" style="font-size:18px;cursor:pointer;padding:6px;border-radius:50%" title="새로고침">🔄</div>
                 </div>
@@ -3748,8 +3760,10 @@ JSON만 응답해:
 
         const self = this;
         const close = () => {
-            overlay.css('transform', 'translateY(100%)');
-            setTimeout(() => overlay.remove(), 350);
+            // r13: 즉시 상호작용 차단 (애니메이션 중 다른 이벤트 방지) + 확실한 remove
+            overlay.css({ 'transform': 'translateY(100%)', 'pointer-events': 'none' });
+            overlay.attr('data-closing', '1');
+            setTimeout(() => { if (document.getElementById('wt-community-overlay') === overlay[0]) overlay.remove(); }, 360);
         };
         let _closeLock = false;
         overlay.find('#wt-comm-back').on('click touchend', (e) => {
@@ -3766,9 +3780,18 @@ JSON만 응답해:
             _refreshLock = true;
             setTimeout(() => _refreshLock = false, 1000);
             overlay.find('#wt-comm-fab').text('⏳').prop('disabled', true);
+            // r13: 오버레이가 열린 상태이므로 _commOverlayOpen 플래그로 바텀시트 재렌더 억제
+            self._commOverlayOpen = true;
             await self._generateCommunity(locId);
-            close();
-            setTimeout(() => self._showCommunityFullFeed(locId), 400);
+            self._commOverlayOpen = false;
+            // 기존 오버레이를 닫지 않고 내용만 갱신 (race condition 원천 차단)
+            const loc = self.lm.locations.find(l => l.id === locId);
+            const posts = loc?.community || [];
+            const postsHtml = posts.length ? posts.map(p => self._renderCommunityPostCard(p)).join('') : '<div style="padding:60px 20px;text-align:center;color:#8B98A5;font-size:13px">아직 반응이 없어요<br><span style="font-size:11px">✨ 버튼을 눌러 실시간 반응을 생성해보세요</span></div>';
+            overlay.find('#wt-comm-feed').html(postsHtml);
+            overlay.find('#wt-comm-fab').text('✨').prop('disabled', false);
+            // 헤더 개수 갱신
+            overlay.find('[data-comm-count]').html(`<span style="width:8px;height:8px;background:#00BA7C;border-radius:50%;display:inline-block;animation:wtLivePulse 2s infinite"></span> 실시간 · ${posts.length}개 반응`);
         });
     }
 
@@ -3820,10 +3843,12 @@ JSON만 응답해:
 
         const self = this;
         const close = () => {
-            overlay.css('transform', 'translateY(100%)');
-            setTimeout(() => overlay.remove(), 350);
+            // r13: 즉시 상호작용 차단 + 확실한 remove
+            overlay.css({ 'transform': 'translateY(100%)', 'pointer-events': 'none' });
+            overlay.attr('data-closing', '1');
+            setTimeout(() => { if (document.getElementById('wt-nodemap-overlay') === overlay[0]) overlay.remove(); }, 360);
         };
-        overlay.find('#wt-nodemap-back').on('click', close);
+        overlay.find('#wt-nodemap-back').on('click touchend', (e) => { e.preventDefault(); close(); });
 
         // ★ 약도 렌더러 생성 (풀스크린 컨테이너에)
         setTimeout(async () => {

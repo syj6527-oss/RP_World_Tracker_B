@@ -2,18 +2,20 @@
 
 import { extension_settings, getContext } from '../../../extensions.js';
 import { setExtensionPrompt } from '../../../../script.js';
-import { EXTENSION_NAME, PROMPT_KEY } from './index.js';
+import { PROMPT_KEY } from './index.js';
+
+const MAX_INJECTION_CHARS = 12000;
 
 function getFn() {
     try {
         // 방법 1: script.js에서 직접 import (최신 SillyTavern)
-        if (typeof setExtensionPrompt === 'function') { console.log(`[${EXTENSION_NAME}] 🔧 getFn: found via import`); return setExtensionPrompt; }
+        if (typeof setExtensionPrompt === 'function') return setExtensionPrompt;
         // 방법 2: getContext()
         const ctx = getContext();
-        if (typeof ctx?.setExtensionPrompt === 'function') { console.log(`[${EXTENSION_NAME}] 🔧 getFn: found via getContext`); return ctx.setExtensionPrompt; }
+        if (typeof ctx?.setExtensionPrompt === 'function') return ctx.setExtensionPrompt;
         // 방법 3: window 전역 (구버전)
-        if (typeof window.setExtensionPrompt === 'function') { console.log(`[${EXTENSION_NAME}] 🔧 getFn: found via window`); return window.setExtensionPrompt; }
-    } catch(e) { console.warn(`[${EXTENSION_NAME}] 🔧 getFn error:`, e.message); }
+        if (typeof window.setExtensionPrompt === 'function') return window.setExtensionPrompt;
+    } catch (_) {}
     return null;
 }
 
@@ -42,32 +44,31 @@ function _detectLocType(name) {
 export class PromptInjector {
     constructor(lm) { this.lm = lm; }
 
+    // v0.9.3: 장소 RP 반영 모드 (off/director/character)
+    //   명시값 없으면: 방문한 적 있으면 character(캐릭터가 앎), 없으면 off(내 메모)
+    _mode(l) {
+        if (l && (l.injectMode === 'off' || l.injectMode === 'director' || l.injectMode === 'character')) return l.injectMode;
+        return ((l?.visitCount || 0) > 0) ? 'character' : 'off';
+    }
+
     inject() {
         const t = this.generate(); const fn = getFn();
-        console.log(`[${EXTENSION_NAME}] 🔧 inject(): fn=${!!fn}, text=${t ? t.length + 'c' : 'empty'}`);
         try {
             if (fn) {
                 fn(PROMPT_KEY, t||'', 1, 0);
-                if (t) {
-                    console.log(`[${EXTENSION_NAME}] ✅ Prompt injected (${t.length}c):\n${t}`);
-                    console.log(`[${EXTENSION_NAME}] 🔧 Prompt key: "${PROMPT_KEY}"`);
-                }
-            } else {
-                console.warn(`[${EXTENSION_NAME}] ❌ setExtensionPrompt not found!`);
             }
         }
-        catch(e) { console.warn(`[${EXTENSION_NAME}] inject error:`, e.message); }
+        catch (_) {}
     }
     clear() { const fn=getFn(); try{if(fn)fn(PROMPT_KEY,'',1,0)}catch(_){} }
 
     generate() {
         const s = extension_settings[EXTENSION_NAME];
-        console.log(`[${EXTENSION_NAME}] 🔧 generate(): aiInjection=${s?.aiInjection}, locs=${this.lm.locations.length}, curId=${this.lm.currentLocationId}`);
-        if (!s?.aiInjection || !this.lm.locations.length) return '';
+        if (s?.aiInjection !== true || !this.lm.locations.length) return '';
         const cur = this.lm.locations.find(l => l.id === this.lm.currentLocationId);
-        if (!cur) { console.log(`[${EXTENSION_NAME}] 🔧 generate(): cur not found for id=${this.lm.currentLocationId}`); return ''; }
+        if (!cur) return '';
 
-        const L = ['[🐶 World Tracker]'];
+        const L = ['[🐾 Paw Map]'];
         L.push('⚙️ Use this location data to maintain spatial consistency and reference past events naturally in your narration.');
 
         // 1. 장소 이름 (+ 서브로케이션)
@@ -96,11 +97,13 @@ export class PromptInjector {
         // 5. 상태
         if (cur.status) L.push(`🌤️ Status: ${cur.status}`);
 
-        // 6. 메모
-        if (cur.memo) L.push(`💭 ${this._mem(cur)}`);
-
-        // 7. 특이사항 (AI 전용)
-        if (cur.aiNotes) L.push(`📋 AI Notes: ${cur.aiNotes}`);
+        // 6~7. v0.9.5: 💭 메모=항상 비공개(주입 안 함) / 🎬 반영 노트(aiNotes)=모드 따라 주입
+        const curMode = this._mode(cur);
+        if (curMode !== 'off' && cur.aiNotes) {
+            L.push(curMode === 'director'
+                ? `🎬 [OOC director note — the character is NOT aware of this]: ${cur.aiNotes}`
+                : `📋 Notes (character knows): ${cur.aiNotes}`);
+        }
 
         // 8. 이벤트 — 서브 장소 있으면 서브 이벤트 우선
         const evTarget = subLoc || cur;
@@ -114,21 +117,25 @@ export class PromptInjector {
             L.push(`🏠 Rooms: ${subList}`);
         }
 
-        // 8.6. 터줏대감 — 이 장소의 NPC/동물 (풀 프로필)
-        if (cur.npcs?.length) {
-            const npcList = cur.npcs.map(n => {
-                const icon = n.type === 'animal' ? '🐾' : '🧑';
+        // 8.6. 터줏대감 — v0.9.5: 실재 엔티티로 등장 주입 (사람/동물 분리), 🔒 장소는 제외
+        if (curMode !== 'off' && cur.npcs?.length) {
+            const fmt = (n) => {
                 const role = n.role ? `(${n.role})` : '';
                 const aff = n.affinity ? ` ❤️${n.affinity}/5` : '';
                 const bio = n.bio ? ` — ${n.bio}` : '';
                 const rel = n.relationship ? ` [${n.relationship}]` : '';
-                return `${icon}${n.name}${role}${aff}${bio}${rel}`;
-            }).join(' | ');
-            L.push(`👥 People here: ${npcList}`);
+                return `${n.name}${role}${aff}${bio}${rel}`;
+            };
+            const animals = cur.npcs.filter(n => n.type === 'animal');
+            const people = cur.npcs.filter(n => n.type !== 'animal');
+            if (people.length) L.push(`👥 Resident regulars of this place (terjutdaegam — fixtures here): ${people.map(fmt).join(' | ')}\n  → These are part of this place's texture. Feature one ONLY when it fits the CURRENT scene naturally — right area, plausible for indoors/outdoors, time of day. If the scene is indoors (a room, villa, hotel interior) or the creature wouldn't realistically be there, keep them as distant ambient background or leave them out entirely. NEVER force an outdoor animal into an indoor scene — immersion comes first.`);
+            if (animals.length) L.push(`🐾 Resident animal(s) of this place (they live/hang around here): ${animals.map(fmt).join(' | ')}\n  → When a scene is here, this animal physically shows up in it — approaches, lingers, reacts to the characters. Make it tangibly present.`);
         }
 
-        // 8.7. 💬 실시간 커뮤니티 (v0.6.0 NEW) — 장소의 현재 분위기/NPC 활동
-        if (cur.community?.length) {
+        // 8.7. 💬 실시간 커뮤니티 — v0.9.5: 이 장소 소문/분위기 (🔒 장소 제외)
+        //   v0.9.19: 현재 장소에 "반영(핀)"한 커뮤니티가 있으면 자동 buzz 생략 → 유저가 고른 것만 반영
+        const _commPins = (cur._pins || []).filter(p => p.kind === 'community');
+        if (curMode !== 'off' && cur.community?.length && !_commPins.length) {
             const recent = cur.community.slice(0, 4);
             const liveStatus = recent.map(p => {
                 // 텍스트에서 액션/감정 추출
@@ -137,7 +144,7 @@ export class PromptInjector {
                 const action = actions[0] ? ` (${actions[0]})` : '';
                 return `${p.name}${action}: "${cleanText}"`;
             }).join('\n  ');
-            L.push(`🟢 NOW at this location (use for natural scene description):\n  ${liveStatus}`);
+            L.push(`🗣️ Local buzz about this place (recent rumors/atmosphere — weave into the scene's background, not as something the character literally read):\n  ${liveStatus}`);
         }
 
         // 9. 마지막 이동
@@ -154,8 +161,54 @@ export class PromptInjector {
             if (region) L.push(`🌍 World: ${totalLocs} places around ${region}`);
         }
 
-        L.push('[/World Tracker]');
-        return L.join('\n');
+        // ★ v0.9.3: 현재 장소가 아니어도 "반영" 켠 장소 주입 (이벤트 예정 장소 등)
+        //   character → 캐릭터가 존재를 앎 / director → OOC 연출 지시 (캐릭터는 의도 모름)
+        const flagKnown = [], flagDir = [];
+        for (const l of this.lm.locations) {
+            if (l.id === cur.id || l.id === subLocId) continue;
+            const m = this._mode(l);
+            if (m === 'character') flagKnown.push(l);
+            else if (m === 'director') flagDir.push(l);
+        }
+        if (flagKnown.length) {
+            const list = flagKnown.slice(0, 8).map(l => {
+                const addr = l.address ? ` (${l.address.split(',').slice(0,2).join(',').trim()})` : '';
+                return `${l.name}${l.aiNotes ? ' — ' + l.aiNotes : ''}${addr}`;
+            }).join('\n  ');
+            L.push(`🗺️ Other known places (the character is aware these exist):\n  ${list}`);
+        }
+        if (flagDir.length) {
+            const list = flagDir.slice(0, 8).map(l => `${l.name}${l.aiNotes ? ' — ' + l.aiNotes : ''}`).join('\n  ');
+            L.push(`🎬 [OOC narrative direction — steer the story toward these naturally; the character is NOT consciously aware of the user's intent]:\n  ${list}`);
+        }
+
+        // ★ v0.9.4 → v0.9.10: 유저가 핀한 리뷰/커뮤니티 — 현재 장소든 아니든 핀한 건 전부 반영
+        const pinLines = [];
+        for (const loc of this.lm.locations) {
+            if (!loc._pins?.length) continue;
+            const here = loc.id === cur.id;
+            loc._pins.slice(0, 12).forEach(p => {
+                const tag = p.kind === 'review' ? 'review' : 'buzz';
+                const t = (p.text || '')
+                    .replace(/<br\s*\/?>/gi, ' ')
+                    .replace(/<img[^>]*>/gi, '')
+                    .replace(/<[^>]+>/g, '')          // 나머지 HTML 태그
+                    .replace(/https?:\/\/\S+/g, '')   // 남은 URL
+                    .replace(/#[^\s#]+/g, '')          // 해시태그
+                    .replace(/\*[^*]+\*/g, '')         // *액션 서술*
+                    .replace(/\s+/g, ' ').trim().slice(0, 140);
+                pinLines.push(`[${tag}${here ? '' : ' @' + loc.name}] ${p.who || '?'}: "${t}"`);
+            });
+        }
+        if (pinLines.length) {
+            L.push(`📌 User-pinned — reflect these in your next response (weave naturally into the scene):\n  ${pinLines.slice(0, 16).join('\n  ')}`);
+        }
+
+        L.push('[/Paw Map]');
+        const prompt = L.join('\n');
+        if (prompt.length <= MAX_INJECTION_CHARS) return prompt;
+        const suffix = '\n[Map context truncated to limit input-token growth]\n[/Paw Map]';
+        return prompt.slice(0, MAX_INJECTION_CHARS - suffix.length) + suffix;
     }
 
     _mem(loc) {
@@ -174,7 +227,7 @@ export class PromptInjector {
         const recent = evs.slice(-5);
         return recent.map(ev => {
             const mood = ev.mood || '📝';
-            let text = ev.text || ev.title || '';
+            let text = String(ev.text || ev.title || '').slice(0, 600);
             let dateStr = '';
             if (ev.rpDate) {
                 dateStr = ` [${ev.rpDate}]`;
@@ -210,10 +263,11 @@ export class PromptInjector {
 
     _near(cur) {
         const n=[];
-        for(const d of this.lm.distances||[]){
+        for(const d of (this.lm.distances||[]).filter(distance => distance._manual === true)){
             let o=d.fromId===cur.id?d.toId:d.toId===cur.id?d.fromId:null;
             if(!o)continue; const loc=this.lm.locations.find(l=>l.id===o);
             if(!loc) continue;
+            if (this._mode(loc) === 'off') continue; // v0.9.3: 반영 끈 장소는 주변 목록에서도 숨김
             let entry = `- ${loc.name} (${d.distanceText || this._levelLabel(d.level)})`;
             if (loc.address) {
                 const short = loc.address.split(',').slice(0, 2).join(',').trim();

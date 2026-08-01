@@ -1,6 +1,5 @@
 // 🐶 World Tracker — detector.js (All Fixes + City Detection)
 
-import { EXTENSION_NAME } from './index.js';
 
 export class LocationDetector {
     constructor(lm) {
@@ -9,8 +8,10 @@ export class LocationDetector {
         this.suffixPat = [
             /(?:으로|로)\s*(?:향하|가|갔|걸어|이동|달려|뛰어|들어|나서|떠나|돌아|출발)/,
             /에\s*(?:도착|당도|다다|들어서|들어섰|왔다|갔다)/,
-            /에서\s*(?:나와|나왔|나서|나섰|벗어나)/,
-            /(?:을|를)\s*(?:나서|나섰|떠나|떠났|빠져나)/,
+        ];
+        this.departureSuffix = [
+            /에서\s*(?:나와|나왔|나서|나섰|떠나|떠났|벗어나|빠져나)/,
+            /(?:을|를)\s*(?:나서|나섰|떠나|떠났|벗어나|빠져나)/,
         ];
         this.presSuffix = [/에\s*(?:서 있|앉아|앉았|기대|서서)/, /에서\s*(?:앉|서|기다|머무)/];
 
@@ -22,9 +23,12 @@ export class LocationDetector {
             '놀러갔','놀러가','놀러간','여행갔','여행간','여행을 떠',
             '출발했','출발한','다녀왔','다녀온','구경갔','구경하러',
             '데려갔','데려간','끌고 갔','끌려갔','이사했','이사한',
-            'headed to','walked to','went to','arrived at','entered','moved to',
+            'headed to','walked to','went to','arrived at','arrived in','arrived to','entered','moved to',
             'returned to','reached','walked into','headed home','went home','got home','came home',
-            'drove to','ran to','rushed to','hurried to','traveled to','flew to',
+            'drove to','ran to','rushed to','hurried to','traveled to','travelled to','flew to','flew into','flew in',
+            'landed in','landed at','landed','made it to','got to','came to','back in','now in','here in',
+            'reach','reaching','stop by','stopped by','stopping by','pull into','pulled into','pulled in','pull in',
+            'step into','stepped into','head into','heading into','heading to','heading toward','headed toward','walk to','walking to',
         ];
         this.presKw = ['에서 앉','에서 서 있','에 앉아','에 서서','안에 있','안에서'];
         this.futureKw = ['갈래','갈까','가자','가볼까','어때','가고 싶','가보자','갈 거','갈게','shall we',"let's go",'want to go','how about'];
@@ -40,6 +44,12 @@ export class LocationDetector {
             '자신','상대','서로','모두','누군',
             '이쪽','저쪽','그쪽','앞쪽','뒤쪽','양쪽','한쪽',
             '바닥','천장','벽면','구석','가장','순간','갑자','아까','지금','오늘','내일',
+            // 신체/추상 명사 오탐 방지 (이동 동사와 같은 문장에서 조사에 잘못 걸림 — 절대 장소 아님)
+            '얼굴','머리','어깨','가슴','손목','손등','손바닥','발목','무릎','허리','입가','입술','눈가','눈빛','이마','어깻',
+            '표정','목소리','분위기','마음','기분','감정','생각','시선','고개','자세','걸음','발걸음',
+            '마지막','처음','나중','방금','잠시','동안','사이','이내','당신','본인','그들','상대방','우리들',
+            // 도로/조각 단어 오탐 방지 (교차로→"교차" 등)
+            '교차','교차로','스크램블','한복판','통창','인파','한가운','정중앙','복판',
             '이중문','출입문','철문','나무문','유리문',
             // 부사 오탐 방지
             '제멋대','마음대','맘대','억지','저절','함부','대충대',
@@ -141,10 +151,11 @@ export class LocationDetector {
         ];
 
         this.engMoveVerbs = [
-            'headed to','walked to','went to','arrived at','moved to',
+            'headed to','walked to','went to','arrived at','arrived in','moved to',
             'returned to','ran to','rushed to','hurried to',
-            'entered','reached','left','marched to',
-            'stepped into','burst into','stormed into',
+            'entered','reached','reach','reaches','reaching','marched to',
+            'stepped into','burst into','stormed into','step into','pull into','pulled into',
+            'made it to','make it to','got to','get to','stop by','stopped by','head into','heading to','heading into','landed at','landed in',
             'headed home','went home','got home','came home',
             'drove to','traveled to','flew to','took a taxi to',
             'made it to','pulled up to','showed up at',
@@ -171,7 +182,12 @@ export class LocationDetector {
         this.namePrefix = ['mr','mrs','ms','miss','dr','captain','colonel','sergeant','general','professor','officer','sir','madam','lady','lord'];
 
         // placeWord 뒤에 이게 오면 장소 아님 (bug 18: "apartment door lock")
-        this.notPlaceSuffix = ['door','key','wall','window','floor','lock','roof','ceiling','gate','sign','number','building','complex'];
+        this.notPlaceSuffix = [
+            'door','key','wall','window','floor','lock','roof','ceiling','gate','sign','number','building','complex',
+            'chair','desk','soap','table','lamp','shirt','staff','worker','work','supplies','equipment',
+            'bell','exam','sandwich','party','chart','code','stool','counter','screen','page','button',
+            'service','temperature','uniform','bus','gown',
+        ];
 
         // #36: 도시명 감지 — 주요 도시/지역명 (한/영)
         this.cityNames = [
@@ -194,6 +210,15 @@ export class LocationDetector {
             'Budapest','Stockholm','Oslo','Helsinki','Copenhagen','Dublin','Edinburgh',
             'Singapore','Bangkok','Manila','Jakarta','Hanoi','Taipei','Mumbai','Delhi',
             'Cairo','Dubai','Istanbul','Athens','Lisbon','Rio','São Paulo',
+            // 국가 (한국어) — "내일 한국 갈거야" 등
+            '한국','대한민국','일본','중국','미국','영국','프랑스','독일','이탈리아','스페인','캐나다','호주','멕시코','브라질','인도','태국','베트남','필리핀','인도네시아','싱가포르','러시아','네덜란드','스위스','스웨덴','터키','이집트','그리스','포르투갈','아일랜드','오스트리아',
+            // 국가 (영어)
+            'Korea','South Korea','Japan','China','United States','France','Germany','Italy','Spain','Canada','Australia','Mexico','Brazil','India','Thailand','Vietnam','Philippines','Indonesia','Singapore','Russia','Netherlands','Switzerland','Sweden','Turkey','Egypt','Greece','Portugal','Ireland','Austria',
+            // 추가 도시/관광지
+            '칸쿤','카보','괌','하와이','발리','세부','다낭','오키나와','니스','베네치아','피렌체',
+            'Cancun','Cabo San Lucas','Guam','Hawaii','Bali','Cebu','Okinawa','Nice','Venice','Florence',
+            // 미주/유럽 도시 (한국어 표기) — AI가 한국어로 쓸 때
+            '뉴욕','로스앤젤레스','샌프란시스코','시카고','런던','파리','베를린','로마','마드리드','바르셀로나','암스테르담',
         ];
     }
 
@@ -208,24 +233,35 @@ export class LocationDetector {
             for (const name of [loc.name, ...(loc.aliases || [])]) {
                 if (!name || name.length < 1) continue;
                 const nameLo = name.toLowerCase();
-                for (const idx of this._findAll(clean, nameLo)) {
+                for (const idx of this._findAllStrict(clean, nameLo)) {
+                    if (this._isObjectUse(clean, idx, nameLo)) continue;
                     const inDlg = this._inDlg(clean, idx);
+                    const before = clean.substring(Math.max(0, idx - 48), idx).trimEnd();
                     const after = clean.substring(idx + nameLo.length, idx + nameLo.length + 40);
-                    const para = this._para(clean, idx);
+                    const near = clean.substring(Math.max(0, idx - 45), Math.min(clean.length, idx + nameLo.length + 55));
 
                     // 같은 confidence면 뒤쪽 위치 우선 (최종 목적지)
                     const better = (c, i) => !best || c > best.confidence || (c === best.confidence && i > best.pos);
 
+                    // A named source ("left Club", "클럽에서 나왔다") is not the destination.
+                    if (!inDlg && this.departureSuffix.some(pattern => pattern.test(after))) continue;
                     if (!inDlg && this.suffixPat.some(p => p.test(after)) && !hasFut) {
+                        const c = 0.95; if (better(c, idx)) best = { location: loc, type: 'move', confidence: c, pos: idx }; continue;
+                    }
+                    const directEnglishMove = this.engMoveVerbs.some(verb => {
+                        const escaped = verb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        return new RegExp(`${escaped}(?:\\s+the)?\\s*$`, 'i').test(before);
+                    });
+                    if (!inDlg && directEnglishMove && !hasFut) {
                         const c = 0.95; if (better(c, idx)) best = { location: loc, type: 'move', confidence: c, pos: idx }; continue;
                     }
                     if (!inDlg && this.presSuffix.some(p => p.test(after))) {
                         const c = 0.7; if (better(c, idx)) best = { location: loc, type: 'present', confidence: c, pos: idx }; continue;
                     }
-                    if (this.moveKw.some(k => para.includes(k)) && !hasFut) {
+                    if (this.moveKw.some(k => near.includes(k)) && !hasFut) {
                         const c = inDlg ? 0.6 : 0.85; if (better(c, idx)) best = { location: loc, type: 'move', confidence: c, pos: idx }; continue;
                     }
-                    if (this.presKw.some(k => para.includes(k))) {
+                    if (this.presKw.some(k => near.includes(k))) {
                         const c = inDlg ? 0.4 : 0.6; if (better(c, idx)) best = { location: loc, type: 'present', confidence: c, pos: idx }; continue;
                     }
                     if (inDlg) {
@@ -249,6 +285,10 @@ export class LocationDetector {
         const nar = clean.replace(/"[^"]*"/g,' ').replace(/「[^」]*」/g,' ').replace(/"[^"]*"/g,' ');
         let lastFound = null;
 
+        // v0.9.35: 알려진 도시/지역/국가가 이동 맥락과 함께 나오면 최우선 — 조각 단어(교차로→"교차", 카보 산 루카스→"루카스") 오인 방지
+        const earlyCity = this._detectCity(nar);
+        if (earlyCity) return earlyCity;
+
         // 한국어 방법 1: 조사 패턴 — USER만
         if (mode === 'user') {
             const pPat = /([가-힣]{1,8}?)(?:으로|에서|에|의|로)\s/g;
@@ -258,6 +298,8 @@ export class LocationDetector {
                 if (!hasM) continue;
                 pPat.lastIndex = 0; let m;
                 while ((m = pPat.exec(para)) !== null) {
+                    const tail = para.substring(m.index + m[0].length, m.index + m[0].length + 18);
+                    if (/(?:나와|나왔|나서|나섰|떠나|떠났|벗어나|빠져나)/.test(tail)) continue;
                     let c = m[1].trim().replace(/으$/, '');
                     if (this._validKo(c)) { lastFound = c; }
                 }
@@ -268,7 +310,6 @@ export class LocationDetector {
         const dPat = [
             /([가-힣]{1,8}?)(?:으로|로)\s*(?:향하|가|갔|간다|걸어|이동|달려|돌아|출발)/g,
             /([가-힣]{1,8}?)에\s*(?:도착|당도|들어서|들어섰|왔다|갔다|간다)/g,
-            /([가-힣]{1,8}?)(?:을|를)\s*(?:나서|나섰|떠나|떠났)/g,
         ];
         for (const p of dPat) {
             p.lastIndex=0; let m;
@@ -280,11 +321,11 @@ export class LocationDetector {
             }
         }
 
-        if (lastFound) { console.log(`[${EXTENSION_NAME}] 🆕 (ko): "${lastFound}"`); return lastFound; }
+        if (lastFound) return lastFound;
 
         // 영어: "headed home" 특수 처리
         if (/\b(?:headed|went|got|came|arrived|returned|returning)\s+home\b/i.test(nar)) {
-            if (!this.lm.findByName('Home')) { console.log(`[${EXTENSION_NAME}] 🆕 (home)`); return 'Home'; }
+            if (!this.lm.findByNameExact('Home')) return 'Home';
         }
 
         // 영어 방법 3: 이동 동사 + 장소 단어
@@ -334,8 +375,8 @@ export class LocationDetector {
                 const mods = before.slice(-2).filter(w => !this.skipMods.includes(w.toLowerCase()) && !this._isSkip(w) && !w.includes('-') && w.length > 1);
                 if (mods.length) name = mods.join(' ') + ' ' + actual;
                 name = name.charAt(0).toUpperCase() + name.slice(1);
-                if (name.length >= 3 && name.length <= 30 && !this.lm.findByName(name)) {
-                    console.log(`[${EXTENSION_NAME}] 🆕 (en): "${name}"`); return name;
+                if (name.length >= 3 && name.length <= 30 && !this.lm.findByNameExact(name)) {
+                    return name;
                 }
             }
         }
@@ -352,14 +393,14 @@ export class LocationDetector {
         // 1) 도시명 매칭 (Bug F: 영어는 단어 경계 체크)
         const foodCtx = /chocolate|coffee|tea|cake|cookie|pizza|burger|steak|food|cuisine|restaurant|dish|recipe|flavor|taste|spice/i;
         for (const city of this.cityNames) {
-            if (this.lm.findByName(city)) continue;
+            if (this.lm.findByNameExact(city)) continue;
             // ★ 음식/브랜드 맥락이면 도시명 스킵 ("Dubai chocolate" → 스킵)
             if (foodCtx.test(clean)) continue;
             if (/[a-zA-Z]/.test(city)) {
                 const rx = new RegExp('\\b' + city.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-                if (rx.test(clean)) { console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`); return city; }
+                if (rx.test(clean)) return city;
             } else {
-                if (lo.includes(city.toLowerCase())) { console.log(`[${EXTENSION_NAME}] 📋 desc city: "${city}"`); return city; }
+                if (lo.includes(city.toLowerCase())) return city;
             }
         }
 
@@ -380,8 +421,7 @@ export class LocationDetector {
             // ★ 서브장소 키워드 단독이면 독립 장소 등록 안 함 (#11)
             const bareSubKw = /^(?:room|kitchen|bathroom|bedroom|living\s*room|hall|lobby|office|garage|basement|attic|balcony|거실|부엌|주방|침실|화장실|방|복도|현관)s?$/i;
             if (bareSubKw.test(name)) continue;
-            if (name.length >= 3 && name.length <= 30 && !this.lm.findByName(name)) {
-                console.log(`[${EXTENSION_NAME}] 📋 desc place: "${name}"`);
+            if (name.length >= 3 && name.length <= 30 && !this.lm.findByNameExact(name)) {
                 return name;
             }
         }
@@ -391,12 +431,58 @@ export class LocationDetector {
         let km;
         while ((km = koPlaces.exec(clean)) !== null) {
             const c = km[1];
-            if (!this.skipKo.includes(c) && !this.lm.findByName(c)) {
-                console.log(`[${EXTENSION_NAME}] 📋 desc ko: "${c}"`);
+            if (!this.skipKo.includes(c) && !this.lm.findByNameExact(c)) {
                 return c;
             }
         }
         return null;
+    }
+
+    // 알려진 도시 → "City, Country" 영문 쿼리 (다국어 검색 정확도 보강)
+    cityGeoQuery(name) {
+        if (!name) return name;
+        const hint = {
+            // 일본
+            '도쿄':'Tokyo, Japan','오사카':'Osaka, Japan','교토':'Kyoto, Japan','요코하마':'Yokohama, Japan',
+            '나고야':'Nagoya, Japan','삿포로':'Sapporo, Japan','후쿠오카':'Fukuoka, Japan','고베':'Kobe, Japan',
+            '히로시마':'Hiroshima, Japan','센다이':'Sendai, Japan','나라':'Nara, Japan','오키나와':'Okinawa, Japan',
+            // 중국
+            '베이징':'Beijing, China','상하이':'Shanghai, China','광저우':'Guangzhou, China','선전':'Shenzhen, China',
+            '항저우':'Hangzhou, China','난징':'Nanjing, China','충칭':'Chongqing, China','청두':'Chengdu, China',
+            '시안':"Xi'an, China",'우한':'Wuhan, China',
+            // 미주/유럽 (한국어 표기)
+            '뉴욕':'New York, USA','로스앤젤레스':'Los Angeles, USA','샌프란시스코':'San Francisco, USA',
+            '시카고':'Chicago, USA','런던':'London, UK','파리':'Paris, France','베를린':'Berlin, Germany',
+            '로마':'Rome, Italy','마드리드':'Madrid, Spain','바르셀로나':'Barcelona, Spain','암스테르담':'Amsterdam, Netherlands',
+            // 관광지
+            '칸쿤':'Cancun, Mexico','카보':'Cabo San Lucas, Mexico','괌':'Guam','하와이':'Honolulu, Hawaii, USA',
+            '발리':'Bali, Indonesia','세부':'Cebu, Philippines','다낭':'Da Nang, Vietnam',
+            '니스':'Nice, France','베네치아':'Venice, Italy','피렌체':'Florence, Italy',
+            // 국가
+            '한국':'South Korea','대한민국':'South Korea','일본':'Japan','중국':'China','미국':'United States',
+            '영국':'United Kingdom','프랑스':'France','독일':'Germany','이탈리아':'Italy','스페인':'Spain',
+            '캐나다':'Canada','호주':'Australia','멕시코':'Mexico','브라질':'Brazil','인도':'India',
+            '태국':'Thailand','베트남':'Vietnam','필리핀':'Philippines','인도네시아':'Indonesia',
+        };
+        return hint[name] || name;
+    }
+
+    // v0.9.36: 장소 이름 안에 알려진 도시/지역/국가가 들어있으면 반환 (지오코딩 폴백용, 이동 맥락 불필요)
+    cityInName(name) {
+        if (!name) return null;
+        const lo = name.toLowerCase();
+        let best = null;
+        for (const city of this.cityNames) {
+            const cl = city.toLowerCase();
+            if (/[a-zA-Z]/.test(city)) {
+                const rx = new RegExp('\\b' + cl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+                if (!rx.test(name)) continue;
+            } else {
+                if (!lo.includes(cl)) continue;
+            }
+            if (!best || city.length > best.length) best = city; // 더 구체적인(긴) 지명 우선
+        }
+        return best;
     }
 
     _detectCity(text) {
@@ -416,11 +502,10 @@ export class LocationDetector {
             } else {
                 if (!lo.includes(cityLo)) continue;
             }
-            if (this.lm.findByName(city)) continue;
+            if (this.lm.findByNameExact(city)) continue;
             const idx = lo.indexOf(cityLo);
             const before = text.substring(Math.max(0, idx - 20), idx).trim().toLowerCase();
             if (this.namePrefix.some(np => before.endsWith(np) || before.endsWith(np + '.'))) continue;
-            console.log(`[${EXTENSION_NAME}] 🆕 (city): "${city}"`);
             return city;
         }
         return null;
@@ -430,7 +515,7 @@ export class LocationDetector {
         if (!c) return false;
         if (c.length === 1) return this.singleKo.includes(c);
         if (c.length > 8) return false;
-        if (this.lm.findByName(c)) return false;
+        if (this.lm.findByNameExact(c)) return false;
         if (this.skipKo.includes(c)) return false;
         if (c.length === 2 && /[을를이가에은는도로서]$/.test(c)) return false;
         // ★ 한국어 형용사/부사 접미사 → 장소 아님
@@ -451,6 +536,56 @@ export class LocationDetector {
         if (this.skipKo.includes(lower)) return true;
         // 영어 2글자 이하 → 무조건 스킵 (장소명은 최소 3글자)
         if (/^[a-zA-Z]+$/.test(place) && place.length <= 2) return true;
+
+        // v0.8.25: 강력한 오탐 필터 추가
+        // 1) 숫자만 있으면 스킵 ("10", "42", "123")
+        if (/^[\d\s.,]+$/.test(place)) return true;
+        // 2) 구두점 포함 → 스킵 (쉼표, 세미콜론, 따옴표 등)
+        if (/[,;:!?"'`]/.test(place)) return true;
+        // 3) 공백 3개 이상 = 4단어 이상 → 장소명 아님 (진짜 지명은 1~3단어)
+        const spaceCount = (place.match(/\s/g) || []).length;
+        if (spaceCount >= 3) return true;
+        // 4) 끝이 ... 또는 - 으로 끝나면 잘린 텍스트 → 스킵
+        if (/[-…]+$/.test(place.trim())) return true;
+        // 5) 영어 과거형(-ed) / 진행형(-ing) 단어로 시작하면 장소 아님 (scanned room, running track ×)
+        //    실제 지명은 거의 없음 (United는 고유명사라 대문자 시작이니 OK, 여기는 소문자만 체크)
+        const firstWord = place.split(/\s+/)[0].toLowerCase();
+        if (/^[a-z]+(ed|ing)$/.test(firstWord) && firstWord.length >= 5) {
+            // 예외: "United States", "Crossing" 같은 지명
+            const edIngExceptions = new Set(['united','crossing','wedding','trading','building','landing']);
+            if (!edIngExceptions.has(firstWord)) return true;
+        }
+        // 6) 영어 동사로 시작하는 구문 ("say thank you", "make coffee" 등)
+        //    say/make/do/get/take 등으로 시작하는 다단어 → 장소 아님
+        const verbStarters = new Set([
+            'say','says','saying','make','makes','making','do','does','doing',
+            'get','gets','getting','take','takes','taking','give','gives','giving',
+            'go','goes','going','come','comes','coming','see','sees','seeing',
+            'know','knows','knowing','think','thinks','thinking','want','wants',
+            'need','needs','needing','feel','feels','feeling','look','looks','looking',
+            'find','finds','finding','tell','tells','telling','ask','asks','asking',
+            'try','tries','trying','call','calls','calling','work','works','working',
+            'seem','seems','seeming','leave','leaves','leaving','help','helps','helping',
+            'talk','talks','talking','turn','turns','turning','start','starts','starting',
+            'show','shows','showing','hear','hears','hearing','play','plays','playing',
+            'run','runs','running','move','moves','moving','live','lives','living',
+            'believe','bring','happen','write','provide','sit','stand','lose','pay','meet',
+            'include','continue','set','learn','change','lead','understand','watch','follow',
+            'stop','create','speak','read','allow','add','spend','grow','open','walk','win',
+            'offer','remember','love','consider','appear','buy','wait','serve','die','send',
+            'expect','build','stay','fall','cut','reach','kill','remain'
+        ]);
+        if (spaceCount >= 1 && verbStarters.has(firstWord)) return true;
+        // 7) "you", "he", "she", "it" 등 대명사로 시작 → 장소 아님
+        const pronounStarters = new Set(['you','he','she','it','we','they','i','me','my','your','his','her','our','their']);
+        if (spaceCount >= 1 && pronounStarters.has(firstWord)) return true;
+        // 8) 순수 영소문자만 있고 길이 5+ 공백 있으면 의심 (고유명사면 보통 대문자 시작)
+        //    단, "rue de ~" 같은 프랑스 지명 예외
+        if (spaceCount >= 1 && /^[a-z\s]+$/.test(place) && place.length > 8) {
+            const lowerPrefixes = new Set(['rue','via','avenida','calle','plaza','piazza']);
+            if (!lowerPrefixes.has(firstWord)) return true;
+        }
+
         // ★ 영어 -ly 부사 → 무조건 스킵 (terribly, quickly, slowly...)
         // 단, 실제 지명은 제외 (Sicily, Beverly, Holly, Bali...)
         const lyExceptions = new Set(['sicily','beverly','holly','bali','italy','family','rally','alley','valley','assembly','embassy']);
@@ -513,6 +648,32 @@ export class LocationDetector {
 
     _strip(t) { return t.replace(/<[^>]+>/g,'').replace(/\*{1,2}([^*]+)\*{1,2}/g,'$1').replace(/_{1,2}([^_]+)_{1,2}/g,'$1').replace(/\[([^\]]*)\]/g, '$1'); }
     _findAll(t,n) { const r=[]; let p=0; while(true){ const i=t.indexOf(n,p); if(i===-1)break; r.push(i); p=i+1; } return r; }
+    _findAllStrict(text, name) {
+        return this._findAll(text, name).filter(index => this._hasNameBoundary(text, name, index));
+    }
+    _hasNameBoundary(text, name, index) {
+        const before = index > 0 ? text[index - 1] : '';
+        const after = text[index + name.length] || '';
+        const startsLatin = /^[a-z0-9]/i.test(name);
+        const endsLatin = /[a-z0-9]$/i.test(name);
+        if (startsLatin && before && /[a-z0-9]/i.test(before)) return false;
+        if (endsLatin && after && /[a-z0-9]/i.test(after)) return false;
+
+        if (/^[가-힣]+$/.test(name)) {
+            if (before && /[가-힣a-z0-9]/i.test(before)) return false;
+            if (after && /[가-힣]/.test(after)) {
+                const tail = text.slice(index + name.length, index + name.length + 4);
+                if (!/^(?:으로|에서|에게|로|에|을|를|의|은|는|이|가|와|과)/.test(tail)) return false;
+            }
+            if (name.length === 1 && !['집', '방', '역', '산', '강'].includes(name)) return false;
+        }
+        return true;
+    }
+    _isObjectUse(text, index, name) {
+        if (!/^[a-z]+$/i.test(name) || !this.placeWords.includes(name)) return false;
+        const tail = text.slice(index + name.length, index + name.length + 32);
+        return /^\s+(?:of\b|chair\b|desk\b|door\b|key\b|wall\b|window\b|floor\b|soap\b|table\b|lamp\b|shirt\b|staff\b|worker\b|work\b|supplies\b|equipment\b|bell\b|exam\b|sandwich\b|party\b|chart\b|code\b|stool\b|counter\b|screen\b|page\b|button\b|service\b|temperature\b|uniform\b|bus\b|gown\b)/i.test(tail);
+    }
     _inDlg(t,pos) { const b=t.substring(0,pos); for(const[o,c]of[['"','"'],['"','"'],['「','」']]){const lo=b.lastIndexOf(o);if(lo>-1&&lo>b.lastIndexOf(c))return true;} return false; }
     _getDlg(t,pos) { for(const[o,c]of[['"','"'],['"','"'],['「','」']]){const s=t.lastIndexOf(o,pos);if(s===-1)continue;const e=t.indexOf(c,s+1);if(e>-1&&e>=pos)return t.substring(s+1,e);} return null; }
     _para(t,pos) { const b=t.substring(Math.max(0,pos-200),pos); const a=t.substring(pos,Math.min(t.length,pos+200)); return b.substring(Math.max(b.lastIndexOf('\n'),0))+(a.indexOf('\n')!==-1?a.substring(0,a.indexOf('\n')):a); }

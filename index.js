@@ -1,1273 +1,1638 @@
-// ============================================================
-// 🐱 Translator v1.0.4
-// ============================================================
-import { extension_settings, getContext } from '../../../../scripts/extensions.js';
-import { catNotify, getThemeEmoji, getCompletionEmoji, setTextareaValue, getModelTheme, detectLanguageDirection, getCacheModelKey } from './utils.js';
-import { initCache, deleteCached } from './cache.js';
-import { fetchTranslation, gatherContextMessages } from './translator.js';
-import { setupSettingsPanel, collectSettings, updateCacheStats, injectMessageButtons, injectInputButtons, setupDragDictionary, setupMutationObserver, showHistoryPopup, applyTheme, setSuppressAutoSave, clearPendingAutoSave } from './ui.js';
+// 🐶 PAW MAP v0.9.47-secure-beta
 
-const EXT_NAME = "cat-translator";
-const stContext = getContext();
+import { getContext, extension_settings } from '../../../extensions.js';
+import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
+import { WorldTrackerDB, redactSecretFields } from './db.js';
+import { LocationManager } from './location-manager.js';
+import { LocationDetector } from './detector.js';
+import { PromptInjector } from './prompt-injector.js';
+import { UIManager } from './ui-manager.js';
+import { callLLM, parseLLMJson, getRecentChatContext } from './llm-helper.js';
+import { searchPlaces } from './geo-service.js';
+import { DetectionCandidateManager } from './detection-candidates.js';
 
-const defaultSettings = { profile: '', customKey: '', vertexKey: '', vertexProject: '', vertexRegion: 'global', directModel: 'gemini-2.5-flash', customModelName: '', autoMode: 'none', bidirectional: 'off', dialogueBilingual: 'off', iconVisibility: 'all', targetLang: 'Korean', style: 'normal', temperature: 0.3, maxTokens: 8192, contextRange: 1, userPrompt: '', dictionary: '', retranslateStrength: 'normal', afterEditMode: 'notify', previewTranslate: 'off', previewCleanup: 'off', promptPresets: {}, charPresetMap: {} };
-// 베타 → 정식 설정 마이그레이션 (기존 사용자 설정 보존)
-if (!extension_settings[EXT_NAME] && extension_settings["cat-translator-beta"]) {
-    extension_settings[EXT_NAME] = { ...extension_settings["cat-translator-beta"] };
-}
-let settings = Object.assign({}, defaultSettings, extension_settings[EXT_NAME]);
+export const EXTENSION_NAME = 'rp-world-tracker';
+export const PROMPT_KEY = 'rp-world-tracker-prompt';
+let _autoDetectPauseCount = 0;
 
-// 🚨 전역 기준값 영구 보존: extension_settings에 별도 키로 저장
-// 프리셋이 적용된 상태에서 새로고침해도 baseline이 오염되지 않음
-const BASELINE_VERSION = 2;  // 🚨 baseline 구조 변경 시 올려서 강제 리셋
-const _savedBaseline = extension_settings[EXT_NAME]?._baseline;
-const _baselineValid = _savedBaseline && _savedBaseline._v === BASELINE_VERSION;
-const _globalBaseline = _baselineValid
-    ? { userPrompt: _savedBaseline.userPrompt ?? '', temperature: _savedBaseline.temperature ?? 0.3, style: _savedBaseline.style ?? 'normal', _v: BASELINE_VERSION }
-    : { userPrompt: defaultSettings.userPrompt || '', temperature: defaultSettings.temperature ?? 0.3, style: defaultSettings.style || 'normal', _v: BASELINE_VERSION };
-let _isPresetLoading = false;
-if (!_baselineValid) {
-    console.warn('[CAT] ⚠️ baseline 리셋: 구버전/미존재. "설정 저장 및 적용" 버튼으로 기본 설정을 확정해주세요!');
-}
-console.log('[CAT] 🏠 전역 baseline 초기화:', { style: _globalBaseline.style, temp: _globalBaseline.temperature, prompt: _globalBaseline.userPrompt.substring(0, 30) || '(없음)', source: _baselineValid ? '영구저장 복원' : 'defaultSettings (리셋)' });
-
-// 🚨 프로필/모델 상태에 따른 올바른 테마 판별
-function getCurrentTheme() {
-    if (settings.profile) {
-        const pn = ($('#ct-profile option:selected').text() || '').toLowerCase();
-        if (pn.includes('pro') || pn.includes('프로') || pn.includes('호랑이') || pn.includes('tiger')) return 'tiger';
-        if (pn.includes('flash') || pn.includes('플래') || pn.includes('플레') || pn.includes('고양이') || pn.includes('cat')) return 'cat';
-        return 'cat';
-    }
-    return getModelTheme(settings.directModel);
-}
-
-function saveSettings(updateBaseline = false) {
-    const collected = collectSettings();
-    
-    // 🚨 데이터 손실 방지: 빈 값으로 덮어쓰기 차단
-    // 시나리오: textarea가 DOM에 없거나 일시적으로 비어있을 때 빈 값으로 저장되는 거 방지
-    if (!collected.dictionary && settings.dictionary) {
-        collected.dictionary = settings.dictionary;
-        console.log('[CAT] 🛡️ dictionary 보호: 빈 값 덮어쓰기 차단');
-    }
-    if (!collected.userPrompt && settings.userPrompt) {
-        collected.userPrompt = settings.userPrompt;
-        console.log('[CAT] 🛡️ userPrompt 보호');
-    }
-    if ((!collected.charPresetMap || Object.keys(collected.charPresetMap).length === 0) && 
-        settings.charPresetMap && Object.keys(settings.charPresetMap).length > 0) {
-        collected.charPresetMap = settings.charPresetMap;
-        console.log('[CAT] 🛡️ charPresetMap 보호: 채팅방별 설정 보존');
-    }
-    if ((!collected.promptPresets || Object.keys(collected.promptPresets).length === 0) && 
-        settings.promptPresets && Object.keys(settings.promptPresets).length > 0) {
-        collected.promptPresets = settings.promptPresets;
-        console.log('[CAT] 🛡️ promptPresets 보호');
-    }
-    
-    Object.assign(settings, collected);
-    // 🚨 baseline 갱신 조건: 수동 저장 + 프리셋 비활성 상태에서만
-    if (updateBaseline) {
-        const currentChar = (SillyTavern?.getContext?.()?.name2) || stContext.name2 || '';
-        const hasCharPreset = !!(currentChar && settings.charPresetMap?.[currentChar]);
-        const hasSelectedPreset = !!$('#ct-prompt-preset').val();
-        if (hasCharPreset || hasSelectedPreset) {
-            // 🚨 프리셋 활성 중 → baseline 보호, 프리셋만 저장
-            console.log(`[CAT] 🔒 baseline 보호: 프리셋 활성 상태에서 저장 → baseline 유지`);
-            catNotify(`${getThemeEmoji()} 캐릭터 설정 저장됨 (기본 설정은 변경되지 않음)`, "success");
-        } else {
-            // 🚨 프리셋 없음 → 진짜 전역 기본값 갱신
-            _globalBaseline.userPrompt = settings.userPrompt || '';
-            _globalBaseline.temperature = settings.temperature ?? 0.3;
-            _globalBaseline.style = settings.style || 'normal';
-            _globalBaseline._v = BASELINE_VERSION;
-            console.log('[CAT] 🏠 baseline 갱신 (수동 저장):', { style: _globalBaseline.style, temp: _globalBaseline.temperature, prompt: _globalBaseline.userPrompt.substring(0, 30) || '(없음)' });
-        }
-    }
-    // 🚨 baseline을 extension_settings에 영구 저장 (새로고침 후에도 복원)
-    extension_settings[EXT_NAME] = { ...settings, _baseline: { ..._globalBaseline } };
-    stContext.saveSettingsDebounced();
-    applyTheme(getCurrentTheme()); updateCacheStats();
-}
-
-async function processMessage(id, isInput = false, abortSignal = null, silent = false, isAutoEvent = false) {
-    const msgId = parseInt(id, 10); const msg = stContext.chat[msgId]; if (!msg) return;
-    
-    const mesBlock = $(`.mes[mesid="${msgId}"]`);
-
-    // 🚨 스와이프 감지: 이전 번역을 swipe_translations에 보존 후 현재 swipe 데이터로 전환
-    if (msg.extra?.original_mes && msg.extra?.cat_swipe_id !== undefined &&
-        msg.swipe_id !== undefined && msg.swipe_id !== msg.extra.cat_swipe_id) {
-        const prevSwipeId = msg.extra.cat_swipe_id;
-        // 이전 swipe의 번역을 보존
-        if (!msg.extra.swipe_translations) msg.extra.swipe_translations = {};
-        msg.extra.swipe_translations[prevSwipeId] = {
-            original_mes: msg.extra.original_mes,
-            display_text: msg.extra.display_text
-        };
-        console.log(`[CAT] 💾 스와이프 #${prevSwipeId} 번역 보존 #${msgId}`);
-        
-        // 현재 swipe에 저장된 번역이 있으면 복원
-        const currentSwipeData = msg.extra.swipe_translations[msg.swipe_id];
-        if (currentSwipeData?.original_mes && currentSwipeData?.display_text) {
-            msg.extra.original_mes = currentSwipeData.original_mes;
-            msg.extra.display_text = currentSwipeData.display_text;
-            msg.extra.cat_swipe_id = msg.swipe_id;
-            console.log(`[CAT] 🔄 스와이프 #${msg.swipe_id} 저장된 번역 복원 #${msgId}`);
-            stContext.updateMessageBlock(msgId, msg);
-            mesBlock.attr('data-cat-translated', 'true');
-        } else {
-            // 현재 swipe 첫 방문 → 번역 데이터 초기화 (다시 번역 가능 상태)
-            delete msg.extra.original_mes;
-            delete msg.extra.display_text;
-            delete msg.extra.cat_swipe_id;
-            mesBlock.removeAttr('data-cat-translated');
-            stContext.updateMessageBlock(msgId, msg);
-            console.log(`[CAT] 🆕 스와이프 #${msg.swipe_id} 첫 방문 → 새 번역 대기`);
-        }
-    }
-
-    if (isAutoEvent && mesBlock.attr('data-cat-translated') === 'true') return;
-    if (isAutoEvent && msg.extra?.display_text) return;
-    // 🚨 숨긴 메시지(Hide) + 이미지/시스템 메시지 자동 번역 스킵
-    if (isAutoEvent && (msg.is_hidden || msg.is_system === true || msg.extra?.media?.length > 0 || mesBlock.css('display') === 'none' || mesBlock.hasClass('is_hidden'))) return;
-    // 🚨 display_text 안전장치: 번역된 상태인데 display_text 누락 시 보정
-    // 🚨 단, data-cat-translated 속성이 있을 때만 발동 (자동 재번역 시 우회를 위해)
-    if (msg.extra?.original_mes && !msg.extra?.display_text && mesBlock.attr('data-cat-translated') === 'true') { msg.extra.display_text = msg.mes; }
-    // 🚨 Legacy 감지: 구버전에서 msg.mes가 번역문으로 덮어쓰여진 경우 자동 복원
-    if (msg.extra?.original_mes && msg.extra?.display_text && msg.mes === msg.extra.display_text && msg.mes !== msg.extra.original_mes) {
-        msg.mes = msg.extra.original_mes;
-        console.log(`[CAT] 🔧 Legacy 메시지 #${msgId} 자동 복원: msg.mes → 원문`);
-    }
-
-    const startGlow = () => {
-        mesBlock.find('.cat-mes-trans-btn .cat-emoji-icon').addClass('cat-glow-anim').attr('data-cat-glow-start', Date.now());
-    };
-    const stopGlow = () => mesBlock.find('.cat-mes-trans-btn .cat-emoji-icon').removeClass('cat-glow-anim').removeAttr('data-cat-glow-start');
-
-    const isAutoMode = (settings.autoMode !== 'none');
-    const isAutoTriggered = isAutoMode && !abortSignal;
-
-    // 🚨 글로우 stuck 자동 감지 및 복구: 60초 이상 stuck이면 강제 해제 후 진행
-    const stuckGlow = mesBlock.find('.cat-mes-trans-btn .cat-emoji-icon.cat-glow-anim');
-    if (stuckGlow.length > 0) {
-        const startTime = parseInt(stuckGlow.attr('data-cat-glow-start') || '0');
-        const elapsed = Date.now() - startTime;
-        if (startTime > 0 && elapsed > 60000) {
-            console.warn(`[CAT] 🔧 글로우 stuck 감지 (${Math.round(elapsed/1000)}s) → 강제 해제 후 재시도 #${msgId}`);
-            stopGlow();
-        } else {
-            return;
-        }
-    }
-    startGlow();
-    // 🚨 글로우 안전장치: 60초 후 자동 해제 (에러로 stuck 방지)
-    const glowTimeout = setTimeout(() => { stopGlow(); console.warn(`[CAT] ⚠️ 글로우 타임아웃 #${msgId}`); }, 60000);
-    let historyShown = false;
-
+export async function runWithoutAutoDetect(task, cooldownMs = 1500) {
+    _autoDetectPauseCount++;
     try {
-        const editArea = mesBlock.find('textarea.edit_textarea:visible, textarea.mes_edit_textarea:visible').first();
-        if (editArea.length > 0) { await handleEditAreaTranslation(editArea, msgId, abortSignal); return; }
-
-        // 🚨 원본 결정: original_mes + display_text + 스와이프 일치 여부로 판정
-        let textToTranslate;
-        const hasTranslation = msg.extra?.original_mes && msg.extra?.display_text &&
-            (msg.extra?.cat_swipe_id === undefined || msg.extra.cat_swipe_id === msg.swipe_id);
-        
-        if (hasTranslation) {
-            textToTranslate = msg.extra.original_mes;
-        } else {
-            textToTranslate = msg.mes;
-        }
-
-        const existingTranslation = hasTranslation ? msg.extra.display_text : null;
-        const isRetranslation = hasTranslation;
-
-        if (!silent && !isRetranslation) {
-            const prefix = isAutoTriggered ? '자동 번역' : '번역';
-            catNotify(`${getThemeEmoji()} ${prefix} 진행 중...`, "success");
-        }
-
-        if (isRetranslation) {
-            const anchorEl = mesBlock.find('.cat-mes-trans-btn');
-            const detected = detectDir(textToTranslate);
-            const modelKey = getCacheModelKey(settings);
-            const shown = await showHistoryPopup(textToTranslate, detected.targetLang, anchorEl, async (selectedText, isNew) => {
-                if (isNew) {
-                    startGlow();
-                    try {
-                        await doTranslateMessage(msgId, msg, textToTranslate, isInput, existingTranslation, abortSignal, true);
-                    } finally { stopGlow(); }
-                } else if (selectedText) {
-                    if (!msg.extra) msg.extra = {}; msg.extra.display_text = selectedText;
-                    if (isInput) { msg.mes = selectedText; }
-                    stContext.updateMessageBlock(msgId, msg);
-                }
-            }, modelKey);
-            if (shown) { historyShown = true; return; }
-        }
-        await doTranslateMessage(msgId, msg, textToTranslate, isInput, existingTranslation, abortSignal, silent);
-    } finally { clearTimeout(glowTimeout); if (!historyShown) stopGlow(); }
-}
-
-async function doTranslateMessage(msgId, msg, textToTranslate, isInput, prevTranslation, abortSignal, silent = false, forceFresh = false) {
-    const source = msg.extra?.original_mes || textToTranslate;
-    const detected = detectLanguageDirection(source, settings);
-    const forceLang = detected.targetLang;
-    const contextRange = parseInt(settings.contextRange) || 1;
-    const contextMsgs = gatherContextMessages(msgId, stContext, contextRange);
-
-    const result = await fetchTranslation(textToTranslate, settings, stContext, { forceLang, prevTranslation: isInput ? (msg.extra?.original_mes ? msg.mes : null) : prevTranslation, contextMessages: contextMsgs, abortSignal, silent, forceFresh });
-
-    if (result && result.text && result.text.trim() && result.text !== textToTranslate) {
-        if (!msg.extra) msg.extra = {};
-        if (!msg.extra.original_mes) msg.extra.original_mes = textToTranslate;
-        msg.extra.display_text = result.text;
-        if (msg.swipe_id !== undefined) {
-            msg.extra.cat_swipe_id = msg.swipe_id;
-            // 🚨 스와이프별 번역 보존 — 다른 스와이프로 전환했다 돌아와도 유지됨
-            if (!msg.extra.swipe_translations) msg.extra.swipe_translations = {};
-            msg.extra.swipe_translations[msg.swipe_id] = {
-                original_mes: textToTranslate,
-                display_text: result.text
-            };
-        }
-        // 🚨 입력 메시지: msg.mes = 번역문(영어) → AI 컨텍스트에 영어 전달
-        // 🚨 출력 메시지: msg.mes = 원문 유지 → 컨텍스트 오염 방지
-        if (isInput) { msg.mes = result.text; }
-        
-        $(`.mes[mesid="${msgId}"]`).attr('data-cat-translated', 'true');
-        // 🚨 편집 버튼 표시 (번역 완료 → 🐟/🍖 활성화)
-        $(`.mes[mesid="${msgId}"]`).find('.cat-mes-edit-btn').css({ opacity: 0.8, 'pointer-events': 'auto' });
-
-        // 🚨 Scene Board 확장 호환: msg.extra.sceneBoard.text도 같이 번역
-        if (msg.extra?.sceneBoard?.text && msg.extra.sceneBoard.text.trim().length > 10) {
-            try {
-                const sceneBoard = msg.extra.sceneBoard;
-                // 원본 결정: 백업이 있으면 그것, 없으면 현재 text
-                const sbOriginalText = sceneBoard.cat_original_text || sceneBoard.text;
-                console.log(`[CAT] 🎬 Scene Board 번역 시작 (${sbOriginalText.length}자)`);
-                const sbResult = await fetchTranslation(sbOriginalText, settings, stContext, { 
-                    forceLang, 
-                    silent: true 
-                });
-                if (sbResult && sbResult.text && sbResult.text.trim() && sbResult.text !== sbOriginalText) {
-                    // 첫 번역이면 백업 생성
-                    if (!sceneBoard.cat_original_text) {
-                        sceneBoard.cat_original_text = sbOriginalText;
-                    }
-                    sceneBoard.text = sbResult.text;
-                    
-                    // 🚨 DOM 직접 업데이트: Scene Board 확장은 자체 DOM 요소 사용
-                    // 셀렉터: pre.sb-board-text (Scene Board 확장이 사용하는 요소)
-                    const mesEl = $(`.mes[mesid="${msgId}"]`);
-                    const sbDomCandidates = [
-                        'pre.sb-board-text',
-                        '.sb-board-text',
-                        '[class*="sceneBoard"] pre',
-                        '[class*="scene-board"] pre',
-                        '[class*="sb-board"]'
-                    ];
-                    let sbElement = null;
-                    for (const sel of sbDomCandidates) {
-                        const el = mesEl.find(sel).first();
-                        if (el.length > 0) { sbElement = el; break; }
-                    }
-                    if (sbElement && sbElement.length > 0) {
-                        // 원본 백업 (없으면)
-                        if (!sbElement.attr('data-cat-original')) {
-                            sbElement.attr('data-cat-original', sbElement.text());
-                        }
-                        sbElement.text(sbResult.text);
-                        console.log(`[CAT] 🎬 Scene Board DOM 업데이트 완료`);
-                    } else {
-                        console.warn(`[CAT] 🎬 Scene Board DOM 요소 못 찾음 (셀렉터 확인 필요)`);
-                    }
-                    
-                    console.log(`[CAT] 🎬 Scene Board 번역 완료`);
-                    if (!silent) catNotify(`${getThemeEmoji()} Scene Board 같이 번역됨`, "info");
-                }
-            } catch (e) {
-                console.warn(`[CAT] Scene Board 번역 실패:`, e);
-            }
-        }
-
-        stContext.updateMessageBlock(msgId, msg);
-        if (!silent) {
-            const preview = result.text.substring(0, 25) + (result.text.length > 25 ? '...' : '');
-            catNotify(`${getCompletionEmoji()} 번역 완료! '${preview}'`, "success");
-        }
-    } else if (!silent && result === null) {
-        catNotify(`${getThemeEmoji()} 번역 결과를 받지 못했어요.`, "warning");
-    }
-}
-
-async function handleEditAreaTranslation(editArea, msgId, abortSignal) {
-    let currentText = editArea.val().trim(); if (!currentText) return;
-    
-    // 🚨 DOM에서 긁혀온 오염물 제거 (hidden comment + 코드박스 잔해)
-    currentText = currentText.replace(/<!--[\s\S]*?-->/g, '').trim();
-    if (!currentText) return;
-    
-    const msg = stContext.chat[msgId];
-    
-    // 🚨 직전 아웃풋 딸려오기 차단: msg 기준으로 비정상 길이 감지
-    if (msg) {
-        const knownText = msg.extra?.display_text || msg.extra?.original_mes || msg.mes;
-        if (knownText && currentText.length > knownText.length * 1.5) {
-            const knownPrefix = knownText.substring(0, Math.min(50, knownText.length));
-            if (currentText.startsWith(knownPrefix)) {
-                currentText = knownText;
-            }
-        }
-    }
-    
-    // 🚨 textarea 오염 방지: 이전 콘텐츠가 현재 메시지에 섞여 들어온 경우
-    if (msg && msg.mes && currentText.includes(msg.mes) && currentText !== msg.mes) {
-        currentText = msg.mes;
-    }
-    
-    // 🚨 핵심: 재번역 vs 새 번역 판별
-    let sourceText = currentText;
-    let isReTranslation = false;
-    
-    if (msg?.extra?.original_mes) {
-        if (currentText === msg.extra.display_text || 
-            currentText === msg.extra.original_mes) {
-            // 수정 안 함 → original_mes에서 재번역
-            sourceText = msg.extra.original_mes;
-            isReTranslation = true;
-        } else {
-            // 🚨 사용자가 새 텍스트 입력 → 옛날 original_mes 삭제 (강제 초기화!)
-            delete msg.extra.original_mes;
-            delete msg.extra.display_text;
-            delete msg.extra.cat_swipe_id;
-        }
-    }
-    
-    const prevTrans = isReTranslation ? (msg.extra?.display_text || null) : null;
-    catNotify(isReTranslation ? `${getThemeEmoji()} 다른 표현으로 재번역 중...` : `${getThemeEmoji()} 스마트 번역 중...`, "success");
-    
-    const contextRange = parseInt(settings.contextRange) || 1;
-    const contextMsgs = gatherContextMessages(msgId, stContext, contextRange);
-    const bilingualInputLangMap = { 'ko-en': 'English', 'ko-ja': 'Japanese', 'ko-zh': 'Chinese' };
-    const inputTargetLang = (settings.dialogueBilingual && settings.dialogueBilingual !== 'off') ? (bilingualInputLangMap[settings.dialogueBilingual] || settings.targetLang) : settings.targetLang;
-    const inputSettings = { ...settings, dialogueBilingual: 'off', targetLang: inputTargetLang };
-    const result = await fetchTranslation(sourceText, inputSettings, stContext, { forceLang: null, prevTranslation: prevTrans, contextMessages: contextMsgs, abortSignal });
-    
-    if (result && result.text !== currentText) {
-        // editArea jQuery 데이터 저장 (세션 내)
-        editArea.data('cat-original-text', sourceText);
-        editArea.data('cat-last-translated', result.text);
-        editArea.data('cat-last-target-lang', result.lang);
-        
-        // 🚨 msg.extra 영구 저장 — 무조건 덮어쓰기! (if 가드 없음)
-        if (!msg.extra) msg.extra = {};
-        msg.extra.original_mes = sourceText;
-        msg.extra.display_text = result.text;
-        if (msg.swipe_id !== undefined) msg.extra.cat_swipe_id = msg.swipe_id;
-        
-        setTextareaValue(editArea[0], result.text);
-        catNotify(isReTranslation ? `${getCompletionEmoji()} 재번역 덮어쓰기 완료!` : `${getCompletionEmoji()} 번역 덮어쓰기 완료!`, "success");
-    }
-}
-
-function revertMessage(id) {
-    const msgId = parseInt(id, 10); const msg = stContext.chat[msgId]; if (!msg) return;
-    const editArea = $(`.mes[mesid="${msgId}"]`).find('textarea.edit_textarea:visible, textarea.mes_edit_textarea:visible, textarea:visible').first();
-    if (editArea.length > 0) { const originalText = editArea.data('cat-original-text'); if (originalText) { setTextareaValue(editArea[0], originalText); editArea.removeData('cat-original-text').removeData('cat-last-translated').removeData('cat-last-target-lang'); catNotify(`${getThemeEmoji()} 원본 텍스트로 복구 완료!`, "success"); } else { catNotify("⚠️ 복구할 원본이 없습니다.", "warning"); } return; }
-    if (msg.extra?.display_text) delete msg.extra.display_text;
-    if (msg.extra?.original_mes) {
-        // 🚨 입력 메시지는 msg.mes가 번역문이므로 원문 복원 필요
-        // 출력 메시지는 msg.mes가 이미 원문이므로 덮어써도 동일
-        msg.mes = msg.extra.original_mes;
-        delete msg.extra.original_mes;
-    }
-    if (msg.extra?.cat_swipe_id !== undefined) delete msg.extra.cat_swipe_id;
-    
-    // 🚨 Scene Board 확장 호환: sceneBoard.text도 복원
-    if (msg.extra?.sceneBoard?.cat_original_text) {
-        msg.extra.sceneBoard.text = msg.extra.sceneBoard.cat_original_text;
-        delete msg.extra.sceneBoard.cat_original_text;
-        console.log(`[CAT] 🎬 Scene Board 원본 복원`);
-    }
-    
-    // 🚨 Scene Board DOM 복원
-    const mesElForRevert = $(`.mes[mesid="${msgId}"]`);
-    const sbRevertCandidates = [
-        'pre.sb-board-text',
-        '.sb-board-text',
-        '[class*="sceneBoard"] pre',
-        '[class*="scene-board"] pre',
-        '[class*="sb-board"]'
-    ];
-    for (const sel of sbRevertCandidates) {
-        const sbEl = mesElForRevert.find(sel).first();
-        if (sbEl.length > 0 && sbEl.attr('data-cat-original')) {
-            sbEl.text(sbEl.attr('data-cat-original'));
-            sbEl.removeAttr('data-cat-original');
-            console.log(`[CAT] 🎬 Scene Board DOM 복원 (${sel})`);
-            break;
-        }
-    }
-    
-    $(`.mes[mesid="${msgId}"]`).removeAttr('data-cat-translated');
-    
-    stContext.updateMessageBlock(msgId, msg); catNotify(`${getThemeEmoji()} 원문 복구 완료!`, "success");
-}
-function detectDir(text) { return detectLanguageDirection(text, settings); }
-
-jQuery(async () => {
-    try { await initCache(); console.log('[CAT] 🐱 IndexedDB 캐시 초기화 완료'); } catch (e) { console.warn('[CAT] IndexedDB 초기화 실패, 메모리 캐시로 대체:', e); }
-    setupSettingsPanel(settings, stContext, saveSettings); setupDragDictionary(settings, saveSettings); setupMutationObserver(processMessage, revertMessage, settings, stContext);
-    // 🚨 첫 마이그레이션 / baseline 리셋 안내
-    if (!_baselineValid) {
-        setTimeout(() => catNotify(`${getThemeEmoji()} 기본 설정을 확인 후 "설정 저장 및 적용" 버튼을 눌러주세요!`, "warning"), 2000);
-    }
-    // 🚨 자동 번역: 이미지/시스템/숨김 메시지 스킵 (데이터 기반)
-    stContext.eventSource.on(stContext.event_types.CHARACTER_MESSAGE_RENDERED, (d) => {
-        if (settings.autoMode === 'none' || settings.autoMode === 'input') return;
-        const msgId = typeof d === 'object' ? d.messageId : d;
+        return await task();
+    } finally {
         setTimeout(() => {
-            const msg = stContext.chat[parseInt(msgId)];
-            // 🚨 이미지/시스템 메시지 즉시 스킵 (is_hidden 타이밍 무관)
-            if (msg?.is_system === true || msg?.extra?.media?.length > 0) {
-                console.log(`[CAT] ⏭️ 이미지/시스템 메시지 스킵 #${msgId}`);
-                return;
-            }
-            if (msg?.is_hidden) { console.log(`[CAT] ⏭️ 숨긴 메시지 스킵 #${msgId}`); return; }
-            processMessage(msgId, false, null, false, true);
-        }, 500);
-    });
-    stContext.eventSource.on(stContext.event_types.USER_MESSAGE_RENDERED, (d) => { if (settings.autoMode === 'none' || settings.autoMode === 'output') return; const msgId = typeof d === 'object' ? d.messageId : d; setTimeout(() => processMessage(msgId, true, null, false, true), 500); });
-    
-    // 🚨 메시지 편집 직접 감지 (옵저버 백업) — afterEditMode 'auto'/'notify' 안전 트리거
-    stContext.eventSource.on(stContext.event_types.MESSAGE_EDITED, (msgId) => {
-        console.log(`[CAT] 🔔 MESSAGE_EDITED 이벤트 수신 #${msgId}`);
-        handleEditSaved(msgId);
-    });
-    
-    // 🚨 textarea 값 실시간 추적 (글로벌 Map으로 저장 - DOM 재생성에도 보존)
-    window._catCapturedText = window._catCapturedText || new Map();
-    
-    $(document).on('input keyup change', 'textarea.edit_textarea, textarea.mes_edit_textarea, .mes textarea', function() {
-        const mesBlock = $(this).closest('.mes');
-        const msgId = mesBlock.attr('mesid');
-        const val = $(this).val();
-        if (msgId && val && val.length > 0) {
-            window._catCapturedText.set(msgId, val);
-            console.log(`[CAT] 📝 textarea 변경 #${msgId}: ${val.substring(0, 40)}...`);
-        }
-    });
-    
-    // 🚨 ST 저장 클릭 직전 textarea 값 캡처
-    $(document).on('mousedown touchstart', '.mes_edit_done, .mes_edit_save, .edit_mes_save, [class*="mes_edit_done"]', function () {
-        const mesBlock = $(this).closest('.mes');
-        const msgId = mesBlock.attr('mesid');
-        // 가장 최근에 보이는 textarea 즉시 캡처
-        const textarea = mesBlock.find('textarea').first();
-        if (textarea.length > 0 && textarea.val()) {
-            window._catCapturedText.set(msgId, textarea.val());
-            console.log(`[CAT] 📸 mousedown 캡처 #${msgId}: ${textarea.val().substring(0, 40)}...`);
-        }
-    });
-    
-    // 🚨 ST 저장 체크 버튼(✓) 클릭 직접 감지
-    $(document).on('click', '.mes_edit_done, .mes_edit_save, .edit_mes_save, [class*="mes_edit_done"]', function () {
-        const mesBlock = $(this).closest('.mes');
-        const msgId = parseInt(mesBlock.attr('mesid'));
-        
-        // 클릭 시점에 textarea 값 캡처 (가장 확실한 영어 원본 백업)
-        const $textarea = mesBlock.find('textarea').first();
-        let capturedNow = null;
-        if ($textarea.length > 0) {
-            capturedNow = $textarea.val();
-            if (capturedNow) window._catCapturedText.set(String(msgId), capturedNow);
-        }
-        
-        const captured = capturedNow || window._catCapturedText.get(String(msgId));
-        window._catCapturedText.delete(String(msgId));
-        
-        console.log(`[CAT] ✓ 저장 #${msgId} 캡처: ${captured ? captured.substring(0, 50) : '없음'}`);
-        setTimeout(() => handleEditSaved(msgId, captured), 500);
-    });
-    
-    // 🚨 편집 저장 통합 핸들러
-    function handleEditSaved(msgId, capturedText = null) {
-        const id = parseInt(typeof msgId === 'object' ? msgId.messageId : msgId);
-        const msg = stContext.chat[id];
-        if (!msg) return;
-        if (msg.is_user) return;
-        if (msg.is_system === true || msg.extra?.media?.length > 0) return;
-        if (!msg.extra?.original_mes) return;
-        
-        const mode = settings.afterEditMode || 'notify';
-        if (mode === 'keep') return;
-        
-        // 새 원문 결정: captured(영어 백업)가 있으면 우선, 없으면 msg.mes
-        let newOriginal = msg.mes;
-        const capturedIsKorean = capturedText && /[가-힣]/.test(capturedText) && capturedText.length > 10;
-        const mesIsKorean = /[가-힣]/.test(msg.mes) && msg.mes.length > 10;
-        const origIsKorean = /[가-힣]/.test(msg.extra.original_mes) && msg.extra.original_mes.length > 10;
-        
-        // 🚨 영어 원본 자체가 손상된 경우 (original_mes가 한국어)
-        if (origIsKorean) {
-            catNotify(`${getThemeEmoji()} 이 메시지는 영어 원본이 손상됐어요. ST 🔄 재생성으로 복구하세요.`, "warning");
-            return;
-        }
-        
-        if (capturedText && !capturedIsKorean) {
-            newOriginal = capturedText;
-        } else if (mesIsKorean) {
-            // msg.mes가 한국어로 오염 + captured도 없음 → 원문 보존만
-            msg.mes = msg.extra.original_mes;
-            stContext.updateMessageBlock(id, msg);
-            return;
-        }
-        
-        // 영어가 실제로 수정되었는지 확인
-        if (newOriginal === msg.extra.original_mes) return;
-        
-        console.log(`[CAT] ✏️ 원문 갱신 #${id}: "${msg.extra.original_mes.substring(0,30)}..." → "${newOriginal.substring(0,30)}..."`);
-        
-        // 새 원문 적용
-        msg.mes = newOriginal;
-        msg.extra.original_mes = newOriginal;
-        
-        if (mode === 'auto') {
-            delete msg.extra.display_text;
-            if (msg.extra.swipe_translations && msg.swipe_id !== undefined) {
-                delete msg.extra.swipe_translations[msg.swipe_id];
-            }
-            delete msg.extra.cat_swipe_id;
-            $(`.mes[mesid="${id}"]`).removeAttr('data-cat-translated');
-            stContext.updateMessageBlock(id, msg);
-            catNotify(`${getThemeEmoji()} 원문 수정 감지 → 자동 재번역 중...`, "info");
-            const modelKey = getCacheModelKey(settings);
-            const targetLang = detectLanguageDirection(msg.mes, settings).targetLang;
-            deleteCached(msg.mes, targetLang, modelKey);
-            setTimeout(() => processMessage(id, false, null, false, false), 300);
-        }
+            _autoDetectPauseCount = Math.max(0, _autoDetectPauseCount - 1);
+        }, cooldownMs);
     }
-    
-    // 🚨 ui.js의 직접 핸들러에서 호출할 수 있도록 window에 노출
-    window._catHandleEditSaved = handleEditSaved;
-    
-    const bodyObserver = new MutationObserver(() => { applyTheme(getCurrentTheme()); }); bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-    // 🚨 캐릭터 전환 시 번역 프롬프트 자동 로드
-    stContext.eventSource.on(stContext.event_types.CHAT_CHANGED, () => {
+}
+
+function isAutoDetectPaused() {
+    return _autoDetectPauseCount > 0;
+}
+if (typeof window !== 'undefined') window._wtIsPaused = isAutoDetectPaused;
+
+// ========== v0.9.2: ST 데이터 호출 충돌 방어 ==========
+//   1) ST가 응답 생성 중일 때(_stBusy) 확장의 자동 LLM 호출/쓰기를 피해서 호출 경쟁 방지
+//   2) 비동기 작업(LLM 요약/지오코딩/DB쓰기) 도중 채팅이 바뀌면 결과를 폐기 → 엉뚱한 채팅 오염 방지
+let _stBusy = false;
+let _stBusySince = 0;
+function _setStBusy(v) { _stBusy = !!v; if (v) _stBusySince = Date.now(); }
+// 생성이 비정상 종료돼 플래그가 안 풀리는 경우 대비 — 45초 지나면 자동 해제
+export function isStBusy() {
+    if (_stBusy && Date.now() - _stBusySince > 45000) _stBusy = false;
+    return _stBusy;
+}
+// 작업 시작 시점의 chatId를 스냅샷 → 작업 후 still() 호출로 같은 채팅인지 확인 (true=안전)
+export function makeChatGuard() {
+    let snap = null;
+    try { snap = lm?.currentChatId ?? lm?.getChatId?.() ?? null; } catch(_) {}
+    return () => {
+        let now = null;
+        try { now = lm?.currentChatId ?? lm?.getChatId?.() ?? null; } catch(_) {}
+        return snap != null && snap === now;
+    };
+}
+
+// ========== 확장 경로 자동 감지 (폴더명 불일치 방지) ==========
+export const EXTENSION_PATH = new URL('.', import.meta.url).pathname;
+
+// ========== 🐶/🐺 모드 아이콘 ==========
+export function wtMascot() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🐺' : '🐶'; }
+export function wtTreat() { return extension_settings[EXTENSION_NAME]?.fantasyTheme ? '🍖' : '🦴'; }
+
+// ========== 커스텀 알림 (번역기 스타일) ==========
+let _notiEl = null, _notiTimer = null, _notiQueue = [];
+export function wtNotify(msg, type = 'move', duration = 3000) {
+    if (!_notiEl) {
+        _notiEl = document.createElement('div');
+        _notiEl.className = 'wt-notification';
+        document.body.appendChild(_notiEl);
+    }
+    // ★ 현재 표시 중이면 큐에 넣기
+    if (_notiEl.style.display === 'block' && _notiEl.style.top === '12px') {
+        _notiQueue.push({ msg, type, duration });
+        if (_notiQueue.length > 3) _notiQueue.shift(); // 최대 3개 대기
+        return;
+    }
+    _showNoti(msg, type, duration);
+}
+function _showNoti(msg, type, duration) {
+    clearTimeout(_notiTimer);
+    _notiEl.className = `wt-notification wt-noti-${type}`;
+    _notiEl.textContent = msg;
+    _notiEl.style.display = 'block';
+    _notiEl.style.top = '12px';
+    _notiTimer = setTimeout(() => {
+        _notiEl.style.top = '-100px';
+        // ★ transition 끝난 후 완전 숨김 + 큐 처리
         setTimeout(() => {
-            // 🚨 채팅 로드 시 오염 자동 검사 + 복구 (msg.mes에 한국어가 들어간 경우)
-            const ctx = SillyTavern?.getContext?.();
-            if (ctx?.chat) {
-                let fixedCount = 0;
-                ctx.chat.forEach((msg, i) => {
-                    if (!msg.is_user && msg.extra?.original_mes && /[가-힣]/.test(msg.mes) && msg.mes.length > 10 && msg.mes !== msg.extra.original_mes) {
-                        msg.mes = msg.extra.original_mes;
-                        fixedCount++;
-                    }
-                });
-                if (fixedCount > 0) {
-                    console.warn(`[CAT] 🔧 채팅 로드 시 ${fixedCount}개 메시지 원문 자동 복구`);
-                }
+            _notiEl.style.display = 'none';
+            if (_notiQueue.length > 0) {
+                const next = _notiQueue.shift();
+                _showNoti(next.msg, next.type, next.duration);
             }
+        }, 450);
+    }, duration);
+}
+export function toastWarn(msg) { wtNotify(msg, 'warn', 3000); }
+export function toastSuccess(msg) { wtNotify(msg, 'move', 2000); }
 
-            // 🚨 전환 시점의 최신 캐릭터 이름 사용
-            const charName = (SillyTavern?.getContext?.()?.name2) || stContext.name2 || '';
-            if (!charName || charName === 'SillyTavern System') return;
-            console.log(`[CAT] 📋 캐릭터 전환: "${charName}", 매핑: ${settings.charPresetMap?.[charName] || '없음'}`);
-            
-            // 🚨 프리셋 로드 전: 대기 중인 autoSave 취소 + 억제 ON
-            clearPendingAutoSave();
-            setSuppressAutoSave(true);
-            _isPresetLoading = true;
-            
-            const presetName = settings.charPresetMap?.[charName];
-            if (presetName && settings.promptPresets?.[presetName]) {
-                const preset = settings.promptPresets[presetName];
-                settings.userPrompt = preset.prompt || '';
-                settings.temperature = preset.temperature ?? 0.3;
-                settings.style = preset.style || 'normal';
-                $('#ct-user-prompt').val(settings.userPrompt);
-                $('#ct-style').val(settings.style);
-                $('#ct-temperature').val(settings.temperature);
-                $('#ct-prompt-preset').val(presetName);
-                // 🚨 직접 저장 (autoSave 디바운스 충돌 방지) + baseline 영구 보존
-                extension_settings[EXT_NAME] = { ...settings, _baseline: { ..._globalBaseline } };
-                stContext.saveSettingsDebounced();
-                catNotify(`${getThemeEmoji()} ${charName} → 프롬프트 "${presetName}" 자동 로드!`, "success");
-                console.log(`[CAT] 🔗 프리셋 적용: "${presetName}" →`, { style: settings.style, temp: settings.temperature, prompt: settings.userPrompt.substring(0, 30) });
-            } else {
-                // 🚨 FIX: 매핑 없는 캐릭터 → 전역 baseline으로 복원 (하드코딩 기본값 X)
-                settings.userPrompt = _globalBaseline.userPrompt;
-                settings.temperature = _globalBaseline.temperature;
-                settings.style = _globalBaseline.style;
-                $('#ct-user-prompt').val(settings.userPrompt);
-                $('#ct-style').val(settings.style);
-                $('#ct-temperature').val(settings.temperature);
-                $('#ct-prompt-preset').val('');
-                // 🚨 직접 저장 + baseline 영구 보존
-                extension_settings[EXT_NAME] = { ...settings, _baseline: { ..._globalBaseline } };
-                stContext.saveSettingsDebounced();
-                console.log(`[CAT] 🏠 baseline 복원 (프리셋 없음):`, { style: _globalBaseline.style, temp: _globalBaseline.temperature, prompt: _globalBaseline.userPrompt.substring(0, 30) || '(없음)' });
-            }
-            
-            // 🚨 프리셋 로드 완료: 억제 OFF
-            _isPresetLoading = false;
-            setSuppressAutoSave(false);
-        }, 500);
-    });
-    console.log('[CAT] 🐱 Translator v1.0.4 로드 완료!');
-    
-    // 🚨 페이지 가시성 변경 시 60초 이상 stuck 글로우 정리 (모바일 백그라운드 복귀 대응)
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-            $('.cat-mes-trans-btn .cat-emoji-icon.cat-glow-anim, #cat-input-btn .cat-emoji-icon.cat-glow-anim').each(function () {
-                const startTime = parseInt($(this).attr('data-cat-glow-start') || '0');
-                const elapsed = Date.now() - startTime;
-                if (startTime > 0 && elapsed > 60000) {
-                    $(this).removeClass('cat-glow-anim').removeAttr('data-cat-glow-start');
-                    console.warn(`[CAT] 🔧 visibility 복귀 → stuck 글로우 정리 (${Math.round(elapsed/1000)}s)`);
-                }
-            });
-        }
-    });
-    
-    // 🚨 원문 오염 방어: msg.mes에 한국어가 들어가면 자동 복구
-    // ST 내부 렌더링/저장 과정에서 display_text가 msg.mes로 역류하는 현상 방지
-    function repairContamination(source = '') {
-        const ctx = SillyTavern?.getContext?.();
-        if (!ctx?.chat) return;
-        let repaired = 0;
-        ctx.chat.forEach((msg, i) => {
-            if (!msg.is_user && msg.extra?.original_mes && msg.extra?.display_text) {
-                // msg.mes가 display_text(번역문)와 같거나 한국어가 포함된 경우 → 원문 복원
-                if (msg.mes === msg.extra.display_text && msg.mes !== msg.extra.original_mes) {
-                    msg.mes = msg.extra.original_mes;
-                    repaired++;
-                } else if (/[가-힣]{3,}/.test(msg.mes) && msg.mes !== msg.extra.original_mes && !/[가-힣]/.test(msg.extra.original_mes)) {
-                    // original_mes에 한국어가 없는데 msg.mes에 한국어가 있으면 오염
-                    msg.mes = msg.extra.original_mes;
-                    repaired++;
-                }
-            }
-        });
-        if (repaired > 0) {
-            console.warn(`[CAT] 🛡️ 원문 오염 자동복구: ${repaired}개 (${source})`);
-            // 🚨 복구 결과를 채팅 파일에 영구 저장
-            try { ctx.saveChat(); } catch (e) { /* 저장 실패 무시 */ }
-        }
-    }
-    
-    // 🚨 스와이프별 번역 자동 복원: 채팅 진입 시 각 메시지의 현재 swipe에 맞는 번역 복원
-    function restoreSwipeTranslations(source = '') {
-        const ctx = SillyTavern?.getContext?.();
-        if (!ctx?.chat) return;
-        let restored = 0;
-        ctx.chat.forEach((msg, i) => {
-            if (msg.is_user) return;
-            if (!msg.extra?.swipe_translations) return;
-            if (msg.swipe_id === undefined) return;
-            
-            const currentSwipeData = msg.extra.swipe_translations[msg.swipe_id];
-            if (!currentSwipeData?.display_text) return;
-            
-            // 현재 표시되는 번역이 이번 swipe와 다르면 복원
-            if (msg.extra.cat_swipe_id !== msg.swipe_id || msg.extra.display_text !== currentSwipeData.display_text) {
-                msg.extra.original_mes = currentSwipeData.original_mes;
-                msg.extra.display_text = currentSwipeData.display_text;
-                msg.extra.cat_swipe_id = msg.swipe_id;
-                restored++;
-            }
-        });
-        if (restored > 0) {
-            console.log(`[CAT] 🔄 swipe 번역 복원: ${restored}개 (${source})`);
-            try { ctx.saveChat(); } catch (e) {}
-        }
-    }
-    
-    // 채팅 진입 시 즉시 복구
-    stContext.eventSource.on(stContext.event_types.CHAT_CHANGED, () => {
-        setTimeout(() => { repairContamination('CHAT_CHANGED'); restoreSwipeTranslations('CHAT_CHANGED'); }, 300);
-    });
-    
-    // 메시지 렌더 시 복구 (AI 응답 생성 전에 오염 제거)
-    stContext.eventSource.on(stContext.event_types.CHARACTER_MESSAGE_RENDERED, () => {
-        repairContamination('MESSAGE_RENDERED');
-    });
-    
-    // 5초 간격 상시 감시
-    setInterval(() => repairContamination('watchdog'), 5000);
-    
-    // 🚨 원문 수정 감지 폴링 (자동 재번역/알림 백업) — 3초 간격
-    // 이벤트/옵저버가 누락해도 폴링으로 100% 잡음
-    const _editPollProcessed = new Map(); // idx → 처리한 텍스트 fingerprint
-    setInterval(() => {
-        const mode = settings.afterEditMode || 'notify';
-        if (mode === 'keep') return;
-        if (!stContext.chat) return;
-        
-        stContext.chat.forEach((msg, idx) => {
-            if (!msg || msg.is_user) return;
-            if (msg.is_system === true || msg.extra?.media?.length > 0) return;
-            if (!msg.extra?.original_mes) return;
-            
-            // 한국어 차단 (오염 방지)
-            const hasKorean = /[가-힣]/.test(msg.mes) && msg.mes.length > 10;
-            if (hasKorean) return;
-            
-            // 원문이 변경된 메시지 감지
-            if (msg.mes === msg.extra.original_mes) {
-                _editPollProcessed.delete(idx);
-                return;
-            }
-            
-            // 이미 처리한 메시지는 스킵
-            const fingerprint = msg.mes.substring(0, 100);
-            if (_editPollProcessed.get(idx) === fingerprint) return;
-            _editPollProcessed.set(idx, fingerprint);
-            
-            console.log(`[CAT] 🔍 폴링 감지: 원문 수정 #${idx} (mode: ${mode})`);
-            msg.extra.original_mes = msg.mes;
-            
-            if (mode === 'auto') {
-                delete msg.extra.display_text;
-                // 🚨 swipe_translations에서도 현재 swipe 삭제 (restoreSwipeTranslations 차단)
-                if (msg.extra.swipe_translations && msg.swipe_id !== undefined) {
-                    delete msg.extra.swipe_translations[msg.swipe_id];
-                }
-                delete msg.extra.cat_swipe_id;
-                $(`.mes[mesid="${idx}"]`).removeAttr('data-cat-translated');
-                stContext.updateMessageBlock(idx, msg);
-                catNotify(`${getThemeEmoji()} 원문 수정 감지 → 자동 재번역 중...`, "info");
-                // 🚨 캐시 우회: 새 원문에 대한 캐시 삭제 (이전 번역 재사용 방지)
-                const modelKey = getCacheModelKey(settings);
-                const targetLang = detectLanguageDirection(msg.mes, settings).targetLang;
-                deleteCached(msg.mes, targetLang, modelKey);
-                setTimeout(() => processMessage(idx, false, null, false, false), 300);
-            } else if (mode === 'notify') {
-                stContext.updateMessageBlock(idx, msg);
-                catNotify(`${getThemeEmoji()} 원문이 수정되었어요. 메시지의 번역 버튼으로 재번역해주세요.`, "info");
-            }
-        });
-    }, 3000);
-    
-    // 최초 로드 시 복구
-    setTimeout(() => { repairContamination('init'); restoreSwipeTranslations('init'); }, 1500);
-    
-    // 🚨 채팅 파일 관리 미리보기 번역
-    setupChatPreviewTranslation();
-});
+function plainText(value, maxLength = 1000) {
+    return String(value || '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/[<>]/g, ' ')
+        .replace(/"/g, '”')
+        .replace(/'/g, '’')
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim()
+        .slice(0, maxLength);
+}
 
-// 🚨 채팅 파일 관리 팝업의 미리보기 메시지 번역
-function setupChatPreviewTranslation() {
-    const _previewProcessed = new WeakSet(); // 이미 처리한 DOM 노드
-    let _queueProcessing = false;
-    let _headerButtonInjected = false;
-    let _cancelRequested = false; // 중단 요청 플래그
-    
-    // 후보 셀렉터들 (ST 버전마다 다를 수 있음)
-    const PREVIEW_SELECTORS = [
-        // ST 표준 채팅 파일 관리 셀렉터
-        '.select_chat_block_message',
-        '.select_chat_block_mes',
-        '.select_chat_block_mes_text',
-        '.select_chat_block .mes_text',
-        '.select_chat_block_chat_preview',
-        '.select_chat_block_filename + div',  // 파일명 다음 div (미리보기일 가능성)
-        // 광범위 매칭
-        '[class*="chat_preview"]',
-        '[class*="select_chat"] [class*="message"]',
-        '[class*="select_chat"] [class*="mes"]',
-        '#select_chat_div [class*="mes"]',
-        '#shadow_select_chat_popup [class*="mes"]',
-        '.last_mes_text',
-        '.preview_text'
-    ];
-    
-    // 영문 미리보기 텍스트인지 검사
-    function isEnglishPreview(text) {
-        if (!text || text.length < 20) return false;
-        // 한국어가 30% 이상이면 이미 번역됨
-        const korean = (text.match(/[가-힣]/g) || []).length;
-        if (korean / text.length > 0.3) return false;
-        // 영문이 50% 이상이어야 영문 미리보기
-        const english = (text.match(/[a-zA-Z]/g) || []).length;
-        if (english / text.length > 0.5) return true;
-        // 🚨 fallback: yaml/태그/기호가 많아 영문 비율이 희석된 경우 — 한글 대비 상대 비교
-        // (영문 40자 이상 + 한글이 영문의 10% 미만이면 영어 미리보기로 판정)
-        if (english >= 40 && korean < english * 0.1) return true;
-        return false;
+function firstGrapheme(value, fallback = '👤') {
+    const text = plainText(value, 12);
+    if (!text) return fallback;
+    try { return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)][0]?.segment || fallback; }
+    catch (_) { return Array.from(text)[0] || fallback; }
+}
+
+const defaults = {
+    // v0.9.0: autoDetect 기본 OFF — 수동 모드로 전환 (드래그 이벤트 등록만 자동)
+    // v0.9.2: autoDetect는 "모든 자동 장소 감지"의 마스터 스위치 (캐릭터시트 추출 포함). 기본 OFF 유지.
+    // v0.9.23: detectMode = 'off'(수동) | 'confirm'(팝업 확인) | 'auto'(자동). autoEvent = 텍스트에서 이벤트 자동 추출 on/off
+    enabled:true, autoDetect:false, detectMode:'off', autoEvent:false, autoSchedule:false, showDetectToast:true,
+    aiInjection:false, memoryMode:'natural', memorySummaryDays:7, panelOpacity:100,
+    debugMode:false, mapMode:'leaflet', fantasyTheme:false,
+    eventLang:'auto', // auto=RP언어, ko=한국어, en=English
+    worldContinuity:false, // 세계관 이어가기 (캐릭터 기반 저장)
+    dragEvent:false, // 명시적으로 켠 경우에만 드래그 AI 요약 아이콘 표시
+    // v0.9.46 security defaults: every potentially billable/private external action is opt-in.
+    externalAiEnabled:false,
+    shareRpData:false,
+    allowAutoGeocoding:false,
+    mapSearchLanguage:'ko',
+    openMapStyle:'liberty',
+};
+
+let db, lm, det, pi, ui, detectionCandidates;
+let _userContext = ''; // 유저 입력 컨텍스트 (이벤트 추출용)
+
+// ========== 채팅 화면 활성 여부 (캐릭터 설정/선택 화면 방지) ==========
+function isChatActive() {
+    // offsetParent는 position:fixed에서 null 반환 → getBoundingClientRect 사용
+    const sendBtn = document.querySelector('#send_but');
+    if (!sendBtn) return false;
+    const rect = sendBtn.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+}
+
+export async function loadLeaflet() {
+    if (window.maplibregl?.Map) return true;
+    try {
+        if (!document.querySelector('link[data-wt-maplibre]')) {
+            const link = document.createElement('link'); link.rel = 'stylesheet';
+            link.dataset.wtMaplibre = '1';
+            link.href = new URL('./vendor/maplibre/maplibre-gl.css', import.meta.url).href;
+            document.head.appendChild(link);
+        }
+        const moduleUrl = new URL('./vendor/maplibre/maplibre-gl.mjs', import.meta.url).href;
+        const module = await import(moduleUrl);
+        if (!module?.Map) return false;
+        window.maplibregl = module;
+        return true;
+    } catch (_) { return false; }
+}
+
+function dbg(msg) {
+    const s = extension_settings[EXTENSION_NAME];
+    if (s?.debugMode) wtNotify(`🔧 ${msg}`, 'info', 3000);
+}
+
+function queueDetectedPlace(name, options = {}) {
+    if (!detectionCandidates) return { queued: false };
+    const result = detectionCandidates.add(name, options);
+    if (result.queued && !result.duplicate && extension_settings[EXTENSION_NAME]?.showDetectToast) {
+        wtNotify(`🪧 장소 후보: ${result.candidate.name}`, 'info', 2600);
     }
-    
-    // 미리보기 요소들 찾기
-    function findPreviewElements() {
-        const elements = [];
-        for (const selector of PREVIEW_SELECTORS) {
+    if (result.rejected) dbg(`🚫 장소 후보 격리 필터: ${result.reason}`);
+    return result;
+}
+
+// ========== 메시지 스캔 (USER/AI 감도 분리) ==========
+// v0.9.41: detectMode 도입으로 자동 감지 재활성화 — 실제 로직(_legacyScanMessage) 연결.
+//   detectMode='off'(기본)이면 _legacyScanMessage 내부에서 즉시 return하므로 옵트인 안전.
+async function scanMessage(text, source = 'USER') {
+    return await _legacyScanMessage(text, source);
+}
+
+// v0.9.0 비활성: 이전 자동 감지 로직 (참고용으로 유지, 호출되지 않음)
+async function _legacyScanMessage(text, source = 'USER') {
+    try {
+        // ★ 리뷰 생성 중이면 감지 차단 (피드백 루프 방지)
+        if (ui?._isGeneratingReview) {
+            dbg('🔄 리뷰 생성 중 — 감지 건너뜀');
+            return false;
+        }
+        if (isAutoDetectPaused()) {
+            dbg('⏸️ auto-detect paused');
+            return false;
+        }
+        const s = extension_settings[EXTENSION_NAME];
+        // v0.9.23: detectMode 우선, 없으면 레거시 autoDetect로 환산
+        const _dm = s?.detectMode || (s?.autoDetect ? 'auto' : 'off');
+        if (!s?.enabled || _dm === 'off' || !text?.trim()) return false;
+        window._wtDetectMode = _dm; // 새 장소 등록 분기에서 사용
+        if (!lm.currentChatId) await lm.loadChat();
+        if (!lm.currentChatId) return false;
+
+        const mode = source === 'AI' ? 'ai' : 'user';
+        const rpDate = _extractRpDate(text);
+
+        // ★ 약속 장소 감지 — 메타 Location 처리와 독립적으로 항상 실행
+        if (lm.currentLocationId) {
             try {
-                document.querySelectorAll(selector).forEach(el => {
-                    if (_previewProcessed.has(el)) return;
-                    const text = el.textContent?.trim();
-                    if (isEnglishPreview(text)) {
-                        elements.push({ el, text });
+                const promisePlace = det.detectPromisePlace(text);
+                if (promisePlace && !lm.findByNameExact(promisePlace)) {
+                    queueDetectedPlace(promisePlace, {
+                        source: 'promise', kind: 'planned', confidence: 0.56,
+                        reason: '미래 약속 문맥에서 찾음 — 약속 문구 자체일 수 있어 확인 필요',
+                        snippet: text, rpDate,
+                    });
+                }
+            } catch(e) { dbg('⚠️ Promise detect error:', e.message); }
+        }
+
+        // ★ 메타데이터에서 Location 직접 추출 (memo/yaml 블록)
+        // HTML 태그 제거 후 다양한 포맷 매칭
+        const cleanForMeta = text.replace(/<[^>]*>/g, ' ').replace(/[ \t]+/g, ' ');
+        const locPatterns = [
+            /[-*•]\s*Location\s*[:：]\s*([^\r\n]{1,120})/i,
+            /Location\s*[:：]\s*([^\r\n]{1,120})/i,
+            /📍\s*Location\s*[:：]\s*([^\r\n]{1,120})/i,
+            /[-*•]\s*장소\s*[:：]\s*([^\r\n]{1,120})/,
+            /[-*•]\s*위치\s*[:：]\s*([^\r\n]{1,120})/,
+            /[-*•]\s*Place\s*[:：]\s*([^\r\n]{1,120})/i,
+            /[-*•]\s*Scene\s*[:：]\s*([^\r\n]{1,120})/i,
+            /[-*•]\s*Current\s+Location\s*[:：]\s*([^\r\n]{1,120})/i,
+        ];
+        let locMatch = null;
+        for (const pat of locPatterns) {
+            const m = cleanForMeta.match(pat);
+            if (m) { locMatch = m; break; }
+        }
+        // 원본 텍스트에서도 시도 (HTML 태그 안에 있을 수 있음)
+        if (!locMatch) {
+            const m2 = text.match(/[-*•]\s*Location\s*[:：]\s*([^\r\n]{1,120})/i);
+            if (m2) locMatch = m2;
+        }
+        if (locMatch) {
+            let metaLoc = locMatch[1].trim()
+                .replace(/[`*_]/g, '')           // 마크다운 제거
+                .replace(/<[^>]*>/g, '')          // 잔여 HTML 제거
+                .replace(/\s+/g, ' ')             // 공백 정리
+                .replace(/[\r\n]+/g, '')          // 줄바꿈 제거
+                .split(/[-–—]\s*(?:Time|Date|Characters|Outfit|Items|Condition|시간|캐릭터|복장)/i)[0]  // 다음 필드 시작 전까지만
+                .trim();
+            if (metaLoc.length >= 2 && metaLoc.length <= 80) {
+                // ★ 영어만 2글자 이하 → 스킵 (th, am, pm 등 오탐 방지)
+                if (/^[a-zA-Z\s]+$/.test(metaLoc) && metaLoc.trim().length <= 2) {
+                    dbg(`⏭️ Meta location too short (EN): "${metaLoc}"`);
+                    return false;
+                }
+                dbg(`📌 Meta location raw: "${metaLoc}"`);
+
+                // ★ 한국어 문장 필터: 용언 어미가 포함된 건 장소가 아니라 문장
+                if (/[가-힣]/.test(metaLoc) && /(?:했[다어]|됐[다어]|났[다어]|있[다어]|없[다어]|갔[다어]|왔[다어]|봤[다어]|먹[었]|잤[다어]|[가-힣]네요?|[가-힣]구나|[가-힣]잖아|[가-힣]더라|[가-힣]거든|습니다|ㅂ니다|세요|에요|해요|하고|하며|하면|인데|지만|에서|으로|부터|까지|처럼|만큼|라고|다고)/.test(metaLoc)) {
+                    dbg(`🚫 Meta loc is Korean sentence: "${metaLoc}" → skip`);
+                    if (lm.currentLocationId) { await _tryEvent(text, lm.currentLocationId, source); return true; }
+                    return false;
+                }
+                // ★ v0.6.0: 영어 단일 단어 오탐 필터 (facility/scattered/blood 등)
+                const metaLow = metaLoc.toLowerCase().trim();
+                const singleWordBlacklist = new Set([
+                    'facility','facilities','scattered','blood','bloody','flesh','torn','broken','damaged','destroyed','ruined','burning','burnt','frozen','shattered','wounded','injured','dead','dying','silent','empty','crowded','abandoned','deserted','forgotten','hidden','secret','mysterious','unknown','familiar','strange','weird','normal','usual','regular','sudden','random','various','several','countless','numerous','endless','infinite','massive','huge','tiny','small','big','giant','enormous','distant','nearby','inside','outside','above','below','beyond','within','across','through','around','beside','behind','ahead',
+                    'attack','defense','retreat','advance','fight','battle','war','peace','escape','rescue','mission','operation','briefing','debrief','training','exercise','practice','drill','patrol','watch','guard','duty','shift',
+                    'anger','rage','fury','fear','terror','panic','shock','horror','pain','agony','sorrow','grief','joy','happiness','love','hate','calm','peace','chaos','silence','noise','darkness','brightness','warmth','coldness',
+                    'somewhere','anywhere','nowhere','everywhere','place','area','zone','spot','location','position','scene','setting',
+                ]);
+                if (/^[a-zA-Z\s]+$/.test(metaLow) && singleWordBlacklist.has(metaLow)) {
+                    dbg(`🚫 Meta loc is common English word (blacklist): "${metaLoc}" → skip`);
+                    if (lm.currentLocationId) { await _tryEvent(text, lm.currentLocationId, source); return true; }
+                    return false;
+                }
+
+                // ★ 영어 욕설/감탄사 접두 제거 — "Damn barracks" → "barracks"
+                metaLoc = metaLoc.replace(/^(?:damn|fucking|fuckin|freaking|goddamn|bloody|stupid|shit|holy)\s+/i, '').trim();
+                // ★ 이동 중/차량/탈것 내부 → 장소 등록 건너뛰기
+                const transitSkip = /이동\s*중|향으로\s*이동|밴\s*내부|차량\s*내부|차\s*안|버스\s*안|택시\s*안|SUV|뒷좌석|앞좌석|조수석|운전석|트렁크|차\s*안|차\s*속|차\s*밖|차량|자동차|승합차|지프|트럭|밴|탱크|헬기|헬리콥터|비행기|기차|열차|지하철|전철|보트|배\s*위|선박|en\s*route|in\s*transit|on\s+the\s+way|driving|riding|heading\s+to|moving\s+to|backseat|front\s*seat|passenger|driver.*seat|trunk|SUV|van|truck|jeep|car\s+interior|vehicle|helicopter|chopper|aircraft|humvee|convoy/i;
+                if (transitSkip.test(metaLoc)) {
+                    dbg(`🚗 Transit location skipped: "${metaLoc}"`);
+                    await _tryEvent(text, lm.currentLocationId, source);
+                    return true;
+                }
+
+                // ★★★ 핵심 방어: 30자 초과 서술형 Location → 현재 장소 유지 (별칭 등록 안 함!)
+                if (metaLoc.length > 30 && lm.currentLocationId) {
+                    dbg(`🔀 Long meta loc (${metaLoc.length}c) "${metaLoc}" → staying at current (no alias)`);
+                    await _tryEvent(text, lm.currentLocationId, source);
+                    return true;
+                }
+
+                // ★ 콤마 구분자 정리: "영국 헤리퍼드, NCO Barracks 1층" → 마지막 파트만 사용
+                if (metaLoc.includes(',')) {
+                    const parts = metaLoc.split(',').map(p => p.trim()).filter(p => p.length >= 2);
+                    if (parts.length >= 2) {
+                        // 마지막 파트가 장소명일 가능성 높음
+                        const lastPart = parts[parts.length - 1];
+                        dbg(`📌 Comma split: "${metaLoc}" → last part: "${lastPart}"`);
+                        metaLoc = lastPart;
                     }
-                });
-            } catch (e) {}
-        }
-        return elements;
-    }
-    
-    // 미리보기 한 개 번역
-    async function translatePreview(el, text, modeOverride = null, force = false, modelType = null) {
-        if (_previewProcessed.has(el)) return null;
-        _previewProcessed.add(el);
-        
-        let mode = modeOverride || settings.previewTranslate || 'off';
-        if (mode === 'cache' || mode === 'auto') mode = 'on';
-        if (mode === 'off') return null;
-        
-        const targetLang = settings.targetLang || 'Korean';
-        
-        // 🚨 modelType에 따라 임시 settings 만들기
-        let effectiveSettings = settings;
-        if (modelType === 'pro') {
-            effectiveSettings = { ...settings, profile: '', directModel: 'gemini-2.5-pro', customModelName: '' };
-        } else if (modelType === 'flash') {
-            effectiveSettings = { ...settings, profile: '', directModel: 'gemini-2.5-flash', customModelName: '' };
-        }
-        
-        const modelKey = getCacheModelKey(effectiveSettings);
-        
-        try {
-            // 1. 캐시 우선 조회 (짧은 시도)
-            const { getCached } = await import('./cache.js');
-            const cached = await getCached(text, targetLang, modelKey);
-            
-            if (cached) {
-                if (!el.dataset.catOriginalPreview) {
-                    el.dataset.catOriginalPreview = text;
                 }
-                el.textContent = cached.translated;
-                el.style.opacity = '1';
-                el.title = `🐱 원문: ${text.substring(0, 100)}...`;
-                console.log(`[CAT] 📁 미리보기 캐시 히트 (${modelType || 'default'})`);
-                return 'cached';
-            }
-            
-            // 2. 캐시 없음 → API 호출
-            el.style.opacity = '0.5';
-            el.style.fontStyle = 'italic';
-            
-            const { fetchTranslation } = await import('./translator.js');
-            const result = await fetchTranslation(text, effectiveSettings, stContext, { 
-                forceLang: targetLang,
-                silent: !force
-            });
-            
-            if (result && result.text) {
-                if (!el.dataset.catOriginalPreview) {
-                    el.dataset.catOriginalPreview = text;
-                }
-                el.textContent = result.text;
-                el.style.opacity = '1';
-                el.style.fontStyle = 'normal';
-                el.title = `🐱 원문 (${modelType || 'default'}): ${text.substring(0, 100)}...`;
-                console.log(`[CAT] 📁 미리보기 번역 완료 (${modelType || 'default'})`);
-                return 'translated';
-            } else {
-                el.style.opacity = '1';
-                el.style.fontStyle = 'normal';
-                _previewProcessed.delete(el);
-                return null;
-            }
-        } catch (e) {
-            console.warn(`[CAT] 미리보기 번역 실패:`, e);
-            el.style.opacity = '1';
-            el.style.fontStyle = 'normal';
-            _previewProcessed.delete(el);
-            if (force) catNotify(`${getThemeEmoji()} ❌ 번역 에러: ${e.message?.substring(0, 50)}`, "error");
-            return null;
-        }
-    }
-    
-    // 🚨 미리보기 마크업 정리 (yaml/HTML 태그/info_panel 등 숨김)
-    function cleanupPreviewText(text) {
-        if (!text) return text;
-        let cleaned = text;
-        
-        // 1. ST 시스템 HTML 태그 제거 (정리할 대상 태그 목록)
-        const SYSTEM_TAGS = '(?:memo|small|info_panel|status_box|character_card|chat_box|world_info|no_history|history|details|summary|narrator_note|user_note|scene|location|time|details_panel|stats|stat_block|sys|system|inventory|state|status)';
-        // 여는 태그와 닫는 태그 모두 제거 (속성 포함)
-        cleaned = cleaned.replace(new RegExp(`</?${SYSTEM_TAGS}(?:\\s+[^>]*)?>`, 'gi'), '');
-        
-        // 2. 코드블록 마커 제거 (```yaml, ```json, ``` 등)
-        cleaned = cleaned.replace(/```[a-zA-Z]*\s*/g, '');
-        cleaned = cleaned.replace(/```/g, '');
-        
-        // 3. 수평선 제거 (___, ---, ***)
-        cleaned = cleaned.replace(/^[ \t]*[_\-*]{3,}[ \t]*$/gm, '');
-        
-        // 4. yaml 형식의 메타 데이터 라인 제거 (- 키: 값 형태)
-        // 예: "- 시간: 2025년", "- 등장인물: 김홍진"
-        cleaned = cleaned.replace(/^[ \t]*-\s*[가-힣\w][가-힣\w\s]*:\s*.+$/gm, '');
-        
-        // 5. 빈 줄 정리 (3개 이상 → 2개)
-        cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
-        
-        // 6. 너무 짧아지면 (예: 다 정리해서 거의 안 남음) 원본 일부라도 살리기
-        if (cleaned.length < 20 && text.length > 100) {
-            // 원본에서 첫 200자만 ASCII/한글 기준으로 추출
-            return text.substring(0, 200) + (text.length > 200 ? '...' : '');
-        }
-        
-        return cleaned;
-    }
-    
-    // 큐에 쌓인 미리보기 순차 처리 (rate limit 방지)
-    async function processQueue(force = false) {
-        // 🚨 무한 "이미 처리 중" 알림 방지: 조용히 return
-        if (_queueProcessing) {
-            if (force) catNotify(`${getThemeEmoji()} 이미 처리 중이에요. 잠시 기다려주세요`, "info");
-            return;
-        }
-        
-        const translateMode = settings.previewTranslate || 'off';
-        const cleanupMode = settings.previewCleanup || 'off';
-        
-        // 자동 옵저버는 cleanup만 (force 모드에서만 번역 실행)
-        if (!force && cleanupMode === 'off') return;
-        
-        _queueProcessing = true;
-        _cancelRequested = false;
-        if (force) showCancelButton(true);
-        let cleanupCount = 0;
-        let translateCount = 0;
-        
-        try {
-            // 🚨 마크업 정리는 모든 미리보기 (영문/한국어) 대상
-            // force 또는 cleanupMode === 'on'
-            if (force || cleanupMode === 'on') {
-                for (const selector of PREVIEW_SELECTORS) {
-                    try {
-                        document.querySelectorAll(selector).forEach(el => {
-                            if (el.dataset.catCleanupDone === 'true') return;
-                            const text = el.textContent?.trim();
-                            if (!text || text.length < 30) return;
-                            
-                            const cleaned = cleanupPreviewText(text);
-                            if (cleaned !== text && cleaned.length > 0) {
-                                if (!el.dataset.catOriginalPreview) {
-                                    el.dataset.catOriginalPreview = text;
-                                }
-                                el.textContent = cleaned;
-                                el.dataset.catCleanupDone = 'true';
-                                el.title = `🐱 원본 보기 (정리 전)`;
-                                cleanupCount++;
-                            }
+
+                // ★★★ 별칭 키워드 매칭 (서브 분리 전에 먼저!) — "SAS 북부 무기고" → 별칭 "무기고" 히트
+                const aliasHit = lm.findByNameExact(metaLoc);
+                if (aliasHit) {
+                    if (_dm !== 'auto') {
+                        queueDetectedPlace(aliasHit.name, {
+                            source: 'meta', kind: 'current', confidence: 0.94,
+                            reason: '상태창 이름이 기존 장소/별칭과 정확히 일치', snippet: text, rpDate,
                         });
-                    } catch (e) {}
+                    } else if (lm.currentLocationId !== aliasHit.id) {
+                        await lm.moveTo(aliasHit.id, rpDate);
+                        if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${aliasHit.name}`, 'move');
+                        pi.inject(); if (ui.panelVisible) ui.refresh();
+                    }
+                    dbg(`🔗 Alias keyword hit: "${metaLoc}" → "${aliasHit.name}"`);
+                    if (_dm === 'auto') await _tryEvent(text, aliasHit.id, source);
+                    return true;
+                }
+
+                // ★ "Parent - Sub" 또는 "Parent — Sub" 형태 분리
+                let metaParent = null, metaSub = null;
+                const origMetaLoc = metaLoc; // ★ 원본 보존 (서브 분리 실패 시 복원용)
+                const subKw = /kitchen|living\s*room|bed\s*room|bath\s*room|room|거실|부엌|주방|침실|화장실|방|마당|차고|서재|발코니|테라스|현관|복도|다락|지하|옥상|lobby|hall|office|studio|garage|balcony|terrace|rooftop|basement|armory|무기고|식당|mess\s*hall/i;
+
+                // 방법1: 대시 구분자
+                const sepMatch = metaLoc.match(/^(.+?)\s*[-–—]\s*([\uAC00-\uD7A3A-Za-z].+)$/);
+                if (sepMatch) {
+                    const part1 = sepMatch[1].trim();
+                    const part2 = sepMatch[2].trim();
+                    if (subKw.test(part2)) {
+                        metaParent = part1;
+                        metaSub = part2;
+                        dbg(`📌 Dash split: parent="${metaParent}", sub="${metaSub}"`);
+                    }
+                }
+
+                // 방법2: 공백 기반 — "NCO Barracks Kitchen" → parent="NCO Barracks", sub="Kitchen"
+                if (!metaParent && !metaSub) {
+                    const subMatch = metaLoc.match(new RegExp('(.+?)\\s+(' + subKw.source + '(?:\\s+\\S+)?)$', 'i'));
+                    if (subMatch) {
+                        const candidateParent = subMatch[1].trim();
+                        const candidateSub = subMatch[2].trim();
+                        // 부모 후보가 기존 장소와 매칭되는지 확인
+                        const parentCheck = lm.locations.find(l => {
+                            const n = l.name.toLowerCase();
+                            const cp = candidateParent.toLowerCase();
+                            return n === cp || n.includes(cp) || cp.includes(n) ||
+                                (l.aliases || []).some(a => a.toLowerCase().includes(cp) || cp.includes(a.toLowerCase()));
+                        });
+                        if (parentCheck) {
+                            metaParent = candidateParent;
+                            metaSub = candidateSub;
+                            dbg(`📌 Space split: parent="${metaParent}", sub="${metaSub}"`);
+                        }
+                    }
+                }
+
+                // 방법3: 숫자층 분리 — "Base 1층 주방" → parent="Base", sub="1층 주방"
+                if (!metaParent && !metaSub) {
+                    const floorMatch = metaLoc.match(/^(.+?)\s+(\d+층.*)$/);
+                    if (floorMatch) {
+                        const candidateParent = floorMatch[1].trim();
+                        const parentCheck = lm.locations.find(l => {
+                            const n = l.name.toLowerCase();
+                            const cp = candidateParent.toLowerCase();
+                            return n === cp || n.includes(cp) || cp.includes(n) ||
+                                (l.aliases || []).some(a => a.toLowerCase().includes(cp) || cp.includes(a.toLowerCase()));
+                        });
+                        if (parentCheck) {
+                            metaParent = candidateParent;
+                            metaSub = floorMatch[2].trim();
+                            dbg(`📌 Floor split: parent="${metaParent}", sub="${metaSub}"`);
+                        }
+                    }
+                }
+
+                // 분리된 경우: 부모 장소 매칭 → 서브 등록
+                if (metaParent && metaSub) {
+                    const parentLoc = lm.locations.find(l =>
+                        l.name.toLowerCase() === metaParent.toLowerCase() ||
+                        metaParent.toLowerCase().includes(l.name.toLowerCase()) ||
+                        l.name.toLowerCase().includes(metaParent.toLowerCase()) ||
+                        (l.aliases || []).some(a => metaParent.toLowerCase().includes(a.toLowerCase()))
+                    );
+                    if (parentLoc) {
+                        // 서브장소 "&"로 나뉜 경우 첫번째만 사용 ("Kitchen & Living Room" → "Kitchen")
+                        const subName = metaSub.split(/\s*[&,+]\s*/)[0].trim();
+                        const existingSub = lm.getSubLocations(parentLoc.id).find(sub =>
+                            sub.name.toLowerCase() === subName.toLowerCase() ||
+                            (sub.aliases || []).some(alias => alias.toLowerCase() === subName.toLowerCase())
+                        );
+                        if (existingSub) {
+                            if (_dm === 'auto') {
+                                if (lm.currentLocationId !== parentLoc.id) await lm.moveTo(parentLoc.id, rpDate);
+                                await lm.moveToSub(existingSub.id);
+                                pi.inject(); if (ui.panelVisible) ui.refresh();
+                                await _tryEvent(text, existingSub.id, source);
+                            } else {
+                                queueDetectedPlace(existingSub.name, {
+                                    source: 'meta', kind: 'sub', confidence: 0.92,
+                                    reason: `기존 “${parentLoc.name}” 내부 장소와 정확히 일치`, parentId: parentLoc.id,
+                                    snippet: text, rpDate,
+                                });
+                            }
+                        } else {
+                            queueDetectedPlace(subName, {
+                                source: 'meta', kind: 'sub', confidence: 0.78,
+                                reason: `“${parentLoc.name}” 내부 장소 후보`, parentId: parentLoc.id,
+                                snippet: text, rpDate,
+                            });
+                        }
+                        return true;
+                    }
+                    // 부모 못 찾으면 원본 복원 (무기고 등 핵심 키워드 유지!)
+                    metaLoc = origMetaLoc;
+                }
+
+                dbg(`📌 Meta location: "${metaLoc}"`);
+
+                // ★ 괄호 내용 제거 후 정리 ("집 (22nd's old NCO Barracks) 주방" → "집 주방")
+                const metaClean = metaLoc.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+
+                // ★ 서브로케이션 체크 (거실, 부엌 등 → 현재 장소의 하위)
+                if (lm.isSubLocation(metaClean) && lm.currentLocationId) {
+                    const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
+                    const existingSub = lm.getSubLocations(lm.currentLocationId).find(sub =>
+                        sub.name.toLowerCase() === metaClean.toLowerCase() ||
+                        (sub.aliases || []).some(alias => alias.toLowerCase() === metaClean.toLowerCase())
+                    );
+                    if (existingSub) {
+                        if (_dm === 'auto') {
+                            await lm.moveToSub(existingSub.id);
+                            pi.inject();
+                            await _tryEvent(text, existingSub.id, source);
+                        } else {
+                            queueDetectedPlace(existingSub.name, {
+                                source: 'meta', kind: 'sub', confidence: 0.92,
+                                reason: `기존 “${curLoc?.name || '현재 장소'}” 내부 장소와 정확히 일치`, parentId: lm.currentLocationId,
+                                snippet: text, rpDate,
+                            });
+                        }
+                    } else {
+                        queueDetectedPlace(metaClean, {
+                            source: 'meta', kind: 'sub', confidence: 0.76,
+                            reason: `“${curLoc?.name || '현재 장소'}” 내부 장소 후보`, parentId: lm.currentLocationId,
+                            snippet: text, rpDate,
+                        });
+                    }
+                    return true;
+                }
+
+                // v0.9.47: automatic movement only accepts exact normalized names/aliases.
+                // Partial-word and word-overlap matches are suggestions, not proof.
+                const existing = lm.findByNameExact(metaLoc) || lm.findByNameExact(metaClean);
+                if (existing) {
+                    if (_dm !== 'auto') {
+                        queueDetectedPlace(existing.name, {
+                            source: 'meta', kind: 'current', confidence: 0.94,
+                            reason: '상태창 이름이 기존 장소/별칭과 정확히 일치', snippet: text, rpDate,
+                        });
+                    } else if (lm.currentLocationId !== existing.id) {
+                        await lm.moveTo(existing.id, rpDate);
+                        if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${existing.name}`, 'move');
+                        pi.inject(); if (ui.panelVisible) ui.refresh();
+                    }
+                    if (_dm === 'auto') await _tryEvent(text, existing.id, source);
+                    return true;
+                } else {
+                    queueDetectedPlace(metaLoc, {
+                        source: 'meta', kind: 'current', confidence: 0.86,
+                        reason: 'Location/장소 메타 필드에서 찾음 — 모델 상태창도 틀릴 수 있어 승인 필요',
+                        snippet: text, rpDate,
+                    });
+                    if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
+                    return true;
                 }
             }
-            
-            // 🚨 번역은 force 모드(헤더 버튼 클릭)에서만 실행
-            // 자동 옵저버는 cleanup만 → 무한 루프 방지
-            if (force) {
-                const elements = findPreviewElements();
-                if (elements.length > 0) {
-                    console.log(`[CAT] 📁 미리보기 ${elements.length}개 발견 (번역 대상)`);
-                    
-                    catNotify(`${getThemeEmoji()} 미리보기 ${elements.length}개 번역 시작`, "info");
-                    updateHeaderProgress(0, elements.length);
-                    
-                    // 1초 간격으로 순차 처리 (API rate limit 방지)
-                    for (let i = 0; i < elements.length; i++) {
-                        // 🚨 중단 체크
-                        if (_cancelRequested) {
-                            catNotify(`${getThemeEmoji()} ⛔ 중단됨 (${i}/${elements.length})`, "warning");
+        }
+
+        dbg(`🔍 ${source} (${text.length}c) mode=${mode}${rpDate ? ' rpDate=' + rpDate : ''}`);
+
+        // 이미 등록된 장소 감지 (USER/AI 동일)
+        const result = det.detect(text);
+        if (result) {
+            const { location, type, confidence } = result;
+            dbg(`✅ "${location.name}" (${type} c=${confidence})`);
+            // Only a strong name-adjacent movement expression may mutate current state.
+            if (_dm === 'auto' && confidence >= 0.9 && lm.currentLocationId !== location.id) {
+                await lm.moveTo(location.id, rpDate);
+                if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${location.name}`, 'move');
+                pi.inject(); if (ui.panelVisible) ui.refresh();
+            } else if (_dm !== 'auto' || confidence < 0.9) {
+                queueDetectedPlace(location.name, {
+                    source: mode, kind: 'current', confidence,
+                    reason: '기존 장소명이 언급됐지만 이동 표현이 이름 바로 옆에서 확실하지 않음',
+                    snippet: text, rpDate,
+                });
+                return true;
+            }
+            // 이벤트 추출 (AI=전체, USER=강한 키워드만)
+            await _tryEvent(text, location.id, source);
+            return true;
+        }
+
+        // 새 장소 발견 (mode 전달 → AI는 엄격)
+        const np = det.detectNewPlace(text, mode);
+        if (np) {
+            dbg(`🆕 "${np}" (${source})`);
+            queueDetectedPlace(np, {
+                source: mode,
+                kind: lm.isSubLocation(np) && lm.currentLocationId ? 'sub' : 'current',
+                confidence: mode === 'user' ? 0.76 : 0.68,
+                reason: lm.isSubLocation(np) ? '내부 장소로 보이지만 부모 장소를 확인해야 함' : '이동 문맥에서 미등록 장소명을 찾음',
+                snippet: text, rpDate,
+            });
+            if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
+            return true;
+        }
+
+        // 장소 감지 실패해도, 현재 위치가 있으면 이벤트만 추출
+        if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
+
+        // ★ AI 응답에서 NPC/동물 자동 감지 (터줏대감)
+        if (source === 'AI' && lm.currentLocationId) {
+            try {
+                const ctx = getContext();
+                const npcs = det.detectNPCs(text, ctx.name1, ctx.name2);
+                for (const npc of npcs) {
+                    await lm.addNpcToLocation(lm.currentLocationId, npc);
+                }
+                if (npcs.length) { pi.inject(); if (ui?.panelVisible) ui.refresh(); }
+            } catch(e) { dbg('⚠️ NPC detect error:', e.message); }
+        }
+
+        // (약속 장소 감지는 메타 Location 처리 전에 이미 실행됨)
+
+        return false;
+    } catch (_) { return false; }
+}
+
+async function init() {
+    if (!extension_settings[EXTENSION_NAME]) extension_settings[EXTENSION_NAME] = { ...defaults };
+    for (const [k,v] of Object.entries(defaults)) {
+        if (extension_settings[EXTENSION_NAME][k] === undefined) extension_settings[EXTENSION_NAME][k] = v;
+    }
+    // Rebuild the extension settings as a plain redacted object so secrets nested in an
+    // old or imported settings blob cannot survive merely because they are not top-level.
+    extension_settings[EXTENSION_NAME] = redactSecretFields(extension_settings[EXTENSION_NAME]) || { ...defaults };
+    // v0.9.46: credentials must never live in persistent extension settings.
+    // Remove legacy secrets on every startup, even if an old backup reintroduced them.
+    const secretSettingPattern = /^(?:api[_-]?key|private[_-]?key|authorization|bearer|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret|password|vertexSaJson|llmApiKey)$/i;
+    for (const key of Object.keys(extension_settings[EXTENSION_NAME])) {
+        if (secretSettingPattern.test(key)) delete extension_settings[EXTENSION_NAME][key];
+    }
+    delete extension_settings[EXTENSION_NAME].useVertex;
+    if (!extension_settings[EXTENSION_NAME]._securityMigration0946) {
+        extension_settings[EXTENSION_NAME].externalAiEnabled = false;
+        extension_settings[EXTENSION_NAME].shareRpData = false;
+        extension_settings[EXTENSION_NAME].allowAutoGeocoding = false;
+        extension_settings[EXTENSION_NAME].autoEvent = false;
+        extension_settings[EXTENSION_NAME].autoSchedule = false;
+        extension_settings[EXTENSION_NAME].dragEvent = false;
+        extension_settings[EXTENSION_NAME].aiInjection = false;
+        extension_settings[EXTENSION_NAME]._securityMigration0946 = true;
+    }
+    // v0.9.47 changes the detection/storage boundary. Reset every sensitive opt-in once
+    // so an older installation cannot silently carry paid or data-sharing behavior forward.
+    if (!extension_settings[EXTENSION_NAME]._securityMigration0947) {
+        extension_settings[EXTENSION_NAME].externalAiEnabled = false;
+        extension_settings[EXTENSION_NAME].shareRpData = false;
+        extension_settings[EXTENSION_NAME].allowAutoGeocoding = false;
+        extension_settings[EXTENSION_NAME].autoEvent = false;
+        extension_settings[EXTENSION_NAME].autoSchedule = false;
+        extension_settings[EXTENSION_NAME].dragEvent = false;
+        extension_settings[EXTENSION_NAME].aiInjection = false;
+        extension_settings[EXTENSION_NAME].locationEnrichment = 'off';
+        extension_settings[EXTENSION_NAME].detectMode = 'off';
+        extension_settings[EXTENSION_NAME].autoDetect = false;
+        extension_settings[EXTENSION_NAME]._securityMigration0947 = true;
+    }
+    // Treat privacy- and billing-sensitive settings as strict booleans on every load.
+    // Corrupt/legacy string values such as "true" must never become implicit opt-ins.
+    for (const key of ['externalAiEnabled', 'shareRpData', 'allowAutoGeocoding', 'autoEvent', 'autoSchedule', 'dragEvent', 'aiInjection']) {
+        extension_settings[EXTENSION_NAME][key] = extension_settings[EXTENSION_NAME][key] === true;
+    }
+    if (!['off', 'confirm', 'auto'].includes(extension_settings[EXTENSION_NAME].detectMode)) {
+        extension_settings[EXTENSION_NAME].detectMode = 'off';
+        extension_settings[EXTENSION_NAME].autoDetect = false;
+    }
+    if (!['off', 'overpass'].includes(extension_settings[EXTENSION_NAME].locationEnrichment)) {
+        extension_settings[EXTENSION_NAME].locationEnrichment = 'off';
+    }
+    if (!['liberty', 'bright', 'dark'].includes(extension_settings[EXTENSION_NAME].openMapStyle)) {
+        extension_settings[EXTENSION_NAME].openMapStyle = 'liberty';
+    }
+    extension_settings[EXTENSION_NAME].mapSearchLanguage = extension_settings[EXTENSION_NAME].mapSearchLanguage === 'en' ? 'en' : 'ko';
+    extension_settings[EXTENSION_NAME].debugMode = false;
+    // v0.9.0: 자동 감지 폐지 — 기존 유저도 강제 OFF
+    if (!extension_settings[EXTENSION_NAME]._migrated_v090) {
+        extension_settings[EXTENSION_NAME].autoDetect = false;
+        extension_settings[EXTENSION_NAME]._migrated_v090 = true;
+    }
+    // ★ v0.6.0 마이그레이션: 기존 'node' 유저 → 'leaflet' 강제 전환 (한 번만)
+    if (!extension_settings[EXTENSION_NAME]._migrated_v06) {
+        if (extension_settings[EXTENSION_NAME].mapMode === 'node') {
+            extension_settings[EXTENSION_NAME].mapMode = 'leaflet';
+        }
+        extension_settings[EXTENSION_NAME]._migrated_v06 = true;
+    }
+    saveSettingsDebounced();
+
+    db = new WorldTrackerDB(); await db.open();
+    lm = new LocationManager(db);
+    det = new LocationDetector(lm);
+    pi = new PromptInjector(lm);
+    ui = new UIManager(lm, pi);
+    detectionCandidates = new DetectionCandidateManager(lm);
+    ui.setDetectionCandidates(detectionCandidates);
+    ui.createSettingsPanel(); ui.createSidePanel(); ui.registerWandButton();
+
+    let lastId = null;
+    let _handleCount = 0;
+    async function handle(idx) {
+        try {
+            if (isAutoDetectPaused()) {
+                return;
+            }
+            _handleCount++;
+            if (!isChatActive()) return;
+            const ctx = getContext(); if (!ctx?.chat?.length) return;
+
+            // 메시지 가져오기 (idx가 숫자면 해당 인덱스, 아니면 마지막 메시지)
+            let aiMsg = null, aiIdx = -1;
+            if (typeof idx === 'number' && idx >= 0 && idx < ctx.chat.length) {
+                aiMsg = ctx.chat[idx]; aiIdx = idx;
+            } else {
+                // 마지막 AI 메시지 찾기 (뒤에서부터)
+                for (let i = ctx.chat.length - 1; i >= Math.max(0, ctx.chat.length - 3); i--) {
+                    if (ctx.chat[i] && !ctx.chat[i].is_user) { aiMsg = ctx.chat[i]; aiIdx = i; break; }
+                }
+            }
+            if (!aiMsg || aiMsg.is_user) return;
+
+            const mid = `${aiIdx}_${(aiMsg.mes||'').length}`;
+            if (mid === lastId) return; lastId = mid;
+
+            // 직전 유저 메시지 찾기
+            let userMsg = null;
+            for (let i = aiIdx - 1; i >= Math.max(0, aiIdx - 3); i--) {
+                if (ctx.chat[i]?.is_user) { userMsg = ctx.chat[i]; break; }
+            }
+
+            dbg(`📨 AI:${(aiMsg.mes||'').length}c User:${(userMsg?.mes||'').length}c`);
+            // USER 먼저 (장소 감지)
+            if (userMsg?.mes?.trim()) await scanMessage(userMsg.mes, 'USER');
+            // AI (장소+이벤트) — 유저 컨텍스트도 전달
+            _userContext = userMsg?.mes?.trim() || '';
+            if (aiMsg.mes?.trim()) await scanMessage(aiMsg.mes, 'AI');
+            // v0.9.25: 예정 일정 — 인풋(유저)+아웃풋(AI) 둘 다 읽음 (약속은 유저가 먼저 꺼내는 경우 많음)
+            const _schedText = [userMsg?.mes, aiMsg?.mes].filter(t => t && t.trim()).join('\n---\n');
+            if (_schedText.trim()) await scanSchedule(_schedText, 'BOTH');
+            _userContext = '';
+        } catch (_) {}
+    }
+
+    // ★ 이벤트 등록 (여러 이벤트에 걸어서 확실하게)
+    const msgEvents = ['MESSAGE_RECEIVED', 'MESSAGE_RENDERED', 'GENERATION_ENDED', 'GENERATION_STOPPED'];
+    for (const evName of msgEvents) {
+        if (event_types[evName]) {
+            eventSource.on(event_types[evName], handle);
+        }
+    }
+
+    // ★ v0.9.2: ST 생성 상태 추적 — 충돌 방어용 (확장의 자동 LLM 호출이 ST 생성과 겹치지 않게)
+    for (const evName of ['GENERATION_STARTED', 'GENERATION_AFTER_COMMANDS']) {
+        if (event_types[evName]) eventSource.on(event_types[evName], () => _setStBusy(true));
+    }
+    for (const evName of ['GENERATION_ENDED', 'GENERATION_STOPPED']) {
+        if (event_types[evName]) eventSource.on(event_types[evName], () => _setStBusy(false));
+    }
+
+    eventSource.on(event_types.CHAT_CHANGED, async () => {
+        pi.clear(); lastId = null;
+        // 타이밍: SillyTavern이 chatId 갱신할 때까지 대기
+        await new Promise(r => setTimeout(r, 300));
+        const newId = lm.getChatId();
+        dbg(`🔄 CHAT_CHANGED → ${newId}`);
+        await lm.loadChat();
+        detectionCandidates.clear();
+        await _ensureTempPinned(); // 좌표 없는 임시/예정 장소 핀 보정
+        pi.inject();
+        ui.resetMap();
+        if (ui.panelVisible) ui.refresh();
+        // scanContext: 첫 시도 실패 시 1초 후 재시도
+        if (!await scanContext()) {
+            setTimeout(() => scanContext(), 1000);
+        }
+        // ★ 위치 기반 자동 확장
+        const _expGuard = makeChatGuard();
+        setTimeout(async () => {
+            if (!_expGuard()) { dbg('⏭️ 자동 거리/지오코딩 — 채팅이 바뀜, 스킵'); return; } // v0.9.2: 채팅전환 방어
+            try { await lm.autoCalcDistances(); } catch(_){}
+            try { await lm.autoReverseGeocode(); } catch(_){}
+            if (_expGuard() && ui.panelVisible) ui.refresh();
+        }, 3000);
+
+        // ★ 캐릭터시트에서 1차 주소/지역 자동 추출 (GPS 앵커 없을 때)
+        // v0.9.2: 비활성화 — autoDetect 마스터 스위치 뒤로 가둠 (기본 OFF).
+        //   이전엔 이 블록이 autoDetect를 무시하고 돌아서 "감지 껐는데도 장소 생성"의 원인이었음.
+        //   코드는 참고용으로 남기고, autoDetect를 켜야만 동작하게 게이팅. + ST 생성중/채팅전환 방어.
+        const _csGuard = makeChatGuard();
+        setTimeout(async () => {
+            try {
+                if (!extension_settings[EXTENSION_NAME]?.autoDetect) { dbg('⏭️ 캐릭터시트 자동추출 비활성 (autoDetect OFF)'); return; }
+                if (isStBusy()) { dbg('⏭️ 캐릭터시트 자동추출 — ST 생성 중이라 스킵'); return; }
+                if (!_csGuard()) { dbg('⏭️ 캐릭터시트 자동추출 — 채팅이 바뀜, 스킵'); return; }
+                // GPS 좌표 있는 장소가 하나라도 있으면 스킵 (이미 앵커 있음)
+                const hasAnchor = lm.locations.some(l => l.lat && l.lng);
+                if (hasAnchor) return;
+
+                const ctx = getContext();
+                const desc = ctx.characters?.[ctx.characterId]?.description || '';
+                const scenario = ctx.characters?.[ctx.characterId]?.scenario || '';
+                const persona = ctx.characters?.[ctx.characterId]?.personality || '';
+                const combined = [desc, scenario, persona].join(' ');
+                if (combined.length < 10) return;
+
+                // 주소/지역 패턴 추출 (폭넓은 매칭)
+                const patterns = [
+                    // 영어: "lives in X", "based in X", "set in X"
+                    /(?:lives?\s+in|based\s+in|located\s+in|set\s+in|takes?\s+place\s+in|stationed\s+in|deployed\s+to)\s+([A-Z][a-zA-Z\s,]+?)(?:[.\n;]|$)/i,
+                    // 한국어: "~에 사는", "배경: ~"
+                    /(?:사는\s*곳|거주지|배경|위치|거점|활동지)[:\s은는이가]*([^\n,.]{2,15})/,
+                    // 도시명 직접 매칭 (영어)
+                    /(New\s+Orleans|Los\s+Angeles|New\s+York|San\s+Francisco|Las\s+Vegas|Hong\s+Kong|Rio\s+de\s+Janeiro|Buenos\s+Aires|Kuala\s+Lumpur|Tel\s+Aviv|Abu\s+Dhabi|London|Tokyo|Paris|Seoul|Berlin|Moscow|Beijing|Shanghai|Chicago|Toronto|Sydney|Melbourne|Singapore|Mumbai|Bangkok|Dubai|Rome|Madrid|Amsterdam|Prague|Vienna|Istanbul|Cairo|Nairobi|Jakarta|Manila|Taipei|Osaka|Kyoto|Busan|Hanoi|Saigon|Havana|Lima|Bogota|Mexico\s+City)/i,
+                    // 도시명 직접 매칭 (한국어 외래어)
+                    /(뉴올리언스|로스앤젤레스|뉴욕|샌프란시스코|라스베이거스|홍콩|런던|도쿄|파리|베를린|모스크바|베이징|상하이|시카고|토론토|시드니|멜버른|싱가포르|뭄바이|방콕|두바이|로마|마드리드|암스테르담|프라하|비엔나|이스탄불|카이로|자카르타|마닐라|타이베이|오사카|교토|부산|하노이|하바나|리마|멕시코시티)/,
+                    // 한국 도시
+                    /(서울|부산|대구|인천|광주|대전|울산|세종|제주|수원|성남|고양|용인|창원|청주|전주|포항|천안|김해|평택)/,
+                    // 군사/기지
+                    /(?:기지|base|camp|fort|headquarters|HQ|barracks|막사|본부|사령부|주둔지)\s*(?:in\s+|:?\s*)([A-Za-z\uAC00-\uD7A3\s]{2,20})/i,
+                ];
+
+                for (const pat of patterns) {
+                    const m = combined.match(pat);
+                    if (m) {
+                        const place = (m[1] || m[0]).replace(/[,.\s]+$/g, '').trim().substring(0, 25);
+                        if (place.length >= 2) {
+                            dbg(`🏠 Character sheet region detected: "${place}"`);
+                            // 이미 같은 이름의 장소 있으면 스킵
+                            if (lm.findByNameExact(place)) {
+                                dbg(`🏠 "${place}" already exists, skipping`);
+                                break;
+                            }
+                            queueDetectedPlace(place, {
+                                source: 'character', kind: 'mentioned', confidence: 0.66,
+                                reason: '캐릭터 설명/시나리오에서 지역 후보를 찾음',
+                            });
                             break;
                         }
-                        
-                        const { el, text } = elements[i];
-                        const result = await translatePreview(el, text, 'on', true);
-                        if (result === 'translated' || result === 'cached') translateCount++;
-                        
-                        updateHeaderProgress(i + 1, elements.length);
-                        
-                        await new Promise(r => setTimeout(r, 800)); // 0.8초 간격
                     }
                 }
-            }
-            
-            // 강제 모드면 결과 알림
-            if (force) {
-                const msgs = [];
-                if (cleanupCount > 0) msgs.push(`🧹 정리 ${cleanupCount}개`);
-                if (translateCount > 0) msgs.push(`📁 번역 ${translateCount}개`);
-                if (msgs.length === 0 && !_cancelRequested) msgs.push('처리할 미리보기 없음');
-                if (msgs.length > 0) catNotify(`${getThemeEmoji()} ${msgs.join(' / ')}`, "success");
-            }
-        } finally {
-            _queueProcessing = false;
-            _cancelRequested = false;
-            if (force) showCancelButton(false);
-        }
-    }
-    
-    // 헤더 진행 상태 표시
-    function updateHeaderProgress(current, total) {
-        const btn = document.querySelector('#cat-preview-manual-btn');
-        if (btn) {
-            const label = btn.querySelector('.cat-btn-label');
-            if (label) {
-                label.textContent = current < total ? `${current}/${total}` : '번역';
-            }
-        }
-    }
-    
-    // 중지 버튼 표시/숨김
-    function showCancelButton(show) {
-        let cancelBtn = document.querySelector('#cat-preview-cancel-btn');
-        if (show && !cancelBtn) {
-            const header = document.querySelector('#selectChatPopupHeader, [name="selectChatPopupHeader"]');
-            if (!header) return;
-            cancelBtn = document.createElement('div');
-            cancelBtn.id = 'cat-preview-cancel-btn';
-            cancelBtn.className = 'menu_button menu_button_icon interactable';
-            cancelBtn.style.cssText = 'display:flex; align-items:center; gap:3px; padding:2px 6px; font-size:12px; background:#cc4444; color:white;';
-            cancelBtn.innerHTML = `<span>⛔ 중지</span>`;
-            cancelBtn.title = '진행 중인 번역 중단';
-            cancelBtn.addEventListener('click', () => {
-                _cancelRequested = true;
-                catNotify(`${getThemeEmoji()} 중단 요청됨 (현재 항목 처리 후 정지)`, "info");
-            });
-            const manualBtn = header.querySelector('#cat-preview-manual-btn');
-            if (manualBtn) header.insertBefore(cancelBtn, manualBtn.nextSibling);
-            else header.appendChild(cancelBtn);
-        } else if (!show && cancelBtn) {
-            cancelBtn.remove();
-        }
-    }
-    
-    // 🚨 헤더에 전체 처리 버튼 주입
-    function injectHeaderButton() {
-        if (_headerButtonInjected && document.querySelector('#cat-preview-manual-btn')) return;
-        
-        const headers = document.querySelectorAll('#selectChatPopupHeader, [name="selectChatPopupHeader"], [id*="selectChatPopup"][class*="header"]');
-        if (headers.length === 0) return;
-        
-        for (const header of headers) {
-            if (header.querySelector('#cat-preview-manual-btn')) continue;
-            
-            const btn = document.createElement('div');
-            btn.id = 'cat-preview-manual-btn';
-            btn.className = 'menu_button menu_button_icon interactable';
-            btn.setAttribute('role', 'button');
-            btn.setAttribute('tabindex', '0');
-            // 🚨 컴팩트 스타일 (세로 축소)
-            btn.style.cssText = 'display:flex; align-items:center; gap:3px; padding:2px 6px; font-size:13px; line-height:1.2;';
-            btn.innerHTML = `<span style="font-size:14px;">${getThemeEmoji ? getThemeEmoji() : '🐯'}</span><span class="cat-btn-label">번역</span>`;
-            btn.title = '모든 영문 미리보기 번역 (API 호출, 중지 가능)';
-            
-            btn.addEventListener('click', () => {
-                if (confirm('모든 영문 미리보기를 번역할까요?\n채팅 수만큼 API 호출이 발생합니다.\n\n중간에 ⛔ 중지 버튼으로 멈출 수 있어요.\n개별 번역을 원하면 각 채팅 옆 🐯 버튼을 사용하세요.')) {
-                    processQueue(true);
-                }
-            });
-            
-            const searchBar = header.querySelector('#select_chat_search, [id*="search"]');
-            if (searchBar) {
-                header.insertBefore(btn, searchBar);
-            } else {
-                header.appendChild(btn);
-            }
-            
-            _headerButtonInjected = true;
-            console.log(`[CAT] 📁 미리보기 처리 버튼 주입 완료`);
-        }
-    }
-    
-    // 🚨 각 채팅 항목에 개별 번역 버튼 주입
-    function injectItemButtons() {
-        const blocks = document.querySelectorAll('.select_chat_block');
-        let injected = 0;
-        
-        for (const block of blocks) {
-            if (block.dataset.catBtnInjected === 'true') continue;
-            
-            // 미리보기 텍스트 찾기
-            const previewEl = block.querySelector('.select_chat_block_mes, .select_chat_block_message');
-            if (!previewEl) continue;
-            
-            const previewText = previewEl.textContent?.trim();
-            if (!previewText || previewText.length < 30) continue;
-            
-            // 🚨 원본 판정 실패 시 마크업 정리 후 텍스트로 재판정 (yaml/태그 희석 대응)
-            const isEnglish = isEnglishPreview(previewText) || isEnglishPreview(cleanupPreviewText(previewText));
-            
-            // 다운로드 버튼 영역 찾기
-            const buttonArea = block.querySelector('.flex-container.gap10px:has(.exportRawChatButton), .flex-container.gap10px:has(.PastChat_cross)');
-            const targetArea = buttonArea || block.querySelector('.flex-container.alignItemsCenter:last-child');
-            if (!targetArea) continue;
-            
-            // 🚨 사용자 테마 따라 아이콘 자동 결정
-            const themeIcon = getThemeEmoji(); // 🐯 또는 🐱
-            const doneIcon = getCompletionEmoji(); // 🍖 또는 🐟
-            
-            // 되돌리기 함수
-            const revertItem = (btn, defaultIcon, defaultTitle) => {
-                const originalText = previewEl.dataset.catOriginalPreview;
-                if (originalText) {
-                    previewEl.textContent = originalText;
-                    delete previewEl.dataset.catOriginalPreview;
-                    delete previewEl.dataset.catCleanupDone;
-                    previewEl.title = '';
-                    previewEl.style.opacity = '1';
-                    previewEl.style.fontStyle = 'normal';
-                    _previewProcessed.delete(previewEl);
-                }
-                btn.dataset.catBtnState = 'ready';
-                btn.innerHTML = defaultIcon;
-                btn.title = defaultTitle;
-            };
-            
-            // 번역 처리 함수 (사용자 현재 모델 그대로 사용 - 모델 강제 X)
-            const handleTranslate = async (btn) => {
-                if (btn.dataset.catBtnState === 'done') {
-                    revertItem(btn, getThemeEmoji(), '이 채팅 번역 (현재 모델)');
-                    return;
-                }
-                
-                btn.style.opacity = '0.3';
-                btn.style.pointerEvents = 'none';
-                
-                try {
-                    // 정리 먼저
-                    if (previewEl.dataset.catCleanupDone !== 'true') {
-                        const cleaned = cleanupPreviewText(previewText);
-                        if (cleaned !== previewText && cleaned.length > 0) {
-                            if (!previewEl.dataset.catOriginalPreview) {
-                                previewEl.dataset.catOriginalPreview = previewText;
-                            }
-                            previewEl.textContent = cleaned;
-                            previewEl.dataset.catCleanupDone = 'true';
-                        }
-                    }
-                    
-                    const currentText = previewEl.textContent.trim();
-                    if (isEnglishPreview(currentText)) {
-                        catNotify(`${getThemeEmoji()} 번역 중...`, "info");
-                        // modelType=null → 사용자 현재 모델 그대로 사용
-                        const result = await translatePreview(previewEl, currentText, 'on', true, null);
-                        if (result === 'translated' || result === 'cached') {
-                            btn.dataset.catBtnState = 'done';
-                            btn.innerHTML = getCompletionEmoji(); // 🍖 또는 🐟
-                            btn.title = '되돌리기 (원문 영어로 복원)';
-                            catNotify(`${getThemeEmoji()} ✅ 번역 완료`, "success");
-                        } else {
-                            btn.innerHTML = '❌';
-                            setTimeout(() => { btn.innerHTML = getThemeEmoji(); }, 2000);
-                        }
-                    } else {
-                        btn.innerHTML = '⚠️';
-                        catNotify(`${getThemeEmoji()} 한국어인 것 같아요. 🧹로 정리만 하세요`, "warning");
-                        setTimeout(() => { btn.innerHTML = getThemeEmoji(); }, 2000);
-                    }
-                } catch (err) {
-                    btn.innerHTML = '❌';
-                    catNotify(`${getThemeEmoji()} 처리 실패: ${err.message?.substring(0,50)}`, "error");
-                    setTimeout(() => { btn.innerHTML = getThemeEmoji(); }, 2000);
-                } finally {
-                    btn.style.opacity = '0.7';
-                    btn.style.pointerEvents = 'auto';
-                }
-            };
-            
-            // 정리만 버튼 (한국어용)
-            const handleCleanup = async (btn) => {
-                if (btn.dataset.catBtnState === 'done') {
-                    revertItem(btn, '🧹', '이 채팅 마크업 정리');
-                    return;
-                }
-                
-                btn.style.opacity = '0.3';
-                btn.style.pointerEvents = 'none';
-                
-                try {
-                    if (previewEl.dataset.catCleanupDone !== 'true') {
-                        const cleaned = cleanupPreviewText(previewText);
-                        if (cleaned !== previewText && cleaned.length > 0) {
-                            if (!previewEl.dataset.catOriginalPreview) {
-                                previewEl.dataset.catOriginalPreview = previewText;
-                            }
-                            previewEl.textContent = cleaned;
-                            previewEl.dataset.catCleanupDone = 'true';
-                            btn.dataset.catBtnState = 'done';
-                            btn.innerHTML = '✨';
-                            btn.title = '되돌리기 (원본 그대로 복원)';
-                            catNotify(`${getThemeEmoji()} 정리 완료`, "success");
-                        } else {
-                            btn.innerHTML = 'ℹ️';
-                            catNotify(`${getThemeEmoji()} 정리할 게 없어요 (이미 깔끔함)`, "info");
-                            setTimeout(() => { btn.innerHTML = '🧹'; }, 2000);
-                        }
-                    }
-                } catch (err) {
-                    btn.innerHTML = '❌';
-                    setTimeout(() => { btn.innerHTML = '🧹'; }, 2000);
-                } finally {
-                    btn.style.opacity = '0.7';
-                    btn.style.pointerEvents = 'auto';
-                }
-            };
-            
-            // 🚨 한 채팅에 한 버튼만 (테마 따라 호랑이/고양이 자동)
-            const btn = document.createElement('div');
-            btn.className = 'cat-item-translate-btn opacity50p hoverglow';
-            btn.style.cssText = 'cursor:pointer; font-size:14px; padding:0 4px;';
-            btn.dataset.catBtnState = 'ready';
-            
-            if (isEnglish) {
-                btn.innerHTML = themeIcon;
-                btn.title = `이 채팅 번역 (현재 모델)`;
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    await handleTranslate(btn);
-                });
-            } else {
-                btn.innerHTML = '🧹';
-                btn.title = '이 채팅 마크업 정리 (yaml/태그 숨김, 비용 0)';
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    await handleCleanup(btn);
-                });
-            }
-            
-            targetArea.insertBefore(btn, targetArea.firstChild);
-            block.dataset.catBtnInjected = 'true';
-            injected++;
-        }
-        
-        if (injected > 0) console.log(`[CAT] 📁 개별 버튼 ${injected}개 주입 (테마: ${getThemeEmoji()})`);
-    }
-    
-    // MutationObserver: 채팅 팝업 등장 감지
-    const previewObserver = new MutationObserver(() => {
-        // 🚨 버튼은 옵션 OFF여도 항상 주입 (사용자가 수동 실행 가능)
-        injectHeaderButton();
-        injectItemButtons();
-        
-        // 🚨 자동 옵저버는 cleanup만 실행 (번역은 무한 루프 위험 → 수동만)
-        const cleanupMode = settings.previewCleanup || 'off';
-        if (cleanupMode === 'off') return;
-        // debounce - 500ms 후 한 번만 처리
-        clearTimeout(previewObserver._debounce);
-        previewObserver._debounce = setTimeout(() => processQueue(false), 500);
+            } catch(e) { dbg('⚠️ CharSheet addr error:', e.message); }
+        }, 2000);
     });
-    previewObserver.observe(document.body, { childList: true, subtree: true });
-    
-    console.log(`[CAT] 📁 채팅 미리보기 옵저버 등록 (정리만 자동, 번역은 수동)`);
+
+    if (event_types.MESSAGE_SENDING) {
+        eventSource.on(event_types.MESSAGE_SENDING, () => {
+            if (extension_settings[EXTENSION_NAME]?.enabled && extension_settings[EXTENSION_NAME]?.aiInjection === true) pi.inject();
+        });
+    }
+
+
+    // 초기 데이터 로드 + 렌더링
+    await lm.loadChat();
+    ui.refresh();
+    // ★ 위치 기반 자동 확장 (비동기, 로딩 안 막음)
+    setTimeout(async () => {
+        try { await lm.autoCalcDistances(); } catch(_){}
+        try { await lm.autoReverseGeocode(); } catch(_){}
+        ui.refresh();
+    }, 2000);
 }
 
+async function scanContext() {
+    try {
+        const s = extension_settings[EXTENSION_NAME];
+        if (!s?.enabled || !s?.autoDetect || !lm.currentChatId) return true; // 설정 비활성 = 정상
+        const ctx = getContext();
+        if (!ctx?.characterId) return true;
+
+        // Bug I: 채팅 화면 활성 체크
+        if (!isChatActive()) return false; // false = 재시도 필요
+
+        // Task 2: 장소가 1개라도 있으면 재스캔 스킵
+        if (lm.locations.length > 0) return;
+
+        // 1차: 기존 채팅 히스토리 전체 스캔 (진행 중인 채팅에 확장 설치 시)
+        if (ctx.chat?.length > 1) {
+            const found = await scanChatHistory(ctx);
+            if (found) return;
+        }
+
+        // 2차: 캐릭터 설명/시나리오에서 추출
+        const char = ctx.characters?.[ctx.characterId];
+        if (!char) return;
+        const sources = [];
+        if (char.description) sources.push(char.description);
+        if (char.scenario) sources.push(char.scenario);
+        if (char.first_mes) sources.push(char.first_mes);
+        if (char.personality) sources.push(char.personality);
+        try { const dp = document.querySelector('#depth_prompt_prompt'); if (dp?.value?.trim()) sources.push(dp.value); } catch(_){}
+        try { const meta = ctx.chat_metadata; if (meta?.note_prompt) sources.push(meta.note_prompt); if (meta?.depth_prompt?.prompt) sources.push(meta.depth_prompt.prompt); } catch(_){}
+        if (!sources.length) return;
+
+        for (const text of sources) {
+            const desc = det.detectFromDescription(text);
+            if (desc) {
+                dbg(`📋 Desc: "${desc}"`);
+                queueDetectedPlace(desc, {
+                    source: 'history', kind: 'mentioned', confidence: 0.62,
+                    reason: '과거 채팅/캐릭터 설명에서 찾은 초기 장소 후보',
+                });
+                return;
+            }
+        }
+        for (const text of sources) {
+            const result = det.detect(text);
+            if (result) {
+                dbg(`📋 Context: "${result.location.name}"`);
+                queueDetectedPlace(result.location.name, {
+                    source: 'character', kind: 'mentioned', confidence: result.confidence,
+                    reason: '캐릭터 설명/시나리오에서 기존 장소가 언급됨 — 현재 위치 변경 전 확인', snippet: text,
+                });
+                return;
+            }
+            const np = det.detectNewPlace(text, 'user');
+            if (np) {
+                dbg(`📋 Context new: "${np}"`);
+                queueDetectedPlace(np, {
+                    source: 'history', kind: 'mentioned', confidence: 0.6,
+                    reason: '과거 채팅에서 찾은 초기 장소 후보', snippet: text,
+                });
+                return;
+            }
+        }
+    } catch (_) {}
+}
+
+// ========== 최근 메시지 스캔 (승인 플로우) ==========
+async function scanChatHistory(ctx) {
+    if (!ctx?.chat?.length) return false;
+    const recent = ctx.chat.slice(-4); // 최근 4개
+    dbg(`📜 최근 ${recent.length}개 메시지 스캔`);
+
+    let foundCount = 0;
+    for (const msg of recent) {
+        if (!msg?.mes?.trim()) continue;
+        const text = msg.mes;
+
+        const result = det.detect(text);
+        if (result) {
+            const queued = queueDetectedPlace(result.location.name, {
+                source: 'history', kind: 'mentioned', confidence: result.confidence,
+                reason: '최근 채팅에서 기존 장소가 언급됨 — 현재 위치 변경 전 확인', snippet: text,
+            });
+            if (queued.queued) foundCount++;
+            continue;
+        }
+
+        const np = det.detectNewPlace(text, 'ai');
+        if (np && !lm.findByNameExact(np)) {
+            const queued = queueDetectedPlace(np, {
+                source: 'history', kind: 'mentioned', confidence: 0.58,
+                reason: '최근 채팅에서 찾은 미등록 장소 후보', snippet: text,
+            });
+            if (queued.queued) foundCount++;
+        }
+    }
+
+    if (!foundCount) return false;
+    dbg(`📜 ${foundCount}개 장소 후보 → 후보함 대기`);
+    return true;
+}
+
+jQuery(async () => { try { await init(); } catch (_) {} });
+
+// ========== opt-in automatic geocoding (Photon / OpenStreetMap) ==========
+// Chat-derived names are never transmitted unless allowAutoGeocoding is explicitly enabled.
+async function _geocodeQuiet(query, placeOnly = false) {
+    const results = await searchPlaces(query, { limit: placeOnly ? 5 : 1, automatic: true });
+    const best = placeOnly
+        ? results.find(result => /city|town|village|state|country|district|locality/i.test(`${result.type} ${result.category}`)) || results[0]
+        : results[0];
+    return best ? { lat: best.lat, lng: best.lng, addr: best.fullName || best.name || String(query) } : null;
+}
+
+// ========== RP 날짜 추출 (메타데이터에서) ==========
+// v0.9.0: 자동 추출 비활성화 — LLM이 현실 날짜를 상태창에 쓰는 문제로 인해
+//         이벤트/장소/타임라인 날짜는 유저가 직접 수기 수정 (이미 UI 제공됨)
+// v0.9.11: RP 상태창 날짜 추출 복구 — 방문기록/타임라인이 RP 내 시간을 따르도록
+//          (유저가 직접 수정한 rpFirstVisited 등은 덮어쓰지 않음)
+function _extractRpDate(text) {
+    return _legacyExtractRpDate(text || '');
+}
+
+// 최신 메시지(상태창 포함)에서 현재 RP 날짜를 추출 — 가장 최근 것 우선
+export function getCurrentRpDate() {
+    try {
+        const ctx = getContext();
+        if (!ctx?.chat?.length) return '';
+        for (let i = ctx.chat.length - 1, n = 0; i >= 0 && n < 5; i--, n++) {
+            const m = ctx.chat[i];
+            if (!m || !m.mes) continue;
+            const d = _extractRpDate(m.mes);
+            if (d) return d;
+        }
+    } catch (_) {}
+    return '';
+}
+// location-manager 등 import 없이도 쓸 수 있도록 전역 노출
+try { if (typeof window !== 'undefined') window._wtGetRpDate = getCurrentRpDate; } catch (_) {}
+
+function _legacyExtractRpDate(text) {
+    // HTML 태그 제거 (렌더된 마크다운 대응) + 이모지 정리
+    const clean = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+    const months = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+
+    // 패턴 1: - Time: 2025/07/12 또는 Date: 2025.07.12
+    const m1 = clean.match(/(?:[-*]?\s*)?(?:📅\s*)?(?:Time|Date|날짜|시간)[:\s]+(?:\w+,?\s+)?(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/i);
+    if (m1) return `${m1[1]}/${parseInt(m1[2])}/${parseInt(m1[3])}`;
+
+    // 패턴 1b: 2024/12/19, 09:30 AM (날짜+시간)
+    const m1b = clean.match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2}),?\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)/);
+    if (m1b) return `${m1b[1]}/${parseInt(m1b[2])}/${parseInt(m1b[3])}`;
+
+    // 패턴 2: "📅 Date: Thu, 19 Dec" 또는 "Date: Thu, 19 Dec 2024" (Celia/P&C 형식)
+    const mCelia = clean.match(/(?:📅\s*)?Date[:\s]+(?:\w{3},?\s+)?(\d{1,2})\s+(\w{3,9})(?:\s+(\d{4}))?/i);
+    if (mCelia && months[mCelia[2].substring(0,3).toLowerCase()]) {
+        const mon = months[mCelia[2].substring(0,3).toLowerCase()];
+        const day = parseInt(mCelia[1]);
+        const yr = mCelia[3] ? parseInt(mCelia[3]) : new Date().getFullYear();
+        return `${yr}/${mon}/${day}`;
+    }
+
+    // 패턴 2b: "December 19, 2024" 또는 "19 December 2024"
+    const m2 = clean.match(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
+    if (m2 && months[m2[1].substring(0,3).toLowerCase()]) return `${m2[3]}/${months[m2[1].substring(0,3).toLowerCase()]}/${parseInt(m2[2])}`;
+    const m3 = clean.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+    if (m3 && months[m3[2].substring(0,3).toLowerCase()]) return `${m3[3]}/${months[m3[2].substring(0,3).toLowerCase()]}/${parseInt(m3[1])}`;
+
+    // 패턴 3: 7월 12일
+    const m4 = clean.match(/(\d{1,2})월\s*(\d{1,2})일/);
+    if (m4) {
+        const yr = clean.match(/(\d{4})년/);
+        return yr ? `${yr[1]}/${parseInt(m4[1])}/${parseInt(m4[2])}` : `${parseInt(m4[1])}/${parseInt(m4[2])}`;
+    }
+    return '';
+}
+
+// ========== RP 날짜 기반 일정 날짜 계산 ==========
+function _calcPlanDate(rpDate, whenText) {
+    if (!rpDate || !whenText) return '';
+    // rpDate 파싱: "2024/12/19" → Date
+    const parts = rpDate.split('/').map(Number);
+    if (parts.length < 2) return '';
+    let base;
+    if (parts.length === 3) base = new Date(parts[0], parts[1] - 1, parts[2]);
+    else if (parts.length === 2) base = new Date(2024, parts[0] - 1, parts[1]); // 년도 없으면 기본값
+    if (!base || isNaN(base.getTime())) return '';
+
+    const lo = whenText.toLowerCase().trim();
+
+    // 한국어 패턴
+    if (/^내일$/.test(lo)) { base.setDate(base.getDate() + 1); }
+    else if (/^모레$/.test(lo)) { base.setDate(base.getDate() + 2); }
+    else if (/^글피$/.test(lo)) { base.setDate(base.getDate() + 3); }
+    else if (/일주일\s*(?:뒤|후)?/.test(lo)) { base.setDate(base.getDate() + 7); }
+    else if (/^다음\s*주/.test(lo) || /^next\s*week/i.test(lo)) { base.setDate(base.getDate() + 7); }
+    else if (/^이번\s*주말/.test(lo)) { const dow = base.getDay(); base.setDate(base.getDate() + (6 - dow)); }
+    else if (/^다음\s*달/.test(lo) || /^next\s*month/i.test(lo)) { base.setMonth(base.getMonth() + 1); }
+    else if (/보름\s*(?:뒤|후)?/.test(lo)) { base.setDate(base.getDate() + 15); }
+    else {
+        // "N주 뒤/후" or "N달/개월 뒤/후" or "N일 뒤/후"
+        const koNum = lo.match(/(\d+)\s*(?:주)\s*(?:뒤|후)/);
+        if (koNum) { base.setDate(base.getDate() + parseInt(koNum[1]) * 7); }
+        else {
+            const koDay = lo.match(/(\d+)\s*(?:일)\s*(?:뒤|후)/);
+            if (koDay) { base.setDate(base.getDate() + parseInt(koDay[1])); }
+            else {
+                const koMonth = lo.match(/(\d+)\s*(?:달|개월)\s*(?:뒤|후)/);
+                if (koMonth) { base.setMonth(base.getMonth() + parseInt(koMonth[1])); }
+                else {
+                    // 영어: "in N days/weeks/months", "N days later", "tomorrow"
+                    // ★ 영어 단어 숫자 변환
+                    const wordNums = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
+                    let loNum = lo;
+                    for (const [word, num] of Object.entries(wordNums)) {
+                        loNum = loNum.replace(new RegExp('\\b' + word + '\\b', 'gi'), num);
+                    }
+                    if (/^tomorrow/i.test(lo)) { base.setDate(base.getDate() + 1); }
+                    else if (/(?:in\s+)?(?:two|2)\s+weeks/i.test(lo)) { base.setDate(base.getDate() + 14); }
+                    else if (/(?:in\s+)?(?:three|3)\s+weeks/i.test(lo)) { base.setDate(base.getDate() + 21); }
+                    else if (/(?:in\s+)?(?:a|one|1)\s+week/i.test(lo)) { base.setDate(base.getDate() + 7); }
+                    else if (/(?:in\s+)?(?:a|one|1)\s+month/i.test(lo)) { base.setMonth(base.getMonth() + 1); }
+                    else {
+                        const enNum = loNum.match(/(\d+)\s*(?:days?)/i);
+                        if (enNum) { base.setDate(base.getDate() + parseInt(enNum[1])); }
+                        else {
+                            const enWeek = lo.match(/(\d+)\s*(?:weeks?)/i);
+                            if (enWeek) { base.setDate(base.getDate() + parseInt(enWeek[1]) * 7); }
+                            else {
+                                const enMonth = lo.match(/(\d+)\s*(?:months?)/i);
+                                if (enMonth) { base.setMonth(base.getMonth() + parseInt(enMonth[1])); }
+                                else {
+                                    // "T+14 DAYS" 패턴
+                                    const tPlus = lo.match(/t\+(\d+)\s*(?:days?)/i);
+                                    if (tPlus) { base.setDate(base.getDate() + parseInt(tPlus[1])); }
+                                    else {
+                                        // N월 N일
+                                        const koDate = lo.match(/(\d{1,2})월\s*(\d{1,2})일/);
+                                        if (koDate) return `${base.getFullYear()}/${parseInt(koDate[1])}/${parseInt(koDate[2])}`;
+                                        // next + 요일
+                                        const days = { monday:1,tuesday:2,wednesday:3,thursday:4,friday:5,saturday:6,sunday:0,월요일:1,화요일:2,수요일:3,목요일:4,금요일:5,토요일:6,일요일:0 };
+                                        for (const [name, dow] of Object.entries(days)) {
+                                            if (lo.includes(name)) {
+                                                let diff = dow - base.getDay();
+                                                if (diff <= 0) diff += 7;
+                                                base.setDate(base.getDate() + diff);
+                                                break;
+                                            }
+                                        }
+                                        // 매칭 안 되면 빈 값
+                                        if (base.getTime() === new Date(parts[0], parts[1] - 1, parts[2] || 1).getTime()) return '';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return `${base.getFullYear()}/${base.getMonth() + 1}/${base.getDate()}`;
+}
+
+// ========== 이벤트 추출 + 저장 헬퍼 ==========
+const _strongKw = /키스|kiss|고백|confess|사랑|love|싸[우웠]|fight|죽|kill|배신|betray|도망|escape|약속|promise|결혼|marry|이별|breakup|broke up|훔[쳤치]|stole|steal|snuck|sneak|침입|broke in|farewell|작별|맹세|swear|vow|재회|reunion|잃어버|잃[은었을]|lost|missing/i;
+let _lastEventTime = 0;
+let _lastEventLocId = null; // 마지막 이벤트 저장 장소
+
+// 전체 패턴 (AI용 — 가벼운 트리거)
+const _triggerKw = /키스|kiss|포옹|hug|사랑|love|고백|confess|속삭|whisper|입술|lip|심장|heart|두근|떨[리렸]|tremble|끌어안|embrace|울[었다]|눈물|cry|tear|싸[우웠움]|fight|배신|betray|도망|escape|발견|discover|비밀|secret|부상|injur|약속|promise|내일|tomorrow|선물|gift|devour|cupped|passion|intimate|desire|breathless|gasp|moan|shudder|groan|tongue|stole|steal|stolen|snuck|sneak|훔[쳤치]|침입|threat|경고|죽|kill|death|총|gun|칼|sword|knife|피[가를]|blood|curse|저주|분노|rage|복수|revenge|떠나|이별|작별|farewell|goodbye|depart|leave.*behind|결심|맹세|선언|다짐|decide|swear|vow|declare|귀환|재회|돌아[왔오]|return|reunion|위험|위협|위기|danger|warn|peril|잃어버|잃[은었을]|분실|사라[졌진]|lost|lose|missing|vanish|disappear|계획|작전|일정|schedule|operation|mission|trip|run|shopping|장보기|나들이|쇼핑|appointment|check[- ]?up|검진|재검|진료|예약|clinic|hospital|병원|산부인과|two\s+weeks|next\s+week|next\s+month|다음\s*주|다음\s*달|주\s*뒤|주\s*후|every\s+(?:week|month|time)|영화|cinema|movie|데이트|date|일주일|마트|mart|tesco|가자|가기로|만나자|오기로|ticket|티켓|초대|invite|여행|travel|vacation|휴가|놀러|이사|짐.*싸|옮기|transfer|pack|moving\s+(?:in|out|to)|wheels\s+up|gear\s+up|새\s*집|new\s+(?:place|house|room|gaff|building)/i;
+
+// v0.9.24: 예정 일정(약속) 자동 기록 — RP에서 미래 계획 감지 → 장소 + 예상 일시 + 내용
+let _lastSchedTime = 0;
+function _hasScheduleSignal(text) {
+    return /(내일|모레|글피|다음\s*주|담주|이따|좀\s*있다|나중에|저녁에|아침에|점심에|밤에|\d+\s*시|\d+일\s*후|다음\s*달|주말|약속|예약|예매|만나(?:자|기로|요)|보자|가기로|갈\s*예정|갈\s*거|할\s*예정|하기로|계획|tomorrow|tonight|later|next\s+(?:week|day|month)|appointment|reserv|booked|plan\s+to|let'?s\s+meet|meet\s+(?:at|up))/i.test(text);
+}
+// v0.9.33: 좌표 없는 임시/예정 장소(wantToGo·_tempAddress)에 핀 좌표 보정 — 채팅 열 때 무조건 보이게
+// v0.9.37: 이름에 도시가 있으면 그 도시로 재지오코딩 (집 근처 오배치 교정). _geoFixed로 1회만.
+async function _ensureTempPinned() {
+    try {
+        if (!lm.currentChatId || extension_settings[EXTENSION_NAME]?.allowAutoGeocoding !== true) return;
+        let changed = 0;
+        for (const l of lm.locations) {
+            if (l.parentId || l._geoFixed || l._geocodeSuppressed) continue;
+            const isTemp = (Array.isArray(l.tags) && l.tags.includes('wantToGo')) || l._tempAddress;
+            if (!isTemp) continue;
+            const cityNm = det.cityInName(l.name);
+            if (cityNm) {
+                // 이름에 도시/국가 → 그 위치로 지오코딩 (집 근처 오배치 교정)
+                const g = await _geocodeQuiet(det.cityGeoQuery(cityNm), true);
+                if (g) {
+                    await lm.updateLocation(l.id, { lat: g.lat, lng: g.lng, address: g.addr, _geoFixed: true });
+                    changed++;
+                    await new Promise(r => setTimeout(r, 1100)); // rate-limit 완화
+                    continue;
+                }
+                // 지오코딩 실패 → _geoFixed 안 박음 (다음 로드에 재시도)
+            }
+            // No fabricated fallback coordinate. Unresolved places stay off the real map.
+        }
+        if (changed) { dbg(`📍 임시 장소 핀 보정: ${changed}곳`); if (ui.panelVisible) ui.refresh(); }
+    } catch (_) {}
+}
+
+async function scanSchedule(text, source) {
+    try {
+        const s = extension_settings[EXTENSION_NAME];
+        if (!s?.enabled || s?.autoSchedule !== true || !text?.trim()) return;
+        if (isAutoDetectPaused()) return;
+        if (!_hasScheduleSignal(text)) return;
+        if (Date.now() - _lastSchedTime < 30000) return; // 반복 과금/중복 방지
+        if (!lm.currentChatId) await lm.loadChat();
+        if (!lm.currentChatId) return;
+        let rpDate = ''; try { rpDate = window._wtGetRpDate?.() || ''; } catch (_) {}
+        const _curL = lm.locations.find(l => l.id === lm.currentLocationId);
+        const _curHint = _curL ? `\n참고: 캐릭터의 현재 위치는 "${_curL.name}"${_curL.address ? ` (${_curL.address})` : ''} 근처야. geo에는 이 지역 맥락을 반영해 실제 지명을 넣어줘 (예: 현재 멕시코 카보면 "만타 레스토랑, 카보 산 루카스").` : '';
+        const prompt = `다음 RP 텍스트에서 "앞으로 예정된 일정/약속"만 추출해. 이미 일어난 일이 아니라 미래 계획만.
+JSON만 출력 (마크다운/설명 금지): {"hasPlan":true 또는 false,"place":"구체적인 장소·시설·도시 이름만 (예: '후쿠오카 공항', '강남 신세계백화점', '도쿄'). 형용사·사물·동작 파편(예: '두꺼운', '작전 지도')은 장소가 아니므로 빈 문자열. 명확한 장소명이 없으면 빈 문자열","geo":"지도 검색용 실제 위치 — 다른 도시·국가면 그 지명까지 포함 (예: '도쿄 디즈니랜드, 일본', '신세계백화점 강남, 서울'). 가상이거나 불명확하면 빈 문자열","when":"예상 일시 (예: 내일 저녁 7시, 3일 후, 다음 주 토요일)","what":"무엇을 할지 짧게"}
+구체적인 미래 계획이 없으면 {"hasPlan":false} 만 출력.${_curHint}
+
+텍스트:
+"""${text.slice(0, 1500)}"""`;
+        const result = await callLLM(prompt, { maxTokens: 256 });
+        const p = result ? parseLLMJson(result) : null;
+        if (!p || !p.hasPlan) return;
+        p.place = plainText(p.place, 80);
+        p.geo = plainText(p.geo, 160);
+        p.what = plainText(p.what || '예정된 일정', 300);
+        p.when = plainText(p.when, 80);
+        // v0.9.43: 동사/형용사 활용형 파편 거르기 ("들어"=들어온다, "두꺼운" 등 — 도시도 아니고 짧은 활용형이면 장소 아님)
+        if (p.place && typeof p.place === 'string') {
+            const _pp = p.place.trim();
+            if (_pp && !det.cityInName(_pp) && _pp.length <= 3 && /[어아운은는던]$/.test(_pp)) {
+                dbg(`🚫 일정 장소 파편 무시: "${_pp}" → 현재 위치 사용`);
+                p.place = '';
+            }
+        }
+        _lastSchedTime = Date.now();
+        // 장소: place 있으면 find/create, 없으면 현재 위치
+        let locId = lm.currentLocationId;
+        if (p.place && String(p.place).trim()) {
+            const nm = String(p.place).trim();
+            const existing = lm.findByNameExact(nm);
+            if (existing) locId = existing.id;
+            else {
+                queueDetectedPlace(nm, {
+                    source: 'schedule', kind: 'planned', confidence: 0.72,
+                    reason: '사용자가 켠 AI 일정 추출 결과 — 등록 전 이름·대상 확인 필요',
+                    snippet: [p.when, p.what].filter(Boolean).join(' · '), rpDate,
+                });
+            }
+        }
+        if (!locId) return;
+        const loc = lm.locations.find(l => l.id === locId);
+        if (!loc) return;
+
+        if (!loc.events) loc.events = [];
+        const what = p.what || '예정된 일정';
+        if (loc.events.some(e => e.isPlan && e.text === what)) return; // 중복 방지
+        loc.events.push({
+            text: what,
+            title: what.substring(0, 20),
+            mood: '🗓️',
+            isPlan: true,
+            planWhen: p.when || '',
+            planDate: _calcPlanDate(rpDate, p.when || ''),
+            timestamp: Date.now(),
+            rpDate,
+            source: 'schedule'
+        });
+        await lm.updateLocation(loc.id, { events: loc.events });
+        if (s.showDetectToast) wtNotify(`🗓️ 예정: ${loc.name} — ${[p.when, what].filter(Boolean).join(' ')}`, 'new', 4000);
+        pi.inject(); if (ui.panelVisible) ui.refresh();
+        dbg(`🗓️ 일정 기록: ${loc.name} | ${p.when} | ${what}`);
+    } catch (e) { dbg('⚠️ scanSchedule error:', e.message); }
+}
+
+async function _tryEvent(text, locId, source) {
+    const _s = extension_settings[EXTENSION_NAME];
+    if (_s?.autoEvent !== true) { dbg('⏭️ autoEvent OFF — 이벤트 자동 기록 생략'); return; }
+    dbg(`📋 _tryEvent (${source}) len=${text.length}`);
+    if (text.length < 25) { dbg('⏭️ Text too short'); return; }
+    // 같은 장소 5초 내 중복 방지 (다른 장소는 OK!)
+    if (Date.now() - _lastEventTime < 5000 && _lastEventLocId === locId) { dbg('⏭️ Event cooldown (same loc)'); return; }
+    // USER는 강한 키워드만, AI는 전체 트리거
+    if (source === 'USER' && !_strongKw.test(text)) { dbg('⏭️ USER no strong keyword'); return; }
+    if (source === 'AI' && !_triggerKw.test(text)) { dbg('⏭️ AI no trigger keyword'); return; }
+    dbg(`🎯 Event trigger! (${source}) locId=${locId}`);
+
+    const loc = lm.locations.find(l => l.id === locId);
+    if (!loc) return;
+
+    // 중복 방지 (최근 30초 내)
+    if (loc.events?.length) {
+        const last = loc.events[loc.events.length - 1];
+        if (Date.now() - last.timestamp < 30000) return;
+    }
+
+    let evText = null, evTitle = null, evMood = '💕';
+
+    // ★ RP 날짜 추출 (먼저! plans에서도 사용)
+    const rpDate = _extractRpDate(text);
+
+    // ★ Phase 2: 사용자가 선택한 연결 프로필로 요약 시도
+    try {
+        const ctx = getContext();
+        // HTML 제거 + 메타데이터 제거
+        const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
+        if (clean.length < 30) return;
+
+        const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
+        const userCtx = _userContext ? `\n\n[User's action]: ${_userContext.replace(/<[^>]*>/g, '').substring(0, 300)}` : '';
+        const userName = ctx.name1 || 'User';
+        const charName = ctx.name2 || 'Character';
+        // ★ 캐릭터 맥락 (이벤트 요약 품질 향상)
+        const charDesc = (ctx.characters?.[ctx.characterId]?.description || '').substring(0, 200);
+        const charPersonality = (ctx.characters?.[ctx.characterId]?.personality || '').substring(0, 100);
+        const charContext = [charDesc, charPersonality].filter(Boolean).join(' | ').substring(0, 300);
+        const eLang = extension_settings[EXTENSION_NAME]?.eventLang || 'auto';
+        const langInst = eLang === 'ko' ? 'Write the summary in Korean (한국어).'
+                       : eLang === 'en' ? 'Write the summary in English.'
+                       : 'Write in the SAME LANGUAGE as the input text.';
+        const recentChat = getRecentChatContext(1500);
+
+        const prompt = `You are a narrative memory keeper for an RP story. Read the scene and write a rich, detailed 2-sentence memory summary.
+
+Character info: The user/protagonist is named "${userName}". The main character is "${charName}".
+${charContext ? `Character context: ${charContext}` : ''}
+
+SPEAKER IDENTIFICATION (CRITICAL — read carefully):
+- In this RP, the scene text mostly describes "${charName}"'s actions and dialogue in third-person or first-person.
+- "${userName}"'s actions/dialogue appear SEPARATELY (often after a delimiter or in a different style).
+- When you see dialogue like "I love you" or actions like *she smiled*, identify WHO is performing that action by looking at the surrounding context and narrative voice.
+- NEVER swap speakers. If "${charName}" said something, attribute it to "${charName}". If "${userName}" did something, attribute it to "${userName}".
+- ALWAYS write "${userName}" as the SUBJECT of the summary: "${userName}이/가..."
+
+Rules:
+- ${langInst}
+- ALWAYS include character names as subjects (WHO did what with WHOM).
+- When quoting dialogue, ALWAYS verify the correct speaker by checking the sentences IMMEDIATELY before the quote.
+- Sentence 1: Describe WHERE it happened (place + atmosphere), WHAT ${userName} was doing, and the KEY EVENT that occurred. Be specific with details from the scene (objects, smells, actions). Include a key dialogue quote with the CORRECT speaker's name.
+- Sentence 2: Describe the emotional consequence, tension shift, or what this event foreshadows for the future. Be vivid and narrative.
+- Each sentence should be detailed and descriptive (60~120 characters each). Do NOT be too brief.
+- Write like a novel's diary entry — immersive, specific, atmospheric.
+
+If no significant event (just walking, sitting, daily routine): {"mood":null,"summary":null,"future_plan":{"has_plan":false}}
+
+Pay SPECIAL ATTENTION to any future promises, appointments, or plans mentioned in the dialogue (e.g., "Let's go to X tomorrow", "Come back in two weeks", "내일 마트 가자", "2주 뒤에 재검").
+
+Respond with ONLY a JSON object, no markdown, no explanation:
+{"mood":"💕","title":"ultra-short hook max 15chars","summary":"detailed 2-sentence summary","promisePlace":"named location characters plan to visit (or null)","future_plan":{"has_plan":true,"what":"what they plan to do","where":"destination name or null","when":"time expression as-is: 2주 뒤, tomorrow, 오늘 저녁, next week, 1월 3일, every month, etc."},"npc_interactions":[{"name":"NPC name","delta":0.5,"reason":"short reason"}],"community_updates":[{"name":"NPC or animal name","avatar":"emoji","type":"npc|animal","mood":"excited|chill|tense|romantic|sleepy","moodLabel":"🔥 신남","text":"Twitter-style 1-2 sentence post with @mentions, #hashtags, *actions*"}]}
+
+Mood types: 💕=romantic/emotional 📅=promise/future ⚡=conflict/danger
+title: Write like 'OO한 곳' or 'OO이 시작된 곳'. Capture emotional significance, not literal dialogue.
+promisePlace: ANY named store/city/building characters discuss visiting. Be AGGRESSIVE. Write ONLY the place name, or null.
+future_plan: ALWAYS check for this. If ANY character mentions going somewhere, doing something later, making an appointment, scheduling a visit, or promising to return — set has_plan: true and fill what/where/when.
+npc_interactions: Track how NPCs/animals interact with ${userName}. delta: +0.5 friendly/kind, +1 life-saving/deeply bonding, -0.5 rude/hostile, -1 betrayal/attack. Only include NPCs who ACTIVELY interact in this scene. Omit if no NPC interactions.
+community_updates: Twitter-style real-time Korean posts capturing what NPCs/animals are doing RIGHT NOW in this scene. Generate 1-3 posts (only for NPCs who are visibly active). Write like real Korean Twitter/X: no *asterisked actions*, just natural Korean sentences showing their current state/feeling. Match each character's voice/personality. Use @mentions, #hashtags. NEVER use Korean male-forum slang (ㅇㅇ/ㄴㄴ/팩트/ㅇㄱㄹㅇ/~노/~근/킹받네/디시체 등 금지). Omit if no NPCs are active.
+
+Examples:
+{"mood":"⚡","title":"고구마와 뒷담화의 현장","summary":"군견 Dex의 막사에서 ${userName}가 몰래 군고구마를 나눠먹으며 Ghost에 대한 불만을 털어놓던 중, 이를 엿들은 Ghost에게 현장을 들키고 만다.","promisePlace":null,"future_plan":{"has_plan":false},"npc_interactions":[{"name":"Dex","delta":0.5,"reason":"간식 나눠먹음"},{"name":"Ghost","delta":-0.5,"reason":"뒷담화 들킴"}]}
+{"mood":"💕","title":"첫 심장소리를 들은 곳","summary":"${userName}와 TF141이 산부인과 진찰실을 점거하고 초음파 검사를 받았다. 모니터에 작은 심장 박동이 울리자 König의 손이 떨리기 시작했다.","promisePlace":"산부인과","future_plan":{"has_plan":true,"what":"2차 검진 및 초음파","where":"산부인과","when":"2주 뒤"},"npc_interactions":[{"name":"König","delta":1,"reason":"함께 초음파 감동"}]}
+{"mood":"📅","title":"비밀 약속을 나눈 곳","summary":"노을이 물드는 옥상에서 Alejandro가 ${userName}의 손을 잡으며 '내일, 여기서'라고 속삭였다.","promisePlace":null,"future_plan":{"has_plan":true,"what":"비밀 만남","where":"옥상","when":"내일"},"npc_interactions":[{"name":"Alejandro","delta":1,"reason":"로맨틱 약속"}]}
+${recentChat ? `\n[Recent conversation for tone & context]:\n${recentChat}\n` : ''}
+[Current scene to summarize]:
+${trimmed}${userCtx}`;
+
+        const result = await callLLM(prompt, { maxTokens: 2048 });
+        if (result) {
+            const parsed = parseLLMJson(result);
+            if (parsed?.mood && parsed?.summary) {
+                evText = plainText(parsed.summary, 1500);
+                evTitle = plainText(parsed.title || evText.substring(0, 15) + '...', 50);
+                evMood = firstGrapheme(parsed.mood, '📝');
+                const promisePlace = plainText(parsed.promisePlace, 60);
+                parsed.promisePlace = promisePlace || null;
+                dbg(`🤖 LLM Event: "${evTitle}" | "${evText}" (${evMood})`);
+                dbg(`🗓️ LLM future_plan: ${JSON.stringify(parsed.future_plan || 'not present')}, promisePlace: ${parsed.promisePlace || 'null'}`);
+                // ★ 약속 장소 자동 등록 (LLM이 이벤트에서 장소 추출 — 모든 무드)
+                if (promisePlace && promisePlace.toLowerCase() !== 'null') {
+                    try {
+                        const pPlace = promisePlace;
+                        if (pPlace.length >= 2 && pPlace.length <= 25 && !lm.findByNameExact(pPlace)) {
+                            queueDetectedPlace(pPlace, {
+                                source: 'event-ai', kind: 'planned', confidence: 0.7,
+                                reason: '사용자가 켠 AI 이벤트 추출의 약속 장소 — 모델 출력 확인 필요',
+                                snippet: evTitle, rpDate,
+                            });
+                        }
+                    } catch(e) { dbg('⚠️ Promise place from LLM error:', e.message); }
+                }
+                // ★ 예정 일정 자동 등록 (future_plan 객체 — 분리된 구조)
+                const fp = parsed.future_plan;
+                if (fp?.has_plan && fp.what) {
+                    // ★ where가 null이면 promisePlace를 대신 사용!
+                    const safeWhat = plainText(fp.what, 300);
+                    const safeWhere = plainText(fp.where, 60);
+                    const safeWhen = plainText(fp.when, 80);
+                    const rawWhere = safeWhere && safeWhere.toLowerCase() !== 'null' ? safeWhere : null;
+                    const pp = promisePlace && promisePlace.toLowerCase() !== 'null' ? promisePlace : null;
+                    const planWhere = rawWhere || pp;
+                    const planWhen = safeWhen && safeWhen.toLowerCase() !== 'null' ? safeWhen : '';
+                    if (!safeWhat) return;
+                    let targetLocId = locId;
+                    if (planWhere) {
+                        let targetLoc = lm.findByNameExact(planWhere);
+                        if (!targetLoc && planWhere.length >= 2 && planWhere.length <= 25) {
+                            queueDetectedPlace(planWhere, {
+                                source: 'event-ai', kind: 'planned', confidence: 0.7,
+                                reason: 'AI가 일정 목적지로 제안 — 등록 전 확인 필요',
+                                snippet: [planWhen, safeWhat].filter(Boolean).join(' · '), rpDate,
+                            });
+                        }
+                        if (targetLoc) targetLocId = targetLoc.id;
+                    }
+                    const tLoc = lm.locations.find(l => l.id === targetLocId);
+                    if (tLoc) {
+                        if (!tLoc.events) tLoc.events = [];
+                        const isDup = tLoc.events.some(e => e.isPlan && e.text === safeWhat);
+                        if (!isDup) {
+                            const planDate = _calcPlanDate(rpDate, planWhen);
+                            tLoc.events.push({
+                                text: safeWhat, title: safeWhat.substring(0, 20),
+                                mood: '🗓️', isPlan: true, planWhen: planWhen, planDate,
+                                timestamp: Date.now(), rpDate, source: 'auto'
+                            });
+                            await lm.updateLocation(targetLocId, { events: tLoc.events });
+                            dbg(`🗓️ Future plan saved`)
+                        }
+                    }
+                    pi.inject(); if (ui?.panelVisible) ui.refresh();
+                }
+                // ★ fallback: plans 배열도 호환 (기존 응답 지원)
+                else if (Array.isArray(parsed.plans) && parsed.plans.length > 0) {
+                    for (const plan of parsed.plans) {
+                        if (!plan.what) continue;
+                        const planWhat = plainText(plan.what, 300);
+                        const rawPlanWhen = plainText(plan.when, 80);
+                        const planWhen = rawPlanWhen && rawPlanWhen.toLowerCase() !== 'null' ? rawPlanWhen : '';
+                        if (!planWhat) continue;
+                        const tLoc = lm.locations.find(l => l.id === locId);
+                        if (tLoc) {
+                            if (!tLoc.events) tLoc.events = [];
+                            const isDup = tLoc.events.some(e => e.isPlan && e.text === planWhat);
+                            if (!isDup) {
+                                const planDate = _calcPlanDate(rpDate, planWhen);
+                                tLoc.events.push({
+                                    text: planWhat, title: planWhat.substring(0, 20),
+                                    mood: '🗓️', isPlan: true, planWhen: planWhen, planDate,
+                                    timestamp: Date.now(), rpDate, source: 'auto'
+                                });
+                                await lm.updateLocation(locId, { events: tLoc.events });
+                                dbg(`🗓️ Plan (legacy): "${plan.what}" when="${planWhen}"`)
+                            }
+                        }
+                    }
+                    pi.inject(); if (ui?.panelVisible) ui.refresh();
+                }
+                // ★ promisePlace 잡혔는데 plans 비어있으면 → 자동 plan 생성
+                if (parsed.promisePlace && parsed.promisePlace !== 'null' && parsed.promisePlace.toLowerCase() !== 'null') {
+                    const pp = promisePlace;
+                    const hasPlansForPlace = Array.isArray(parsed.plans) && parsed.plans.some(p => plainText(p?.where, 60).toLowerCase() === pp.toLowerCase());
+                    if (!hasPlansForPlace) {
+                        const ppLoc = lm.findByNameExact(pp);
+                        if (ppLoc) {
+                            if (!ppLoc.events) ppLoc.events = [];
+                            const isDup = ppLoc.events.some(e => e.isPlan && e.text?.includes(pp));
+                            if (!isDup) {
+                                ppLoc.events.push({
+                                    text: `${pp} 방문 예정`, title: `${pp} 방문`,
+                                    mood: '🗓️', isPlan: true, planWhen: '', planWhere: null,
+                                    timestamp: Date.now(), rpDate, source: 'auto'
+                                });
+                                await lm.updateLocation(ppLoc.id, { events: ppLoc.events });
+                                dbg(`🗓️ Auto-plan from promisePlace: "${pp}"`);
+                            }
+                        }
+                    }
+                }
+                // ★ NPC 호감도 자동 업데이트 (npc_interactions)
+                if (Array.isArray(parsed.npc_interactions)) {
+                    for (const ni of parsed.npc_interactions) {
+                        if (!ni?.name || typeof ni.delta !== 'number') continue;
+                        const npcName = plainText(ni.name, 60);
+                        if (!npcName) continue;
+                        const delta = Math.max(-1, Math.min(1, ni.delta));
+                        await lm.updateNpcAffinity(locId, npcName, delta);
+                    }
+                    if (ui?.panelVisible) ui.refresh();
+                }
+                // ★ 💬 커뮤니티 실시간 피드 자동 업데이트 (v0.6.0 NEW — 양방향 연동!)
+                if (Array.isArray(parsed.community_updates) && parsed.community_updates.length) {
+                    for (const cu of parsed.community_updates.slice(0, 3)) {
+                        if (!cu?.name || !cu?.text) continue;
+                        const safeName = plainText(cu.name, 60);
+                        const safeText = plainText(cu.text, 800);
+                        if (!safeName || !safeText) continue;
+                        // 멘션/해시태그 추출
+                        const mentions = (safeText.match(/@([A-Za-z가-힣0-9_]+)/g) || []).map(m => m.substring(1));
+                        const hashtags = (safeText.match(/#([A-Za-z가-힣0-9_]+)/g) || []).map(h => h.substring(1));
+                        await lm.addCommunityPost(locId, {
+                            name: safeName,
+                            avatar: firstGrapheme(cu.avatar, '👤'),
+                            type: ['npc', 'animal'].includes(cu.type) ? cu.type : 'npc',
+                            mood: plainText(cu.mood, 30),
+                            moodLabel: plainText(cu.moodLabel, 40),
+                            text: safeText,
+                            mentions,
+                            hashtags,
+                            likes: 0,
+                            rpDate,
+                        });
+                    }
+                    if (ui?.panelVisible) ui.refresh();
+                }
+            }
+        }
+    } catch (e) {
+        dbg(`⚠️ LLM event extraction failed, falling back to regex: ${e.message}`);
+    }
+
+    // ★ 폴백: LLM 실패 시 regex 추출
+    if (!evText) {
+        const ev = _extractEventSummary(text, '');
+        if (!ev) return;
+        evText = ev.text;
+        evTitle = ev.text.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text;
+        evMood = ev.mood;
+        dbg(`📝 Regex Event: "${evTitle}" | "${evText}" (${evMood})`);
+        // ★ LLM 실패 시 엄격한 regex로 plans 추출 (시간표현 + 행동동사 동시 필요)
+        const planSentences = text.replace(/<[^>]*>/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').split(/[.!?。]+/).filter(s => s.trim().length > 10);
+        const timeRx = /(?:내일|모레|일주일|보름|다음\s*주|다음\s*달|(\d+)\s*(?:주|달|개월|일)\s*(?:뒤|후)|이번\s*주말|tomorrow|next\s+(?:week|month)|in\s+(?:two|three|\d+)\s+(?:weeks?|months?|days?)|come\s+back|T\+\d+|at\s+\d{4}\b|by\s+\d{4}\b|\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)|오전|오후|저녁|아침)/i;
+        const actionRx = /(?:가자|가기로|오자|만나|검진|재검|진료|예약|방문|장보기|이사|옮기|go\s+(?:to|back)|visit|return|come\s+back|check[- ]?up|appointment|see\s+(?:you|the\s+doctor)|move\s+(?:the|our|to)|transfer|pack|wheels\s+up|gear\s+up|이동|출발|떠나)/i;
+        let regexPlanAdded = false;
+        for (const sent of planSentences) {
+            if (regexPlanAdded) break; // 최대 1건만
+            const hasTime = timeRx.exec(sent);
+            const hasAction = actionRx.test(sent);
+            if (hasTime && hasAction) {
+                const when = hasTime[0].trim();
+                const tLoc = lm.locations.find(l => l.id === locId);
+                if (tLoc) {
+                    if (!tLoc.events) tLoc.events = [];
+                    const isDup = tLoc.events.some(e => e.isPlan && e.planWhen === when);
+                    if (!isDup) {
+                        const planDate = _calcPlanDate(rpDate, when);
+                        tLoc.events.push({
+                            text: `예정된 방문`, title: '예정된 방문',
+                            mood: '🗓️', isPlan: true, planWhen: when, planDate,
+                            timestamp: Date.now(), rpDate, source: 'regex'
+                        });
+                        await lm.updateLocation(locId, { events: tLoc.events });
+                        dbg(`🗓️ Strict Regex Plan: when="${when}" date="${planDate}"`);
+                        regexPlanAdded = true;
+                    }
+                }
+            }
+        }
+    }
+
+    evText = plainText(evText, 1500);
+    evTitle = plainText(evTitle || evText.substring(0, 30), 60);
+    evMood = firstGrapheme(evMood, '📝');
+    if (!evText) return;
+
+    if (!loc.events) loc.events = [];
+
+    // ★ 재생성/스와이프 중복 방지 — 최근 3분 이내 유사 이벤트면 교체
+    const now = Date.now();
+    let replaced = false;
+    if (loc.events.length > 0) {
+        const last = loc.events[loc.events.length - 1];
+        const timeDiff = now - (last.timestamp || 0);
+        if (timeDiff < 180000) { // 3분 이내
+            // 단어 유사도 체크
+            const wordsA = new Set((last.text || '').split(/\s+/).filter(w => w.length > 1));
+            const wordsB = new Set((evText || '').split(/\s+/).filter(w => w.length > 1));
+            if (wordsA.size > 0 && wordsB.size > 0) {
+                let overlap = 0;
+                for (const w of wordsB) { if (wordsA.has(w)) overlap++; }
+                const sim = overlap / Math.max(wordsA.size, wordsB.size);
+                if (sim > 0.35) {
+                    // 교체! (재생성/스와이프로 인한 중복)
+                    dbg(`🔄 Event dedup: ${(sim*100).toFixed(0)}% similar, replacing last event`);
+                    loc.events[loc.events.length - 1] = { text: evText, title: evTitle, mood: evMood, timestamp: now, rpDate, source };
+                    replaced = true;
+                }
+            }
+        }
+    }
+    if (!replaced) {
+        loc.events.push({ text: evText, title: evTitle, mood: evMood, timestamp: now, rpDate, source });
+    }
+    if (loc.events.length > 20) loc.events = loc.events.slice(-20);
+    await lm.updateLocation(locId, { events: loc.events });
+    _lastEventTime = now;
+    _lastEventLocId = locId;
+    // 알림 (오버레이 → 읽기 전용)
+    try {
+        ui.showEventNotify(loc.name, { text: evText, tag: evMood }, locId);
+    } catch(e) {
+        dbg(`⚠️ Notify failed: ${e.message}`);
+    }
+    // ★ 팝오버 열려있으면 이벤트 목록 자동 갱신
+    try {
+        const openId = $('#wt-popover').attr('data-id');
+        if (openId === locId && $('#wt-popover').is(':visible')) {
+            ui._updEventsList(locId);
+        }
+    } catch(e) {}
+    dbg(`${evMood} Event: "${evText}" @ ${loc.name} (${source})`);
+}
+
+// ========== 예정 일정 regex 추출 (LLM 없이도 작동) ==========
+function _extractPlansRegex(text) {
+    const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
+    const plans = [];
+
+    // 한국어 패턴
+    const koPats = [
+        // "2주 뒤에 산부인과" / "다음달에 검진"
+        /(?:(\d+)\s*(?:주|달|개월|일)\s*(?:뒤|후|뒤에|후에))\s*(?:에?\s*)?(.{1,15}?)(?:에서|에|으로|로)?\s*(?:가자|가기|오자|오기|만나|검진|진료|방문|재검|예약)/g,
+        // "내일/모레/다음주에 ~"
+        /(?:내일|모레|다음\s*주|다음\s*달|이번\s*주말)\s*(?:에?\s*)?(.{1,15}?)(?:에서|에|으로|로)?\s*(?:가자|가기|오자|만나|검진|방문|약속|예약|장보기|쇼핑)/g,
+        // "~월 ~일에 클리닉"
+        /(\d{1,2}월\s*\d{1,2}일)\s*(?:에?\s*)?(.{1,15}?)(?:에서|에)?\s*(?:가자|오자|만나|예약|방문|검진)/g,
+    ];
+
+    // 영어 패턴
+    const enPats = [
+        // "in two weeks" / "in 14 days" / "in a month"
+        /(?:come\s+back|return|visit|go\s+back|be\s+back|see\s+you|check[- ]?up)\s+(?:in|after)\s+([\w\s]{2,20}?)(?:[.,!?]|$)/gi,
+        // "every month" / "every two weeks" / "every appointment" / "every single time"
+        /(every\s+(?:\w+\s+)?(?:week|month|day|year|appointment|time|visit|check[- ]?up)s?)\b/gi,
+        // "next Tuesday" / "next month" / "next week"
+        /(next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month|year))\b/gi,
+        // "on January 3rd" / "on the 3rd"
+        /(?:on\s+(?:the\s+)?)?(\w+\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)\b/gi,
+        // "T+14 DAYS" / "14 days from now"
+        /(?:T\+)?(\d+)\s*(?:days?|weeks?|months?)\s*(?:from\s+now|later|after)?/gi,
+        // ★ 단독 시간 표현: "Two weeks." / "In two weeks" (대화 문맥에서)
+        /(?:in\s+)?(two|three|four|five|six|seven|eight|nine|ten)\s+(weeks?|months?|days?)\b/gi,
+    ];
+
+    // 한국어 패턴 실행
+    for (const pat of koPats) {
+        let m;
+        pat.lastIndex = 0;
+        while ((m = pat.exec(clean)) !== null) {
+            const groups = m.slice(1).filter(Boolean);
+            if (groups.length >= 2) {
+                const when = groups[0].trim();
+                const where = groups[1].trim();
+                if (where.length >= 2 && where.length <= 15) {
+                    plans.push({ what: `${where} 방문 예정`, where, when });
+                }
+            } else if (groups.length === 1) {
+                plans.push({ what: `예정된 일정`, where: null, when: groups[0].trim() });
+            }
+        }
+    }
+
+    // 영어 패턴 실행
+    for (const pat of enPats) {
+        let m;
+        pat.lastIndex = 0;
+        while ((m = pat.exec(clean)) !== null) {
+            const when = m[1]?.trim();
+            if (when && when.length >= 2 && when.length <= 30) {
+                // 숫자+기간이면 "N days/weeks" 형태
+                const numMatch = when.match(/^(\d+)\s*(days?|weeks?|months?)/i);
+                const whenText = numMatch ? `${numMatch[1]} ${numMatch[2]} later` : when;
+                plans.push({ what: `Scheduled appointment`, where: null, when: whenText });
+            }
+        }
+    }
+
+    // 중복 제거
+    const unique = [];
+    const seen = new Set();
+    for (const p of plans) {
+        const key = `${p.when}|${p.where || ''}`;
+        if (!seen.has(key)) { seen.add(key); unique.push(p); }
+    }
+    return unique;
+}
+
+// ========== 이벤트 요약 추출 (감정/사건 키워드 + 타입 분류) ==========
+function _extractEventSummary(text, locName) {
+    // HTML만 제거 (대사는 유지! RP 감정은 대사 안에 있음)
+    const clean = text.replace(/<[^>]*>/g, '').trim();
+    if (clean.length < 20) return null;
+
+    // 메타데이터/시스템 텍스트 필터 (이벤트 아님)
+    const metaFilter = /^[-*]\s*(Time|Date|Location|Characters|Outfit|Items|Scene|Status|DATE CHANGE|날짜|시간|장소|의상|아이템)[\s:]/i;
+
+    const patterns = [
+        // 💕 감정/관계/로맨스 (memory)
+        { rx: /키스|kiss|포옹|hug|안[았겼]|품[에었]|사랑|love|고백|confess|첫만남|first met/i, type: 'memory', mood: '💕' },
+        { rx: /속삭|whisper|윙크|wink|숨결|breath|두근|심장.*뛰|heart.*beat|heart.*pound|떨[리렸]|tremble|shiver/i, type: 'memory', mood: '💕' },
+        { rx: /볼.*빨개|얼굴.*달아|blush|손[을를].*잡|hold.*hand|눈[을를].*맞|eye.*meet|이마.*닿|forehead/i, type: 'memory', mood: '💕' },
+        { rx: /끌어안|embrace|기대[어었]|lean|쓰다듬|caress|어루만|stroke|입술|lip|볼[에].*입|cheek/i, type: 'memory', mood: '💕' },
+        { rx: /손가락.*깍지|finger.*interlock|머리.*쓸어|귓[가속]|ear|향기|scent|체온|온기|warmth/i, type: 'memory', mood: '💕' },
+        // 💕 영어 로맨스 확장 (AI가 자주 쓰는 묘사)
+        { rx: /mouth.*devour|devour.*mouth|cupped.*face|traced.*jaw|passion|intimate|desire|sensual|breathless|panting/i, type: 'memory', mood: '💕' },
+        { rx: /pressed.*against|pulled.*close|leaned.*in|neck.*kiss|collarbone|nuzzle|nibble|tongue|lick/i, type: 'memory', mood: '💕' },
+        { rx: /moaned|gasped|arched|shudder|pulse.*rac|heart.*rac|chest.*tight|stomach.*flutter/i, type: 'memory', mood: '💕' },
+        { rx: /intertwine|entangle|straddle|pin.*down|beneath|above.*hover|grind|groan/i, type: 'memory', mood: '💕' },
+        // 😢 슬픔
+        { rx: /울[었다]|눈물|cry|tears|슬[퍼펐]|sad|위로|comfort|그리[워웠]|miss/i, type: 'memory', mood: '😢' },
+        // 😊 기쁨 (강한 것만)
+        { rx: /행복|happy|환희|기[뻐쁨]|joy|축하|celebrat/i, type: 'memory', mood: '😊' },
+        // ⚡ 사건 (incident)
+        { rx: /싸[우웠움]|fight|충돌|clash|화[가났]|anger|분노|rage|배신|betray/i, type: 'incident', mood: '⚡' },
+        { rx: /발견|discover|비밀|secret|숨[겼긴]|hide|도망|escape|추[격적]|chase/i, type: 'incident', mood: '🔍' },
+        { rx: /부상|injur|사고|accident|피[가를]|blood|쓰러[졌진]|collapse|치료|heal/i, type: 'incident', mood: '🩹' },
+        { rx: /결투|duel|전투|battle|공격|attack|방어|defend|훈련|train/i, type: 'incident', mood: '⚔️' },
+        { rx: /비명|scream|절규|shriek|공포|terror|두려[움운]|fear|confrontation/i, type: 'incident', mood: '⚡' },
+        // 📅 약속/미래 (promise)
+        { rx: /약속|promise|다음[에번]|next time|만나[자기]|내일|tomorrow|기다[려릴]|같이.*가|데이트|date/i, type: 'promise', mood: '📅' },
+        // 🎁 특별 이벤트
+        { rx: /선물|gift|편지|letter|파티|party|축하|celebrat|생일|birthday|기념/i, type: 'memory', mood: '🎁' },
+        { rx: /전화|call|연락|contact|메시지|message/i, type: 'memory', mood: '📞' },
+    ];
+
+    const sentences = clean.split(/[.!?。！？\n]+/).filter(s => s.trim().length > 8);
+
+    for (const s of sentences) {
+        const trimmed = s.trim();
+        // 메타데이터 문장 스킵
+        if (metaFilter.test(trimmed)) continue;
+        for (const p of patterns) {
+            if (p.rx.test(trimmed)) {
+                let summary = trimmed;
+                if (summary.length > 60) summary = summary.substring(0, 60) + '...';
+                return { text: summary, type: p.type, mood: p.mood };
+            }
+        }
+    }
+
+    // 키워드 없으면 null (일상 = 기록 안 함!)
+    return null;
+}

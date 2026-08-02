@@ -186,6 +186,23 @@ export class UIManager {
                 this.detectionCandidates?.dismiss?.(candidate.id);
                 this.pi?.inject(); this.refresh();
                 toastSuccess(`📍 “${name}” 승인 완료`);
+                // v0.9.54: 승인 직후 좌표 배치 제안 — 검색창에 이름 프리필 + 포커스
+                if (candidate.kind !== 'sub') {
+                    const approved = this.lm.findByNameExact(name);
+                    if (approved && (approved.lat == null || approved.lng == null)) {
+                        setTimeout(() => {
+                            if (!confirm(`"${name}"의 지도 좌표를 지금 검색해서 배치할까요?\n(나중에 장소 팝오버에서도 가능)`)) return;
+                            $('#wt-candidate-overlay').remove();
+                            // 지도 섹션 열고 검색창에 프리필
+                            $('#wt-map-section').show();
+                            const inp = $('#wt-search-input');
+                            inp.val(name).trigger('focus');
+                            // 검색 실행 (input 이벤트 트리거)
+                            inp.trigger('input');
+                            toastSuccess('🔍 결과에서 위치를 탭한 뒤, 장소 팝오버 → 좌표 저장으로 확정하세요');
+                        }, 200);
+                    }
+                }
             });
             list.append(card);
         }
@@ -2423,6 +2440,24 @@ ${trimmed.substring(0, 1500)}`;
         const events = allEvents.filter(e => !e.isPlan);
         const plans = allEvents.filter(e => e.isPlan);
 
+        // v0.9.54: 감정 누적 — 이벤트 mood 통계로 "이 장소의 분위기" 칩 생성
+        let moodStatsHtml = '';
+        {
+            const moodCount = {};
+            for (const ev of events) {
+                const m = ev.mood;
+                if (m && m !== '📝') moodCount[m] = (moodCount[m] || 0) + 1;
+            }
+            const top = Object.entries(moodCount).sort((a, b) => b[1] - a[1]).slice(0, 3);
+            if (top.length) {
+                const moodNames = { '💕':'설렘', '🥺':'뭉클', '⚡':'긴박', '📅':'일상', '✨':'특별', '🔥':'격정', '😂':'웃음' };
+                moodStatsHtml = `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:5px 0 2px">
+                    <span style="font-size:9px;color:#B0A898;font-weight:600">이 장소의 분위기</span>
+                    ${top.map(([m, n]) => `<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 8px;border-radius:10px;background:#FBF7EF;border:1px solid #EEE6D6;font-size:10px;color:#8A6F50;font-weight:600">${m} ${moodNames[m] || ''} ${n}</span>`).join('')}
+                </div>`;
+            }
+        }
+
         // 주변 장소
         let nearbyHtml = '';
         const nearList = [];
@@ -2583,6 +2618,7 @@ ${trimmed.substring(0, 1500)}`;
                     </div>
                     <div style="font-size:8px;color:#9AA0A6;text-align:center;margin-top:4px">${(() => { const filteredEvents = loc.moodResetAt ? events.filter(e => (e.timestamp||0) > loc.moodResetAt) : events; return filteredEvents.length ? `이벤트 ${filteredEvents.length}건 기반${loc.moodResetAt ? ' (리셋 후)' : ''}` : '데이터 수집 중...'; })()}</div>
                 </div>
+                ${moodStatsHtml}
                 ${eventsHtml}
                 ${this._buildPlanSectionHtml(loc)}
             </div>
@@ -5239,6 +5275,13 @@ ${trimmed.substring(0, 1500)}`;
             const gen = this._getGenSize().community;
             const countLabel = gen.label;  // "7~9개"
             let poiContext = '';
+            // v0.9.54: 생성 시작 시 현재 LLM 모드 + 생성 방식 표시 (과금 헷갈림 방지)
+            {
+                const sM = extension_settings[EXTENSION_NAME] || {};
+                const modeTag = (sM.llmMode === 'direct') ? `🔑 직접 API (${sM.llmProvider || 'google'})` : '🔗 연결 프로필';
+                const enrichTag = enrichMode === 'grounding' ? ' + ⭐구글검색' : enrichMode === 'overpass' ? ' + 🌿주변보강' : '';
+                toastSuccess(`💬 커뮤니티 생성 시작 — ${modeTag}${enrichTag}`);
+            }
             if (enrichMode === 'overpass') {
                 toastSuccess('🔍 주변 POI 검색 중...');
                 poiContext = await this._fetchNearbyPOIs(coordinateState.lat, coordinateState.lng);
@@ -5251,6 +5294,7 @@ ${trimmed.substring(0, 1500)}`;
 
 ⚠️⚠️⚠️ **JSON 안전 규칙 (최우선!)** ⚠️⚠️⚠️
 본문은 순수 텍스트로만 작성. HTML, Markdown 링크, 이미지 URL, 외부 리소스, 스크립트는 절대 출력하지 말 것.
+사진이 어울리는 포스트에는 (전체의 30~40%) 선택적으로 "img" 필드에 **영어 키워드 3~6단어만** 넣어라 (예: "golden hour sunset harbor cinematic"). URL·HTML 금지, 키워드 텍스트만. 장소·분위기·계절 고증에 맞게.
 모든 문자열은 JSON에 맞게 이스케이프하고, 유효한 JSON 객체 하나만 출력할 것.
 
 🚨🚨🚨 **창의성 규칙 — 예시 복붙 절대 금지!** 🚨🚨🚨
@@ -5682,6 +5726,8 @@ JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
                     mood: this._plainText(p.mood || '', 30),
                     moodLabel: this._plainText(p.moodLabel || '', 40),
                     text: safeText,
+                    // v0.9.54: 이미지 키워드 (영문/숫자/공백/쉼표/하이픈만, URL은 렌더 시 확장이 조립)
+                    img: typeof p.img === 'string' ? p.img.replace(/[^a-zA-Z0-9\s,\-]/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 80) : '',
                     mentions,
                     hashtags,
                     likes: Math.max(0, Math.min(999, Number(p.likes) || 0)),
@@ -5905,8 +5951,9 @@ JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
             `externalAiEnabled: ${s.externalAiEnabled === true ? 'on' : 'off'}`,
             `shareRpData: ${s.shareRpData === true ? 'on' : 'off'}`,
             `allowAutoGeocoding: ${s.allowAutoGeocoding === true ? 'on' : 'off'}`,
-            `credentialHandling: connection profile only; extension reads no API key`,
+            `llmMode: ${s.llmMode || 'profile'}${s.llmMode === 'direct' ? ` (${s.llmProvider || 'google'}/${s.llmModel || '?'}, key=${s.llmApiKey ? '***' + s.llmApiKey.slice(-4) : 'none'})` : ''}`,
             `connectionProfile: ${s.selectedProfile ? 'selected' : 'none'}`,
+            `dragEvent: ${s.dragEvent === true ? 'on' : 'off'} / aiInjection: ${s.aiInjection === true ? 'on' : 'off'}`,
             `locationEnrichment: ${s.locationEnrichment || 'off'}`,
             `genSize: ${s.genSize || 'normal'}`,
         ].join('\n');
@@ -5933,12 +5980,16 @@ JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
                         <div style="font-weight:700;margin-bottom:4px;color:#7B1FA2">⚙️ 현재 저장된 설정</div>
                         <pre style="margin:0;white-space:pre-wrap;font-size:10px;font-family:inherit">${this._escapeHtml(cfgSummary)}</pre>
                     </div>
+                    <div style="margin-bottom:8px;padding:8px;background:#E8F5E9;border-radius:6px;font-family:inherit">
+                        <div style="font-weight:700;margin-bottom:4px;color:#2E7D32">📜 마지막 LLM 응답 (Raw, 앞 1200자)</div>
+                        <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:10px;font-family:inherit;max-height:180px;overflow-y:auto">${this._escapeHtml(String(window._wtLastRawResponse || '(아직 LLM 응답 없음)').substring(0, 1200))}</pre>
+                    </div>
                     <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
                         <button id="wt-debug-copy" class="menu_button" style="flex:1;font-size:11px;padding:8px;min-width:100px">📋 안전 진단 복사</button>
                         <button id="wt-debug-retry" class="menu_button" style="flex:1;font-size:11px;padding:8px;min-width:100px">🔄 현재 장소 재시도</button>
                     </div>
                     <div style="margin-top:8px;padding:8px;background:#E8F5FD;border-radius:6px;font-size:10px;color:#1A73E8">
-                        🔒 API 키, 프롬프트, 채팅 원문, LLM 원문 응답은 진단 정보에 포함하지 않습니다.
+                        🔒 API 키·프롬프트·채팅 원문은 포함하지 않습니다. LLM Raw 응답은 디버깅용으로 앞부분만 표시됩니다.
                     </div>
                 </div>
             </div>
@@ -5947,7 +5998,8 @@ JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
         $('#wt-debug-close').on('click', () => modal.remove());
         $('#wt-debug-modal').on('click', (e) => { if (e.target === e.currentTarget) modal.remove(); });
         $('#wt-debug-copy').on('click', async () => {
-            const txt = `[PAW MAP Safe Diagnostics @ ${errAt}]\nError Type: ${errType}\nError Msg: ${lastErr}\n\n--- API Status ---\n${apiStatus}\n\n--- Non-secret Settings ---\n${cfgSummary}`;
+            const rawResp = String(window._wtLastRawResponse || '(아직 LLM 응답 없음)').substring(0, 1500);
+            const txt = `[PAW MAP Debug @ ${errAt}]\nError Type: ${errType}\nError Msg: ${lastErr}\n\n--- API Status ---\n${apiStatus}\n\n--- Settings ---\n${cfgSummary}\n\n--- Raw Response (${rawResp.length}c) ---\n${rawResp}`;
             try {
                 await navigator.clipboard.writeText(txt);
                 toastSuccess('📋 클립보드에 복사됨');
@@ -6230,6 +6282,17 @@ Respond with ONLY a JSON object, no markdown, no explanation:
         return `<div class="wt-pin-btn" data-pin-locid="${loc.id}" data-pin-kind="${kind}"${extraData} style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:50px;font-size:12px;cursor:pointer;font-weight:${on ? '700' : '400'};color:${on ? '#1D9BF0' : '#536471'}">📌 ${on ? '반영중' : '반영'}</div>`;
     }
 
+    // v0.9.54: 커뮤니티 이미지 — LLM은 영어 키워드만 출력, URL은 확장이 직접 조립 (XSS 불가)
+    _communityImgHtml(p) {
+        const raw = typeof p?.img === 'string' ? p.img : '';
+        if (!raw) return '';
+        // 영문/숫자/공백/쉼표/하이픈만 허용 — 그 외 문자 제거
+        const cleaned = raw.replace(/[^a-zA-Z0-9\s,\-]/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 80);
+        if (cleaned.length < 3) return '';
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleaned)}?nologo=true&width=512&height=340`;
+        return `<img src="${url}" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:100%;max-width:100%;border-radius:12px;margin-top:8px;display:block;background:#F0F3F4;min-height:60px" onerror="this.style.display='none'">`;
+    }
+
     _renderCommunityPostCard(p, locId) {
         const loc = locId ? this.lm.locations.find(l => l.id === locId) : null;
         const moodColors = {
@@ -6269,6 +6332,7 @@ Respond with ONLY a JSON object, no markdown, no explanation:
                 </div>
                 ${p.moodLabel ? `<div style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:11px;font-weight:600;margin-bottom:6px;${moodStyle}">${this._escapeHtml(p.moodLabel)}</div>` : ''}
                 <div style="font-size:14px;color:#0F1419;line-height:1.55;margin-bottom:4px;word-break:break-word">${this._renderCommunityText(p.text)}</div>
+                ${this._communityImgHtml(p)}
                 <div style="display:flex;gap:8px;margin-top:4px;margin-left:-8px">
                     <div style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:50px;font-size:12px;color:#536471;cursor:pointer">💬 ${replies.length}</div>
                     <div style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:50px;font-size:12px;color:#536471;cursor:pointer">🔁 0</div>

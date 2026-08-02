@@ -65,7 +65,9 @@ export class UIManager {
 
     _openCandidateDrawer() {
         $('#wt-candidate-overlay').remove();
-        const overlay = $(`<div id="wt-candidate-overlay" role="dialog" aria-modal="true" aria-label="장소 후보함" style="position:fixed;inset:0;z-index:2147483647;background:rgba(24,22,20,.48);display:flex;align-items:flex-end;justify-content:center;font-family:-apple-system,'Noto Sans KR',sans-serif">
+        // v0.9.51: ST 모바일에서 body/html에 transform이 걸려 position:fixed+inset:0이 깨짐
+        //   → width:100vw/height:100dvh 명시 + document.documentElement에 append (기존 다른 오버레이와 동일 패턴)
+        const overlay = $(`<div id="wt-candidate-overlay" role="dialog" aria-modal="true" aria-label="장소 후보함" style="position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh;height:100dvh !important;z-index:2147483647 !important;background:rgba(24,22,20,.48);display:flex !important;align-items:flex-end;justify-content:center;font-family:-apple-system,'Noto Sans KR',sans-serif;isolation:isolate">
             <div style="width:min(560px,100%);max-height:88dvh;background:#FEFDF8;border-radius:18px 18px 0 0;box-shadow:0 -8px 36px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden">
                 <div style="display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid #E8E4D8;background:#fff">
                     <div style="font-size:16px;font-weight:800;color:#3C3028;flex:1">🪧 장소 후보함</div>
@@ -76,7 +78,7 @@ export class UIManager {
                 <div id="wt-candidate-list" style="padding:10px;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
             </div>
         </div>`);
-        $('body').append(overlay);
+        document.documentElement.appendChild(overlay[0]);
         overlay.find('#wt-candidate-close').on('click', () => overlay.remove());
         overlay.on('click', e => { if (e.target === overlay[0]) overlay.remove(); });
         overlay.find('#wt-candidate-clear').on('click', () => {
@@ -283,8 +285,9 @@ export class UIManager {
     }
 
     _openGoogleLink(action, locationId) {
-        if (extension_settings[EXTENSION_NAME]?.showGoogleLinks !== true) {
-            toastWarn('설정에서 Google·Street View 링크 표시를 먼저 켜주세요.');
+        // v0.9.51: Street View는 옵션과 무관하게 항상 사용 가능 (Yun 정책)
+        if (action !== 'streetview' && extension_settings[EXTENSION_NAME]?.showGoogleLinks !== true) {
+            toastWarn('설정에서 Google 지도 링크 표시를 먼저 켜주세요.');
             return;
         }
         const destination = this.lm.locations.find(location => location.id === locationId && location.verification !== 'candidate');
@@ -372,6 +375,14 @@ export class UIManager {
                     <select id="wt-s-mapstyle" class="text_pole wt-select" style="flex:1;font-size:11px"><option value="liberty">Liberty</option><option value="bright">Bright</option><option value="dark">Dark</option></select>
                 </div>
                 <div class="wt-divider"></div>
+                <div class="wt-s-row" style="display:flex;align-items:center;gap:6px" title="AI 생성(리뷰/커뮤니티/요약) 호출 방식">
+                    <label style="white-space:nowrap">🤖 AI 연결 방식</label>
+                    <select id="wt-s-llmmode" class="text_pole wt-select" style="flex:1;font-size:11px">
+                        <option value="profile" selected>🔗 연결 프로필 (기본)</option>
+                        <option value="direct">🔑 API 키 직접 입력 (Grounding 지원)</option>
+                    </select>
+                </div>
+                <div id="wt-s-profile-wrap">
                 <div class="wt-s-row"><label>🔗 생성 연결 프로필 (리뷰/커뮤니티)</label></div>
                 <div class="wt-s-row" style="display:flex;gap:4px;align-items:center">
                     <select id="wt-s-profile" class="text_pole wt-select" style="flex:1;font-size:11px"><option value="">없음 (AI 호출 차단)</option></select>
@@ -380,6 +391,25 @@ export class UIManager {
                 </div>
                 <span id="wt-s-profile-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px">선택한 프로필만 사용합니다. PAW MAP이 별도 카드나 결제 계정을 연결하지 않으며, 해당 프로필 공급자의 토큰·크레딧이 사용될 수 있습니다.</span>
                 <span id="wt-s-llm-status" style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px">확장 자체는 API 키를 읽거나 저장하지 않습니다.</span>
+                </div>
+                <div id="wt-s-direct-wrap" style="display:none">
+                    <div class="wt-s-row"><label>🔑 LLM API (직접 호출)</label></div>
+                    <div class="wt-s-row" style="display:flex;gap:4px;align-items:center">
+                        <select id="wt-s-llmprovider" class="text_pole wt-select" style="flex:1;font-size:11px">
+                            <option value="google" selected>Google (Gemini)</option>
+                            <option value="vertex">Vertex AI</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="claude">Claude</option>
+                        </select>
+                        <input type="text" id="wt-s-llmmodel" class="text_pole" placeholder="모델 (예: gemini-2.5-flash)" style="flex:1.2;font-size:11px"/>
+                    </div>
+                    <div class="wt-s-row" style="display:flex;gap:4px;align-items:center">
+                        <input type="password" id="wt-s-llmkey" class="text_pole" placeholder="API 키" style="flex:1;font-size:11px" autocomplete="off"/>
+                        <button id="wt-s-llmkey-save" class="menu_button" style="font-size:11px;padding:6px 10px;white-space:nowrap">💾 저장</button>
+                    </div>
+                    <span style="font-size:10px;color:#9A8A7A;display:block;margin-top:2px">키는 이 기기의 SillyTavern 설정에만 저장됩니다. Grounding(구글 검색 보강)은 Google 프로바이더에서만 지원.</span>
+                </div>
                 <div class="wt-divider"></div>
                 <div class="wt-s-row" style="display:flex;align-items:center;gap:6px" title="이벤트/리뷰/실시간 반응에 공통 적용">
                     <label style="white-space:nowrap">🌐 AI 출력 언어</label>
@@ -398,6 +428,7 @@ export class UIManager {
                     <select id="wt-s-enrich" class="text_pole wt-select" style="flex:1;font-size:11px">
                         <option value="off" selected>기본 (AI 연결만 사용)</option>
                         <option value="overpass">주변 보강 (Overpass 좌표 전송 + AI 연결 사용)</option>
+                        <option value="grounding">⭐ 구글 검색 보강 (직접 API + Google 전용, 유료)</option>
                     </select>
                 </div>
                 <div class="wt-divider"></div>
@@ -534,16 +565,67 @@ export class UIManager {
         $('#wt-s-mem').val(s?.memoryMode||'natural').on('change', () => { s.memoryMode=$('#wt-s-mem').val(); saveSettingsDebounced(); this.pi?.inject(); });
         $('#wt-s-eventlang').val(s?.eventLang||'auto').on('change', () => { s.eventLang=$('#wt-s-eventlang').val(); saveSettingsDebounced(); });
         $('#wt-s-genSize').val(s?.genSize||'normal').on('change', () => { s.genSize=$('#wt-s-genSize').val(); saveSettingsDebounced(); });
-        if (!['off', 'overpass'].includes(s?.locationEnrichment)) s.locationEnrichment = 'off';
+        if (!['off', 'overpass', 'grounding'].includes(s?.locationEnrichment)) s.locationEnrichment = 'off';
         $('#wt-s-enrich').val(s?.locationEnrichment||'off').on('change', () => {
             const selected = $('#wt-s-enrich').val();
             if (selected === 'overpass' && !confirm('커뮤니티 생성 시 현재 RP 장소의 반올림 좌표가 Overpass 공개 서비스로 전송됩니다. 계속할까요?')) {
                 $('#wt-s-enrich').val('off');
                 s.locationEnrichment = 'off';
+            } else if (selected === 'grounding') {
+                // v0.9.51: Grounding은 direct 모드 + Google 전용
+                if ((s.llmMode || 'profile') !== 'direct' || (s.llmProvider || 'google') !== 'google') {
+                    toastWarn('⭐ Grounding은 [AI 연결 방식 → API 키 직접 입력] + Google 프로바이더에서만 사용할 수 있어요');
+                    $('#wt-s-enrich').val('off');
+                    s.locationEnrichment = 'off';
+                } else if (!confirm('구글 검색 보강(Grounding)은 유료입니다 ($35/1k 요청). 장소명이 Google 검색에 전송됩니다. 계속할까요?')) {
+                    $('#wt-s-enrich').val('off');
+                    s.locationEnrichment = 'off';
+                } else {
+                    s.locationEnrichment = 'grounding';
+                }
             } else {
                 s.locationEnrichment = selected === 'overpass' ? 'overpass' : 'off';
             }
             saveSettingsDebounced();
+        });
+        // v0.9.51: AI 연결 방식 (profile/direct) 전환
+        const _syncLlmModeUI = () => {
+            const mode = s.llmMode || 'profile';
+            $('#wt-s-profile-wrap').toggle(mode === 'profile');
+            $('#wt-s-direct-wrap').toggle(mode === 'direct');
+        };
+        $('#wt-s-llmmode').val(s?.llmMode || 'profile').on('change', () => {
+            s.llmMode = $('#wt-s-llmmode').val() === 'direct' ? 'direct' : 'profile';
+            if (s.llmMode !== 'direct' && s.locationEnrichment === 'grounding') {
+                s.locationEnrichment = 'off';
+                $('#wt-s-enrich').val('off');
+                toastWarn('연결 프로필 모드에서는 Grounding이 꺼집니다');
+            }
+            saveSettingsDebounced();
+            _syncLlmModeUI();
+        });
+        _syncLlmModeUI();
+        // direct 모드 필드 바인딩
+        $('#wt-s-llmprovider').val(s?.llmProvider || 'google').on('change', () => {
+            s.llmProvider = $('#wt-s-llmprovider').val();
+            if (s.llmProvider !== 'google' && s.locationEnrichment === 'grounding') {
+                s.locationEnrichment = 'off';
+                $('#wt-s-enrich').val('off');
+            }
+            saveSettingsDebounced();
+        });
+        $('#wt-s-llmmodel').val(s?.llmModel || 'gemini-2.5-flash').on('change', () => {
+            s.llmModel = $('#wt-s-llmmodel').val().trim();
+            saveSettingsDebounced();
+        });
+        if (s?.llmApiKey) $('#wt-s-llmkey').attr('placeholder', `저장됨 (***${s.llmApiKey.slice(-4)})`);
+        $('#wt-s-llmkey-save').on('click', () => {
+            const v = $('#wt-s-llmkey').val().trim();
+            if (!v) { toastWarn('API 키를 입력해주세요'); return; }
+            s.llmApiKey = v;
+            saveSettingsDebounced();
+            $('#wt-s-llmkey').val('').attr('placeholder', `저장됨 (***${v.slice(-4)})`);
+            toastSuccess('🔑 API 키 저장됨');
         });
         // 🧠 감지 모델 프로필 로드
         this._loadProfiles();
@@ -729,8 +811,10 @@ export class UIManager {
                         <div class="wt-google-controls" style="display:none;gap:5px;flex-wrap:wrap;padding:6px;background:#F8F9FA;border:1px solid #E8EAED;border-radius:8px">
                             <button class="wt-google-link wt-btn-ghost wt-btn-sm" data-action="view" style="flex:1;min-width:88px">🗺️ Google에서 보기</button>
                             <button class="wt-google-link wt-btn-ghost wt-btn-sm" data-action="directions" style="flex:1;min-width:88px">🚶 Google 길찾기</button>
+                        </div>
+                        <!-- v0.9.51: Street View는 옵션과 무관하게 항상 표시 -->
+                        <div style="display:flex;gap:5px;padding:2px 0">
                             <button class="wt-google-link wt-btn-ghost wt-btn-sm" data-action="streetview" style="flex:1;min-width:88px">👁️ Street View</button>
-                            <div style="width:100%;font-size:9.5px;color:#8A7A6A;line-height:1.35">API 키·Google Cloud API 과금 경로 없음 · 클릭한 장소 정보만 Google로 전송</div>
                         </div>
                         <div id="wt-pop-dist-section" style="display:none">
                             <div style="font-size:12px;color:#9A8A7A;margin-bottom:4px">📏 주요 장소와의 거리</div>
@@ -863,7 +947,15 @@ export class UIManager {
     _bind() {
         $('#wt-close-btn').on('click', () => this.togglePanel(false));
         $('#wt-float-close').on('click', () => this.togglePanel(false));
-        $('#wt-candidate-btn, #wt-float-candidates').on('click', () => this._openCandidateDrawer());
+        // v0.9.51: 후보함 버튼 — document-delegated + touchend (모바일에서 직접 바인딩 유실 대비)
+        $(document).off('click.wtCandBtn touchend.wtCandBtn');
+        $(document).on('click.wtCandBtn touchend.wtCandBtn', '#wt-candidate-btn, #wt-float-candidates', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (window._wtTapFireLock) return;
+            window._wtTapFireLock = true;
+            setTimeout(() => window._wtTapFireLock = false, 500);
+            this._openCandidateDrawer();
+        });
         this._updateCandidateBadge();
 
         // 🏰 판타지 모드 — 업뎃 예정 (활성화 비활성, 안내만)
@@ -1270,7 +1362,14 @@ ${langInst}
 [원문]
 ${trimmed.substring(0, 1500)}`;
 
+            // v0.9.51: direct 모드에서 Gemini thinking이 출력 토큰을 먹는 문제 방지 (v0.8.18 픽스 복원)
+            window._wtMaxTokensOverride = 2048;
+            window._wtTempOverride = 0.85;
+            window._wtDisableThinking = true;
             const result = await callLLM(prompt, { maxTokens: 2048 });
+            window._wtMaxTokensOverride = null;
+            window._wtTempOverride = null;
+            window._wtDisableThinking = false;
 
             window._wtLastErrorAt = new Date().toLocaleString('ko-KR');
 
@@ -2380,10 +2479,11 @@ ${trimmed.substring(0, 1500)}`;
         }
 
         const showGoogleLinks = extension_settings[EXTENSION_NAME]?.showGoogleLinks === true;
-        const googlePillsHtml = showGoogleLinks ? `
+        // v0.9.51: Yun 정책 — Google 지도/길찾기 버튼만 옵션, Street View는 항상 표시
+        const googlePillsHtml = (showGoogleLinks ? `
                 <button class="wt-bs-pill-btn" data-action="google-view" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #4285F4;background:#EEF4FF;font-size:10.5px;font-weight:600;color:#2859A8;white-space:nowrap;cursor:pointer;font-family:inherit">🗺️ Google</button>
-                <button class="wt-bs-pill-btn" data-action="google-directions" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #4285F4;background:#EEF4FF;font-size:10.5px;font-weight:600;color:#2859A8;white-space:nowrap;cursor:pointer;font-family:inherit">🚶 Google 길찾기</button>
-                <button class="wt-bs-pill-btn" data-action="google-streetview" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #4285F4;background:#EEF4FF;font-size:10.5px;font-weight:600;color:#2859A8;white-space:nowrap;cursor:pointer;font-family:inherit">👁️ Street View</button>` : '';
+                <button class="wt-bs-pill-btn" data-action="google-directions" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #4285F4;background:#EEF4FF;font-size:10.5px;font-weight:600;color:#2859A8;white-space:nowrap;cursor:pointer;font-family:inherit">🚶 Google 길찾기</button>` : '') + `
+                <button class="wt-bs-pill-btn" data-action="google-streetview" style="display:flex;align-items:center;gap:3px;padding:6px 12px;border-radius:18px;border:1.5px solid #4285F4;background:#EEF4FF;font-size:10.5px;font-weight:600;color:#2859A8;white-space:nowrap;cursor:pointer;font-family:inherit">👁️ Street View</button>`;
 
         const html = `
             <div class="wt-bs-handle" style="display:flex;justify-content:center;padding:14px 0 8px;cursor:pointer;min-height:44px"><div style="width:36px;height:4px;background:#D4D0C8;border-radius:2px"></div></div>
@@ -5009,15 +5109,19 @@ ${trimmed.substring(0, 1500)}`;
                 $('#wt-community-mode-overlay').remove();
                 resolve(value);
             };
-            const overlay = $(`<div id="wt-community-mode-overlay" role="dialog" aria-modal="true" aria-label="커뮤니티 생성 방식" style="position:fixed;inset:0;z-index:2147483647;background:rgba(20,20,20,.46);display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,'Noto Sans KR',sans-serif">
+            const sNow = extension_settings[EXTENSION_NAME] || {};
+            const groundingAvail = (sNow.llmMode === 'direct') && ((sNow.llmProvider || 'google') === 'google') && !!sNow.llmApiKey;
+            const overlay = $(`<div id="wt-community-mode-overlay" role="dialog" aria-modal="true" aria-label="커뮤니티 생성 방식" style="position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh;height:100dvh !important;z-index:2147483647 !important;background:rgba(20,20,20,.46);display:flex !important;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,'Noto Sans KR',sans-serif;isolation:isolate">
                 <div style="width:min(430px,100%);background:#fff;border-radius:16px;padding:16px;box-shadow:0 10px 36px rgba(0,0,0,.28)">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><strong style="font-size:16px;color:#202124;flex:1">💬 커뮤니티 생성 방식</strong><button type="button" id="wt-community-mode-close" aria-label="닫기" style="border:0;background:#F1F3F4;border-radius:50%;width:30px;height:30px;cursor:pointer">✕</button></div>
                     <button type="button" id="wt-community-mode-basic" style="width:100%;text-align:left;padding:12px;border:1.5px solid #DADCE0;border-radius:11px;background:#fff;cursor:pointer;font-family:inherit"><b style="display:block;color:#202124">기본 생성</b><span style="display:block;margin-top:3px;font-size:10.5px;color:#6F7378;line-height:1.4">저장된 장소 정보·이벤트·사용자/캐릭터명·최근 채팅 최대 800자와 선택한 AI 연결만 사용</span></button>
                     <button type="button" id="wt-community-mode-nearby" ${exactCoordinates ? '' : 'disabled'} style="width:100%;text-align:left;padding:12px;margin-top:8px;border:1.5px solid #B8D5C8;border-radius:11px;background:${exactCoordinates ? '#F2FBF6' : '#F4F4F4'};cursor:${exactCoordinates ? 'pointer' : 'not-allowed'};opacity:${exactCoordinates ? '1' : '.55'};font-family:inherit"><b style="display:block;color:#1E6B54">주변 장소 보강</b><span style="display:block;margin-top:3px;font-size:10.5px;color:#5E756B;line-height:1.4">반올림한 확정 좌표로 Overpass 주변 POI를 조회한 뒤 같은 AI 연결 사용</span></button>
+                    <button type="button" id="wt-community-mode-grounding" ${groundingAvail ? '' : 'disabled'} style="width:100%;text-align:left;padding:12px;margin-top:8px;border:1.5px solid #F0D9A8;border-radius:11px;background:${groundingAvail ? '#FFFBF0' : '#F4F4F4'};cursor:${groundingAvail ? 'pointer' : 'not-allowed'};opacity:${groundingAvail ? '1' : '.55'};font-family:inherit"><b style="display:block;color:#9A6B1F">⭐ 구글 검색 보강 (Grounding)</b><span style="display:block;margin-top:3px;font-size:10.5px;color:#8A7350;line-height:1.4">실시간 구글 검색으로 현지 정보 반영 — 직접 API(Google) 전용, 유료</span></button>
+                    ${groundingAvail ? '' : `<div style="font-size:10px;color:#A08050;margin-top:6px">Grounding 사용: 설정 → AI 연결 방식을 [API 키 직접 입력] + Google로</div>`}
                     ${exactCoordinates ? '' : `<div style="font-size:10px;color:#A05A42;margin-top:6px">주변 보강 사용 불가: ${this._escapeHtml(coordinateState.reason)}</div>`}
                 </div>
             </div>`);
-            $('body').append(overlay);
+            document.documentElement.appendChild(overlay[0]);
             $(document).off('keydown.wtCommunityMode').on('keydown.wtCommunityMode', event => { if (event.key === 'Escape') finish(null); });
             overlay.on('click', event => { if (event.target === overlay[0]) finish(null); });
             overlay.find('#wt-community-mode-close').on('click', () => finish(null));
@@ -5035,6 +5139,16 @@ ${trimmed.substring(0, 1500)}`;
                 $('#wt-s-enrich').val('overpass');
                 saveSettingsDebounced();
                 finish('overpass');
+            });
+            // v0.9.51: Grounding 모드 (직접 API + Google 전용)
+            overlay.find('#wt-community-mode-grounding').on('click', () => {
+                if (!groundingAvail) return;
+                const settings = extension_settings[EXTENSION_NAME];
+                if (settings.locationEnrichment !== 'grounding' && !confirm('구글 검색 보강(Grounding)은 유료입니다 ($35/1k 요청). 장소명이 Google 검색에 전송됩니다. 계속할까요?')) return;
+                settings.locationEnrichment = 'grounding';
+                $('#wt-s-enrich').val('grounding');
+                saveSettingsDebounced();
+                finish('grounding');
             });
         });
     }
@@ -5060,12 +5174,19 @@ ${trimmed.substring(0, 1500)}`;
         }
         if (!chatGuard()) { toastWarn('채팅이 바뀌어 커뮤니티 생성을 취소했습니다.'); return false; }
 
-        let enrichMode = requestedMode === 'overpass' ? 'overpass' : 'off';
+        let enrichMode = requestedMode === 'overpass' ? 'overpass' : requestedMode === 'grounding' ? 'grounding' : 'off';
         const coordinateState = this._communityCoordinateState(loc);
         if (enrichMode === 'overpass' && !coordinateState.exactCoordinates) {
             toastWarn(`주변 보강 차단 (${coordinateState.reason}) — 기본 생성으로 진행합니다.`);
             enrichMode = 'off';
         }
+        // v0.9.51: Grounding은 직접 API(Google) 모드에서만 — 아니면 기본 생성으로 강등
+        const sG = extension_settings[EXTENSION_NAME] || {};
+        if (enrichMode === 'grounding' && (sG.llmMode !== 'direct' || (sG.llmProvider || 'google') !== 'google' || !sG.llmApiKey)) {
+            toastWarn('⭐ Grounding 사용 불가 (직접 API + Google 필요) — 기본 생성으로 진행합니다.');
+            enrichMode = 'off';
+        }
+        window._wtUseGrounding = (enrichMode === 'grounding');
         this._commPending = locId;
         // r16: 영구 잠김 방지 — 60초 후 강제 해제 (LLM이 hang 걸려도 다음 호출 가능)
         const pendingId = locId;
@@ -5594,6 +5715,7 @@ JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
         } finally {
             clearTimeout(safetyTimer);
             this._commPending = null;
+            window._wtUseGrounding = false;  // v0.9.51: Grounding 플래그 해제
         }
     }
 

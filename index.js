@@ -125,22 +125,27 @@ function firstGrapheme(value, fallback = '👤') {
 }
 
 const defaults = {
-    // 장소 자동 등록은 PAW MAP의 핵심 기능이다. 외부 AI/외부 지오코딩과 달리
-    // 로컬 규칙 감지 자체는 과금이나 외부 전송을 만들지 않는다.
-    // v0.9.23: detectMode = 'off'(수동) | 'confirm'(팝업 확인) | 'auto'(자동). autoEvent = 텍스트에서 이벤트 자동 추출 on/off
-    enabled:true, autoDetect:true, detectMode:'auto', autoEvent:false, autoSchedule:false, showDetectToast:true,
-    aiInjection:false, memoryMode:'natural', memorySummaryDays:7, panelOpacity:100,
+    // v0.9.51: Yun 확정 정책
+    //   - 자동 감지 기본 OFF (후보함 시스템은 유지 — 켜면 후보함으로 격리됨)
+    //   - aiInjection 기본 ON (장소 컨텍스트 주입 = 확장의 핵심 기능)
+    //   - dragEvent 기본 ON (유일하게 유지하는 자동 입력 수단)
+    //   - llmMode: 'profile'(기본, ST 연결 프로필) | 'direct'(API 키 직접 입력)
+    enabled:true, autoDetect:false, detectMode:'off', autoEvent:false, autoSchedule:false, showDetectToast:true,
+    aiInjection:true, memoryMode:'natural', memorySummaryDays:7, panelOpacity:100,
     debugMode:false, mapMode:'leaflet', fantasyTheme:false,
     eventLang:'auto', // auto=RP언어, ko=한국어, en=English
     worldContinuity:false, // 세계관 이어가기 (캐릭터 기반 저장)
-    dragEvent:false, // 명시적으로 켠 경우에만 드래그 AI 요약 아이콘 표시
+    dragEvent:true, // 드래그 → 이벤트 저장 (기본 ON)
     // v0.9.46 security defaults: every potentially billable/private external action is opt-in.
     externalAiEnabled:false,
     shareRpData:false,
     allowAutoGeocoding:false,
-    showGoogleLinks:false,
+    showGoogleLinks:false, // 구글 지도 바로가기 버튼 (설정 옵션) — Street View는 이 옵션과 무관하게 항상 표시
     mapSearchLanguage:'ko',
     openMapStyle:'liberty',
+    llmMode:'profile', // v0.9.51: 'profile' | 'direct'
+    llmProvider:'google', llmModel:'gemini-2.5-flash', llmApiKey:'', vertexSaJson:'', vertexRegion:'',
+    locationEnrichment:'off', // off | overpass | grounding(direct+google 전용)
 };
 
 let db, lm, det, pi, ui, detectionCandidates;
@@ -766,6 +771,16 @@ async function init() {
         extension_settings[EXTENSION_NAME].autoDetect = true;
         extension_settings[EXTENSION_NAME]._restoreCoreDetection0949 = true;
     }
+    // v0.9.51: Yun 확정 정책 마이그레이션 (1회)
+    //   자동 감지 기본 OFF(후보함은 유지) / aiInjection·dragEvent 기본 ON 복원 / llmMode 기본 profile
+    if (!extension_settings[EXTENSION_NAME]._policyMigration0951) {
+        extension_settings[EXTENSION_NAME].detectMode = 'off';
+        extension_settings[EXTENSION_NAME].autoDetect = false;
+        extension_settings[EXTENSION_NAME].aiInjection = true;
+        extension_settings[EXTENSION_NAME].dragEvent = true;
+        if (!extension_settings[EXTENSION_NAME].llmMode) extension_settings[EXTENSION_NAME].llmMode = 'profile';
+        extension_settings[EXTENSION_NAME]._policyMigration0951 = true;
+    }
     // Treat privacy- and billing-sensitive settings as strict booleans on every load.
     // Corrupt/legacy string values such as "true" must never become implicit opt-ins.
     for (const key of ['externalAiEnabled', 'shareRpData', 'allowAutoGeocoding', 'showGoogleLinks', 'autoEvent', 'autoSchedule', 'dragEvent', 'aiInjection']) {
@@ -775,8 +790,16 @@ async function init() {
         extension_settings[EXTENSION_NAME].detectMode = 'off';
         extension_settings[EXTENSION_NAME].autoDetect = false;
     }
-    if (!['off', 'overpass'].includes(extension_settings[EXTENSION_NAME].locationEnrichment)) {
+    // v0.9.51: grounding은 direct 모드 + google 프로바이더에서만 유효 (아니면 off로 강등)
+    if (!['off', 'overpass', 'grounding'].includes(extension_settings[EXTENSION_NAME].locationEnrichment)) {
         extension_settings[EXTENSION_NAME].locationEnrichment = 'off';
+    }
+    if (extension_settings[EXTENSION_NAME].locationEnrichment === 'grounding'
+        && (extension_settings[EXTENSION_NAME].llmMode !== 'direct' || extension_settings[EXTENSION_NAME].llmProvider !== 'google')) {
+        extension_settings[EXTENSION_NAME].locationEnrichment = 'off';
+    }
+    if (!['profile', 'direct'].includes(extension_settings[EXTENSION_NAME].llmMode)) {
+        extension_settings[EXTENSION_NAME].llmMode = 'profile';
     }
     if (!['liberty', 'bright', 'dark'].includes(extension_settings[EXTENSION_NAME].openMapStyle)) {
         extension_settings[EXTENSION_NAME].openMapStyle = 'liberty';

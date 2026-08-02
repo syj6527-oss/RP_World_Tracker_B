@@ -60,15 +60,27 @@ async function fairFetch(url, init = {}) {
 }
 
 function resultLabel(properties) {
+    const streetAddress = [properties?.street, properties?.housenumber]
+        .map(cleanQuery)
+        .filter(Boolean)
+        .join(' ');
     const pieces = [
         properties?.name,
-        properties?.street,
+        streetAddress,
+        properties?.locality,
         properties?.district,
         properties?.city,
         properties?.state,
+        properties?.postcode,
         properties?.country,
     ].map(cleanQuery).filter(Boolean);
-    return [...new Set(pieces)].slice(0, 4).join(', ');
+    return [...new Set(pieces)].slice(0, 7).join(', ');
+}
+
+function applyResultLanguage(url) {
+    // Photon의 공개 서버는 `lang=ko`를 HTTP 400으로 거부한다.
+    // 한국어 모드는 lang을 생략하면 OSM의 현지어 이름(한국은 한국어)을 돌려준다.
+    if (settings().mapSearchLanguage === 'en') url.searchParams.set('lang', 'en');
 }
 
 function normalizeFeature(feature) {
@@ -112,7 +124,7 @@ export async function searchPlaces(query, options = {}) {
     const url = new URL(`${PHOTON_BASE}/api/`);
     url.searchParams.set('q', q);
     url.searchParams.set('limit', String(limit));
-    url.searchParams.set('lang', settings().mapSearchLanguage === 'en' ? 'en' : 'ko');
+    applyResultLanguage(url);
     if (lat != null && lng != null) {
         url.searchParams.set('lat', lat.toFixed(COORDINATE_PRECISION));
         url.searchParams.set('lon', lng.toFixed(COORDINATE_PRECISION));
@@ -140,7 +152,7 @@ export async function reverseGeocode(latValue, lngValue) {
     const url = new URL(`${PHOTON_BASE}/reverse`);
     url.searchParams.set('lat', lat.toFixed(COORDINATE_PRECISION));
     url.searchParams.set('lon', lng.toFixed(COORDINATE_PRECISION));
-    url.searchParams.set('lang', settings().mapSearchLanguage === 'en' ? 'en' : 'ko');
+    applyResultLanguage(url);
 
     try {
         const response = await fairFetch(url.toString());

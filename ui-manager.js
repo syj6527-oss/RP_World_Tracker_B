@@ -187,12 +187,12 @@ export class UIManager {
             .filter(item => item.reason);
         const geocoded = this.lm.locations.filter(location => !location.parentId && location.lat != null && location.lng != null);
         const autoDistanceCount = this.lm.distances.filter(distance => distance._manual !== true).length;
-        const overlay = $(`<div id="wt-cleanup-overlay" role="dialog" aria-modal="true" style="position:fixed;inset:0;z-index:2147483647;background:rgba(24,22,20,.48);display:flex;align-items:center;justify-content:center;padding:14px;font-family:-apple-system,'Noto Sans KR',sans-serif">
-            <div style="width:min(520px,100%);max-height:86dvh;background:#fff;border-radius:14px;box-shadow:0 8px 36px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">
-                <div style="display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid #E8E4D8"><b style="flex:1;color:#3C3028">🧹 의심 장소 점검</b><button id="wt-cleanup-close" class="wt-btn-icon">✕</button></div>
-                <div style="padding:9px 14px;background:#FFF8E8;font-size:10.5px;color:#795A35;line-height:1.45">자동 삭제하지 않습니다. 이름과 이유를 확인하고 직접 체크한 항목만 삭제하세요. 삭제 전 백업을 권장합니다.</div>
-                <div id="wt-cleanup-list" style="padding:10px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:5px"></div>
-                <div style="padding:10px 14px;border-top:1px solid #E8E4D8;display:flex;gap:6px;flex-wrap:wrap">
+        const overlay = $(`<div id="wt-cleanup-overlay" role="dialog" aria-modal="true" aria-label="의심 장소 점검" style="position:fixed;inset:0;width:100vw;height:100dvh;box-sizing:border-box;z-index:2147483647;background:rgba(24,22,20,.48);display:flex;align-items:flex-end;justify-content:center;padding:8px;padding-top:calc(8px + env(safe-area-inset-top));padding-bottom:calc(8px + env(safe-area-inset-bottom));overflow:hidden;font-family:-apple-system,'Noto Sans KR',sans-serif">
+            <div style="width:min(520px,100%);max-height:86vh;max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));background:#fff;border-radius:14px;box-shadow:0 8px 36px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">
+                <div style="display:flex;align-items:center;min-height:48px;padding:6px 8px 6px 14px;border-bottom:1px solid #E8E4D8;background:#fff;flex-shrink:0;position:sticky;top:0;z-index:2"><b style="flex:1;color:#3C3028">🧹 의심 장소 점검</b><button id="wt-cleanup-close" class="wt-btn-icon" aria-label="닫기" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">✕</button></div>
+                <div style="padding:9px 14px;background:#FFF8E8;font-size:10.5px;color:#795A35;line-height:1.45;flex-shrink:0">자동 삭제하지 않습니다. 이름과 이유를 확인하고 직접 체크한 항목만 삭제하세요. 삭제 전 백업을 권장합니다.</div>
+                <div id="wt-cleanup-list" style="padding:10px 14px;overflow-y:auto;display:flex;flex:1;min-height:0;flex-direction:column;gap:5px;-webkit-overflow-scrolling:touch"></div>
+                <div style="padding:10px 14px;border-top:1px solid #E8E4D8;display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;max-height:34dvh;overflow-y:auto;background:#fff;padding-bottom:calc(10px + env(safe-area-inset-bottom))">
                     <button id="wt-cleanup-delete" class="wt-btn-danger" style="flex:1;min-width:150px">선택 장소 삭제</button>
                     <button id="wt-cleanup-coords" class="wt-btn-ghost" style="flex:1;min-width:150px"></button>
                     <button id="wt-cleanup-dist" class="wt-btn-ghost" style="flex:1;min-width:150px"></button>
@@ -200,7 +200,7 @@ export class UIManager {
                 </div>
             </div>
         </div>`);
-        $('body').append(overlay);
+        $(document.documentElement).append(overlay);
         const list = overlay.find('#wt-cleanup-list');
         if (!suspicious.length) list.append('<div style="padding:24px;text-align:center;color:#8A8178;font-size:12px">규칙으로 찾은 의심 장소가 없어요.</div>');
         for (const item of suspicious) {
@@ -226,13 +226,18 @@ export class UIManager {
         }
         overlay.find('#wt-cleanup-coords').text(`선택 좌표·주소 초기화 (${geocoded.length})`).prop('disabled', geocoded.length === 0).css('opacity', geocoded.length ? 1 : .45);
         overlay.find('#wt-cleanup-dist').text(`자동 추정 거리선 ${autoDistanceCount}개 정리`).prop('disabled', autoDistanceCount === 0).css('opacity', autoDistanceCount ? 1 : .45);
-        overlay.find('#wt-cleanup-close').on('click', () => overlay.remove());
+        const closeCleanup = () => { overlay.remove(); $(document).off('keydown.wtCleanup'); };
+        overlay.find('#wt-cleanup-close').on('click', closeCleanup);
+        overlay.on('click', event => { if (event.target === overlay[0]) closeCleanup(); });
+        $(document).off('keydown.wtCleanup').on('keydown.wtCleanup', event => {
+            if (event.key === 'Escape') closeCleanup();
+        });
         overlay.find('#wt-cleanup-delete').on('click', async () => {
             const ids = overlay.find('.wt-cleanup-check:checked').map((_, element) => String($(element).val())).get();
             if (!ids.length) { toastWarn('삭제할 장소를 먼저 체크해주세요.'); return; }
             if (!confirm(`선택한 장소 ${ids.length}개와 연결된 이동·거리·하위 장소를 삭제할까요? 되돌릴 수 없습니다.`)) return;
             for (const id of ids) await this.lm.deleteLocation(id);
-            this.pi?.inject(); this.refresh(); overlay.remove();
+            this.pi?.inject(); this.refresh(); closeCleanup();
             toastSuccess(`🧹 의심 장소 ${ids.length}개 삭제`);
         });
         overlay.find('#wt-cleanup-coords').on('click', async () => {
@@ -242,13 +247,13 @@ export class UIManager {
             for (const id of ids) {
                 await this.lm.updateLocation(id, { lat: null, lng: null, address: '', _tempAddress: false, _geoFixed: false, _geocodeSuppressed: true });
             }
-            this.pi?.inject(); this.refresh(); overlay.remove();
+            this.pi?.inject(); this.refresh(); closeCleanup();
             toastSuccess(`🧭 장소 ${ids.length}개의 좌표·주소 초기화`);
         });
         overlay.find('#wt-cleanup-dist').on('click', async () => {
             if (!autoDistanceCount || !confirm(`이전 버전의 자동 형식으로 추정되는 거리 ${autoDistanceCount}개를 삭제할까요? “도보 N분/km” 형식으로 직접 입력한 거리도 포함될 수 있으니 백업 후 진행하세요.`)) return;
             const removed = await this.lm.removeAutomaticDistances();
-            this.refresh(); overlay.remove(); toastSuccess(`📏 자동 거리선 ${removed}개 정리`);
+            this.refresh(); closeCleanup(); toastSuccess(`📏 자동 거리선 ${removed}개 정리`);
         });
         overlay.find('#wt-cleanup-ignore-reset').on('click', async () => {
             if (!confirm('“계속 무시”로 저장한 장소명 목록을 초기화할까요?')) return;
@@ -1526,15 +1531,12 @@ ${trimmed.substring(0, 1500)}`;
                     const marker = this.leafletRenderer.markers[locId];
                     if (marker) marker.setLatLng(latlng);
 
-                    // 좌표를 외부 역지오코딩 서비스로 보내는 작업은 명시적 동의가 있을 때만 수행
-                    if (extension_settings?.[EXTENSION_NAME]?.allowAutoGeocoding === true) {
-                        const result = await reverseGeocode(latlng.lat, latlng.lng);
-                        const addr = result?.fullName || '';
-                        if (addr) await this.lm.updateLocation(locId, { address: addr, _tempAddress: false });
-                        toastSuccess(addr ? `📍 "${loc.name}" → ${addr}` : `📍 "${loc.name}" 이동!`);
-                    } else {
-                        toastSuccess(`📍 "${loc.name}" 이동!`);
-                    }
+                    // 마커를 직접 옮긴 경우에만 해당 RP 좌표를 역지오코딩한다.
+                    // 채팅에서 감지한 장소명의 자동 전송 설정과는 별개인 명시적 지도 조작이다.
+                    const result = await reverseGeocode(latlng.lat, latlng.lng);
+                    const addr = result?.fullName || '';
+                    if (addr) await this.lm.updateLocation(locId, { address: addr, _tempAddress: false });
+                    toastSuccess(addr ? `📍 "${loc.name}" → ${addr}` : `📍 "${loc.name}" 이동! (주소를 찾지 못함)`);
                 };
                 // ★ 빈 곳 롱프레스 → 새 장소 등록
                 this.leafletRenderer.onLongPress = async (lat, lng) => {
@@ -1543,13 +1545,13 @@ ${trimmed.substring(0, 1500)}`;
                     const loc = await this.lm.addLocation(name.trim());
                     if (loc) {
                         await this.lm.updateLocation(loc.id, { lat, lng, _geocodeSuppressed: false });
-                        if (extension_settings?.[EXTENSION_NAME]?.allowAutoGeocoding === true) {
-                            const result = await reverseGeocode(lat, lng);
-                            if (result?.fullName) await this.lm.updateLocation(loc.id, { address: result.fullName });
-                        }
                         this.leafletRenderer.render();
+                        toastSuccess(`📍 "${name.trim()}" 등록 · 주소 찾는 중...`);
+                        // 사용자가 지도를 꾹 눌러 직접 지정한 RP 좌표만 조회한다.
+                        const result = await reverseGeocode(lat, lng);
+                        if (result?.fullName) await this.lm.updateLocation(loc.id, { address: result.fullName, _tempAddress: false });
                         try { await this.lm.autoCalcDistances(); } catch(_){}
-                        toastSuccess(`📍 "${name.trim()}" 등록!`);
+                        toastSuccess(result?.fullName ? `📍 주소 자동 입력 · ${result.fullName}` : `📍 "${name.trim()}" 등록! (주소를 찾지 못함)`);
                     }
                 };
             }

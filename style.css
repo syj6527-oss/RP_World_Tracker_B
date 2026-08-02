@@ -122,9 +122,10 @@
 /* Popover (인라인) */
 .wt-popover-inline{background:#fff;border:2px solid var(--wt-yellow-d);border-radius:var(--wt-r)}
 /* v0.9.5: 수정창을 풀스크린 오버레이로 (덮어쓰기 + 내부 스크롤) */
-#wt-popover.wt-popover-modal{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;max-width:100%;height:100dvh;margin:0;border:none;border-radius:0;z-index:1000000;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:var(--wt-bg);box-shadow:none}
+#wt-popover.wt-popover-modal{position:fixed;inset:0;width:100%;max-width:100%;height:100dvh;max-height:100dvh;box-sizing:border-box;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);margin:0;border:none;border-radius:0;z-index:1000000;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:var(--wt-bg);box-shadow:none}
 #wt-popover.wt-popover-modal .wt-pop-header{position:sticky;top:0;z-index:5}
 #wt-popover.wt-popover-modal .wt-pop-body{padding-bottom:48px;max-height:none!important;overflow:visible!important}
+#wt-popover.wt-popover-modal #wt-pop-close{width:40px!important;height:40px!important;min-width:40px!important}
 .wt-pop-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--wt-yellow);border-bottom:1px solid var(--wt-border)}
 #wt-pop-title{font-size:14px;font-weight:700;color:var(--wt-brown)}
 .wt-pop-body{padding:10px 14px;display:flex;flex-direction:column;gap:8px}

@@ -110,11 +110,18 @@ const sourceRoot = fileURLToPath(new URL('../', import.meta.url));
 const uiSource = fs.readFileSync(`${sourceRoot}/ui-manager.js`, 'utf8');
 const locationSource = fs.readFileSync(`${sourceRoot}/location-manager.js`, 'utf8');
 const indexSource = fs.readFileSync(`${sourceRoot}/index.js`, 'utf8');
+const geoSource = fs.readFileSync(`${sourceRoot}/geo-service.js`, 'utf8');
 assert.doesNotMatch(uiSource, /30\s*\+\s*Math\.random\(\)\s*\*\s*120/, 'one confirmed coordinate must not fabricate nearby pins');
 assert.match(uiSource, /wt-cleanup-coordinate/, 'legacy clustered coordinates need an explicit per-place cleanup UI');
 assert.match(uiSource, /lat:\s*null,\s*lng:\s*null,\s*address:\s*''[^\n]+_geocodeSuppressed:\s*true/, 'coordinate cleanup must clear only selected geocoding data and prevent silent re-creation');
 assert.doesNotMatch(locationSource, /placeNearAnchor|111320/, 'location creation must never inherit or fabricate GPS');
 assert.doesNotMatch(indexSource, /\blm\.addLocation\s*\(/, 'automatic scanners must queue candidates instead of storing places');
+assert.doesNotMatch(geoSource, /searchParams\.set\(['"]lang['"],\s*['"]ko['"]\)/, 'Photon public API rejects lang=ko; local-language mode must omit it');
+assert.match(geoSource, /mapSearchLanguage\s*===\s*['"]en['"][^\n]+searchParams\.set\(['"]lang['"],\s*['"]en['"]\)/, 'English output may explicitly request lang=en');
+const manualLongPressBlock = uiSource.match(/onLongPress\s*=\s*async[\s\S]*?\n\s*};/)?.[0] || '';
+assert.match(manualLongPressBlock, /reverseGeocode\(lat,\s*lng\)/, 'explicit map long-press must restore address lookup');
+assert.doesNotMatch(manualLongPressBlock, /allowAutoGeocoding/, 'manual map gesture must not be confused with background chat-name geocoding');
+assert.match(uiSource, /wt-cleanup-overlay[\s\S]{0,700}align-items:flex-end/, 'cleanup dialog must stay inside the mobile viewport from the bottom');
 
 const detector = new LocationDetector(mockLm);
 assert.equal(detector.detect('병원으로 향했다.'), null, 'one-character 원 must not match 병원');

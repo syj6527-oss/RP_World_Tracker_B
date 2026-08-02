@@ -2,6 +2,8 @@
 // Connection-profile only: this extension never reads, accepts, or stores an API key.
 
 import { getContext, extension_settings } from '../../../extensions.js';
+import { stripNonNarrativeMetadata } from './rp-text-filter.js';
+import { redactOutboundSecrets } from './secret-redaction.js';
 
 const EXTENSION_NAME = 'rp-world-tracker';
 let requestInFlight = false;
@@ -23,7 +25,7 @@ function safeError(error) {
     return status ? `연결 프로필 요청 실패 (HTTP ${status})` : '연결 프로필 요청 실패';
 }
 
-async function callViaConnectionProfile(profileId, prompt, requestedTokens = 2048, timeoutMs = 45000) {
+async function resolveConnectionService() {
     const context = getContext();
     let service = context?.ConnectionManagerRequestService;
     if (!service?.sendRequest) {
@@ -32,19 +34,47 @@ async function callViaConnectionProfile(profileId, prompt, requestedTokens = 204
             service = module.ConnectionManagerRequestService;
         } catch (_) {}
     }
-    if (!service?.sendRequest) throw new Error('Connection profile service unavailable');
+    return service?.sendRequest ? service : null;
+}
+
+export async function preflightLLM(options = {}) {
+    const s = settings();
+    const sensitive = options.sensitive !== false;
+    if (s.externalAiEnabled !== true) return { ok: false, error: '외부 AI 기능이 꺼져 있음' };
+    if (sensitive && s.shareRpData !== true) return { ok: false, error: 'RP 원문 공유 동의가 꺼져 있음' };
+    if (!s.selectedProfile) return { ok: false, error: '선택된 연결 프로필이 없음' };
+    if (requestInFlight) return { ok: false, error: '이미 확장 AI 요청이 진행 중' };
+
+    const service = await resolveConnectionService();
+    if (!service) return { ok: false, error: '연결 프로필 서비스를 사용할 수 없음' };
+    try {
+        const supported = service.getSupportedProfiles?.();
+        if (Array.isArray(supported) && supported.length && !supported.some(profile => String(profile?.id || '') === String(s.selectedProfile))) {
+            return { ok: false, error: '저장된 연결 프로필을 현재 사용할 수 없음' };
+        }
+    } catch (_) {}
+    return { ok: true };
+}
+
+async function callViaConnectionProfile(profileId, prompt, requestedTokens = 2048, timeoutMs = 45000) {
+    const service = await resolveConnectionService();
+    if (!service) throw new Error('Connection profile service unavailable');
     const tokenLimit = Number(requestedTokens);
     const maxTokens = Math.max(256, Math.min(8192, Number.isFinite(tokenLimit) ? tokenLimit : 2048));
     const controller = new AbortController();
     const duration = Math.max(5000, Math.min(120000, Number(timeoutMs) || 45000));
     const timer = setTimeout(() => controller.abort(), duration);
     try {
-        const response = await service.sendRequest(profileId, prompt, maxTokens, {
+        // Redact only the transient provider-bound copy. Stored RP data and backups remain unchanged.
+        const outboundPrompt = redactOutboundSecrets(prompt);
+        const response = await service.sendRequest(profileId, outboundPrompt, maxTokens, {
             stream: false,
             signal: controller.signal,
             extractData: true,
-            includePreset: true,
-            includeInstruct: true,
+            // Utility JSON generation should receive only PAW MAP's disclosed prompt.
+            // Connection/auth settings still come from the selected profile.
+            includePreset: false,
+            includeInstruct: false,
         });
         if (typeof response === 'string') return response;
         return response?.content || response?.text || response?.message?.content || response?.choices?.[0]?.message?.content || response?.choices?.[0]?.text || '';
@@ -58,27 +88,14 @@ async function callViaConnectionProfile(profileId, prompt, requestedTokens = 204
  * Sensitive requests are blocked unless both external-AI and RP-data consent are on.
  */
 export async function callLLM(prompt, options = {}) {
-    const s = settings();
     const sensitive = options.sensitive !== false;
-
-    if (s.externalAiEnabled !== true) {
-        setStatus('External AI disabled', '외부 AI 기능이 꺼져 있음');
-        return null;
-    }
-    if (sensitive && s.shareRpData !== true) {
-        setStatus('RP data sharing blocked', 'RP 원문 공유 동의가 꺼져 있음');
+    const preflight = await preflightLLM({ sensitive });
+    if (!preflight.ok) {
+        setStatus('Request blocked', preflight.error);
         return null;
     }
 
-    if (!s.selectedProfile) {
-        setStatus('No connection profile', '선택된 연결 프로필이 없음');
-        return null;
-    }
-    if (requestInFlight) {
-        setStatus('Request skipped', '이미 확장 AI 요청이 진행 중');
-        return null;
-    }
-
+    const s = settings();
     requestInFlight = true;
     try {
         // Exactly one request through the selected SillyTavern profile. No fallback.
@@ -101,8 +118,8 @@ export function getRecentChatContext(maxChars = 2000) {
         let result = '';
         for (let i = chat.length - 1; i >= 0 && result.length < maxChars; i--) {
             const message = chat[i];
-            if (!message?.mes) continue;
-            const clean = String(message.mes)
+            if (!message?.mes || message.is_system === true) continue;
+            const clean = stripNonNarrativeMetadata(message.mes)
                 .replace(/```[\s\S]*?```/g, '')
                 .replace(/<memo>[\s\S]*?<\/memo>/gi, '')
                 .replace(/<[^>]*>/g, ' ')

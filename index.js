@@ -1,4 +1,4 @@
-// 🐶 PAW MAP v0.9.47-secure-beta
+// 🐶 PAW MAP v0.9.50-secure-beta
 
 import { getContext, extension_settings } from '../../../extensions.js';
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
@@ -9,7 +9,14 @@ import { PromptInjector } from './prompt-injector.js';
 import { UIManager } from './ui-manager.js';
 import { callLLM, parseLLMJson, getRecentChatContext } from './llm-helper.js';
 import { searchPlaces } from './geo-service.js';
-import { DetectionCandidateManager } from './detection-candidates.js';
+import { DetectionCandidateManager, suspiciousLocationReason } from './detection-candidates.js';
+import { stripNonNarrativeMetadata } from './rp-text-filter.js';
+import {
+    commitDetectedSubLocation,
+    findContextualExactLocation,
+    moveToDetectedLocation,
+    resolveTopLevelParent,
+} from './place-hierarchy.js';
 
 export const EXTENSION_NAME = 'rp-world-tracker';
 export const PROMPT_KEY = 'rp-world-tracker-prompt';
@@ -131,6 +138,7 @@ const defaults = {
     externalAiEnabled:false,
     shareRpData:false,
     allowAutoGeocoding:false,
+    showGoogleLinks:false,
     mapSearchLanguage:'ko',
     openMapStyle:'liberty',
 };
@@ -170,20 +178,25 @@ function dbg(msg) {
 }
 
 let _autoPlaceCommitChain = Promise.resolve();
+const _autoPlaceCommitPending = new Set();
+const isStandaloneInternalLabel = name =>
+    suspiciousLocationReason({ name, parentId: '' }) === '상위 장소 없이 등록된 내부 장소';
 
 async function commitDetectedPlace(candidate) {
     if (!candidate || !lm?.currentChatId) return null;
+    if (candidate.chatKey && candidate.chatKey !== lm.currentChatId) return null;
     const source = ['character', 'schedule'].includes(candidate.source) ? candidate.source : 'detected';
 
-    if (candidate.kind === 'sub') {
-        const parent = lm.locations.find(location => location.id === candidate.parentId && !location.parentId);
+    // Final guard: a bare indoor label must never become a world-map place.
+    // When a real current parent exists, preserve automatic sub-place creation.
+    if (isStandaloneInternalLabel(candidate.name) || candidate.kind === 'sub') {
+        const parent = resolveTopLevelParent(lm, candidate.name, candidate.parentId, LocationManager.PLACE_DICT);
         if (!parent) return null;
-        const sub = await lm.findOrCreateSub(parent.id, candidate.name);
-        if (sub) {
-            await lm.moveTo(parent.id, candidate.rpDate);
-            await lm.moveToSub(sub.id);
-        }
-        return sub;
+        candidate = { ...candidate, kind: 'sub', parentId: parent.id };
+    }
+
+    if (candidate.kind === 'sub') {
+        return commitDetectedSubLocation(lm, candidate.parentId, candidate.name, candidate.rpDate, LocationManager.PLACE_DICT);
     }
 
     let location = candidate.existingId
@@ -206,8 +219,9 @@ async function commitDetectedPlace(candidate) {
     }
 
     // 사용자가 따로 켠 경우에만 감지 장소명을 Photon에 보내 추정 핀을 실제 좌표로 교체한다.
-    if (created && extension_settings[EXTENSION_NAME]?.allowAutoGeocoding === true && !location.parentId) {
-        const geocoded = await _geocodeQuiet(location.name);
+    if (created && extension_settings[EXTENSION_NAME]?.allowAutoGeocoding === true && !location.parentId && !lm.isSubLocation(location.name)) {
+        const current = lm.locations.find(item => item.id === lm.currentLocationId && item.lat != null && item.lng != null && !item.parentId);
+        const geocoded = await _geocodeQuiet(location.name, false, current ? { lat: current.lat, lng: current.lng } : null);
         if (geocoded) {
             location = await lm.updateLocation(location.id, {
                 lat: geocoded.lat, lng: geocoded.lng, address: geocoded.addr,
@@ -227,14 +241,35 @@ async function commitDetectedPlace(candidate) {
 
 function queueDetectedPlace(name, options = {}) {
     if (!detectionCandidates) return { queued: false };
-    const result = detectionCandidates.add(name, options);
+    const prepared = { ...options };
+    // Normalize every internal-place source before it reaches the queue. This
+    // includes detector, metadata, promise and legacy callers.
+    if (prepared.kind === 'sub' || isStandaloneInternalLabel(name)) {
+        const parent = resolveTopLevelParent(lm, name, prepared.parentId, LocationManager.PLACE_DICT);
+        prepared.kind = 'sub';
+        prepared.parentId = parent?.id || '';
+        if (!parent) {
+            prepared.autoCommit = false;
+            prepared.confidence = Math.min(0.5, Number(prepared.confidence) || 0.5);
+            prepared.reason = '내부 장소이지만 연결할 상위 장소가 아직 없음';
+        }
+    }
+    const result = detectionCandidates.add(name, prepared);
     const mode = extension_settings[EXTENSION_NAME]?.detectMode || (extension_settings[EXTENSION_NAME]?.autoDetect ? 'auto' : 'off');
-    if (result.queued && !result.duplicate && mode === 'auto' && options.autoCommit !== false) {
-        const candidate = result.candidate;
-        detectionCandidates.dismiss(candidate.id);
+    const candidate = result.candidate;
+    const shouldTryAutoCommit = result.queued && candidate && mode === 'auto' && prepared.autoCommit !== false &&
+        (!result.duplicate || result.parentContextUpdated === true) && !_autoPlaceCommitPending.has(candidate.id);
+    if (shouldTryAutoCommit) {
+        _autoPlaceCommitPending.add(candidate.id);
         _autoPlaceCommitChain = _autoPlaceCommitChain
-            .then(() => commitDetectedPlace(candidate))
-            .catch(() => null);
+            .then(async () => {
+                if (!detectionCandidates.list().some(item => item.id === candidate.id)) return null;
+                const committed = await commitDetectedPlace(candidate);
+                if (committed) detectionCandidates.dismiss(candidate.id);
+                return committed;
+            })
+            .catch(() => null)
+            .finally(() => _autoPlaceCommitPending.delete(candidate.id));
         return { ...result, autoCommitted: true, commitPromise: _autoPlaceCommitChain };
     }
     if (result.queued && !result.duplicate && extension_settings[EXTENSION_NAME]?.showDetectToast) {
@@ -375,16 +410,29 @@ async function _legacyScanMessage(text, source = 'USER') {
                     }
                 }
 
-                // ★★★ 별칭 키워드 매칭 (서브 분리 전에 먼저!) — "SAS 북부 무기고" → 별칭 "무기고" 히트
-                const aliasHit = lm.findByNameExact(metaLoc);
+                // ★★★ 별칭 키워드 매칭 (서브 분리 전에 먼저!) — 현재 부모의
+                // 동일 이름 child를 우선하며, 다른 부모의 Room은 빌려오지 않는다.
+                const aliasHit = findContextualExactLocation(lm, metaLoc);
                 if (aliasHit) {
+                    // 구버전이 최상위에 만든 bare Room은 보존하되 다시 현재 위치로
+                    // 사용하지 않는다. 유효한 현재 부모가 있으면 그 아래 child로 생성한다.
+                    if (!aliasHit.parentId && isStandaloneInternalLabel(aliasHit.name)) {
+                        const parent = resolveTopLevelParent(lm, aliasHit.name, '', LocationManager.PLACE_DICT);
+                        queueDetectedPlace(aliasHit.name, {
+                            source: 'meta', kind: 'sub', parentId: parent?.id || '', confidence: 0.64,
+                            reason: parent ? `“${parent.name}” 내부 장소로 다시 연결` : '상위 장소 없이 등록된 내부 장소 — 부모 선택 필요',
+                            snippet: text, rpDate, autoCommit: false,
+                        });
+                        if (_dm === 'auto' && parent?.id) await _tryEvent(text, parent.id, source);
+                        return true;
+                    }
                     if (_dm !== 'auto') {
                         queueDetectedPlace(aliasHit.name, {
-                            source: 'meta', kind: 'current', confidence: 0.94,
+                            source: 'meta', kind: aliasHit.parentId ? 'sub' : 'current', parentId: aliasHit.parentId || '', confidence: 0.94,
                             reason: '상태창 이름이 기존 장소/별칭과 정확히 일치', snippet: text, rpDate,
                         });
-                    } else if (lm.currentLocationId !== aliasHit.id) {
-                        await lm.moveTo(aliasHit.id, rpDate);
+                    } else {
+                        await moveToDetectedLocation(lm, aliasHit, rpDate);
                         if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${aliasHit.name}`, 'move');
                         pi.inject(); if (ui.panelVisible) ui.refresh();
                     }
@@ -418,6 +466,7 @@ async function _legacyScanMessage(text, source = 'USER') {
                         const candidateSub = subMatch[2].trim();
                         // 부모 후보가 기존 장소와 매칭되는지 확인
                         const parentCheck = lm.locations.find(l => {
+                            if (l.parentId) return false;
                             const n = l.name.toLowerCase();
                             const cp = candidateParent.toLowerCase();
                             return n === cp || n.includes(cp) || cp.includes(n) ||
@@ -437,6 +486,7 @@ async function _legacyScanMessage(text, source = 'USER') {
                     if (floorMatch) {
                         const candidateParent = floorMatch[1].trim();
                         const parentCheck = lm.locations.find(l => {
+                            if (l.parentId) return false;
                             const n = l.name.toLowerCase();
                             const cp = candidateParent.toLowerCase();
                             return n === cp || n.includes(cp) || cp.includes(n) ||
@@ -452,12 +502,12 @@ async function _legacyScanMessage(text, source = 'USER') {
 
                 // 분리된 경우: 부모 장소 매칭 → 서브 등록
                 if (metaParent && metaSub) {
-                    const parentLoc = lm.locations.find(l =>
+                    const parentLoc = lm.locations.find(l => !l.parentId && (
                         l.name.toLowerCase() === metaParent.toLowerCase() ||
                         metaParent.toLowerCase().includes(l.name.toLowerCase()) ||
                         l.name.toLowerCase().includes(metaParent.toLowerCase()) ||
                         (l.aliases || []).some(a => metaParent.toLowerCase().includes(a.toLowerCase()))
-                    );
+                    ));
                     if (parentLoc) {
                         // 서브장소 "&"로 나뉜 경우 첫번째만 사용 ("Kitchen & Living Room" → "Kitchen")
                         const subName = metaSub.split(/\s*[&,+]\s*/)[0].trim();
@@ -497,28 +547,40 @@ async function _legacyScanMessage(text, source = 'USER') {
                 const metaClean = metaLoc.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
 
                 // ★ 서브로케이션 체크 (거실, 부엌 등 → 현재 장소의 하위)
-                if (lm.isSubLocation(metaClean) && lm.currentLocationId) {
-                    const curLoc = lm.locations.find(l => l.id === lm.currentLocationId);
-                    const existingSub = lm.getSubLocations(lm.currentLocationId).find(sub =>
+                // 부모 장소가 아직 없으면 독립 장소로 만들거나 전 세계 지오코딩을
+                // 하지 않고, 부모를 고를 수 있는 메모리 후보로만 보류한다.
+                const currentParent = resolveTopLevelParent(lm, metaClean, '', LocationManager.PLACE_DICT);
+                if (lm.isSubLocation(metaClean) && !currentParent) {
+                    queueDetectedPlace(metaClean, {
+                        source: 'meta', kind: 'sub', confidence: 0.5,
+                        reason: '내부 장소이지만 연결할 상위 장소가 아직 없음',
+                        snippet: text, rpDate, autoCommit: false,
+                    });
+                    return true;
+                }
+                if (lm.isSubLocation(metaClean) && currentParent) {
+                    const curLoc = currentParent;
+                    const existingSub = lm.getSubLocations(currentParent.id).find(sub =>
                         sub.name.toLowerCase() === metaClean.toLowerCase() ||
                         (sub.aliases || []).some(alias => alias.toLowerCase() === metaClean.toLowerCase())
                     );
                     if (existingSub) {
                         if (_dm === 'auto') {
-                            await lm.moveToSub(existingSub.id);
+                                if (lm.currentLocationId !== currentParent.id) await lm.moveTo(currentParent.id, rpDate);
+                                await lm.moveToSub(existingSub.id);
                             pi.inject();
                             await _tryEvent(text, existingSub.id, source);
                         } else {
                             queueDetectedPlace(existingSub.name, {
                                 source: 'meta', kind: 'sub', confidence: 0.92,
-                                reason: `기존 “${curLoc?.name || '현재 장소'}” 내부 장소와 정확히 일치`, parentId: lm.currentLocationId,
+                                reason: `기존 “${curLoc?.name || '현재 장소'}” 내부 장소와 정확히 일치`, parentId: currentParent.id,
                                 snippet: text, rpDate,
                             });
                         }
                     } else {
                         queueDetectedPlace(metaClean, {
                             source: 'meta', kind: 'sub', confidence: 0.76,
-                            reason: `“${curLoc?.name || '현재 장소'}” 내부 장소 후보`, parentId: lm.currentLocationId,
+                            reason: `“${curLoc?.name || '현재 장소'}” 내부 장소 후보`, parentId: currentParent.id,
                             snippet: text, rpDate,
                         });
                     }
@@ -527,15 +589,24 @@ async function _legacyScanMessage(text, source = 'USER') {
 
                 // v0.9.47: automatic movement only accepts exact normalized names/aliases.
                 // Partial-word and word-overlap matches are suggestions, not proof.
-                const existing = lm.findByNameExact(metaLoc) || lm.findByNameExact(metaClean);
+                const existing = findContextualExactLocation(lm, metaLoc) || findContextualExactLocation(lm, metaClean);
                 if (existing) {
+                    if (!existing.parentId && isStandaloneInternalLabel(existing.name)) {
+                        const parent = resolveTopLevelParent(lm, existing.name, '', LocationManager.PLACE_DICT);
+                        queueDetectedPlace(existing.name, {
+                            source: 'meta', kind: 'sub', parentId: parent?.id || '', confidence: 0.64,
+                            reason: '구버전 최상위 내부 장소 — 부모 확인 필요', snippet: text, rpDate, autoCommit: false,
+                        });
+                        if (_dm === 'auto' && parent?.id) await _tryEvent(text, parent.id, source);
+                        return true;
+                    }
                     if (_dm !== 'auto') {
                         queueDetectedPlace(existing.name, {
-                            source: 'meta', kind: 'current', confidence: 0.94,
+                            source: 'meta', kind: existing.parentId ? 'sub' : 'current', parentId: existing.parentId || '', confidence: 0.94,
                             reason: '상태창 이름이 기존 장소/별칭과 정확히 일치', snippet: text, rpDate,
                         });
-                    } else if (lm.currentLocationId !== existing.id) {
-                        await lm.moveTo(existing.id, rpDate);
+                    } else {
+                        await moveToDetectedLocation(lm, existing, rpDate);
                         if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${existing.name}`, 'move');
                         pi.inject(); if (ui.panelVisible) ui.refresh();
                     }
@@ -560,16 +631,42 @@ async function _legacyScanMessage(text, source = 'USER') {
         // 이미 등록된 장소 감지 (USER/AI 동일)
         const result = det.detect(text);
         if (result) {
-            const { location, type, confidence } = result;
+            const { type, confidence } = result;
+            const contextual = findContextualExactLocation(lm, result.location.name);
+            let location = contextual || result.location;
+
+            // A child found under another parent is not proof that the RP moved
+            // to that parent. Hold it for review under the current context.
+            if (!contextual && result.location.parentId && isStandaloneInternalLabel(result.location.name)) {
+                const parent = resolveTopLevelParent(lm, result.location.name, '', LocationManager.PLACE_DICT);
+                queueDetectedPlace(result.location.name, {
+                    source: mode, kind: 'sub', parentId: parent?.id || '', confidence,
+                    reason: '다른 부모의 동일 내부 장소 — 현재 부모 연결 확인 필요',
+                    snippet: text, rpDate, autoCommit: false,
+                });
+                return true;
+            }
+
+            // Never reuse a legacy world-map Room as a current top-level place.
+            if (!location.parentId && isStandaloneInternalLabel(location.name)) {
+                const parent = resolveTopLevelParent(lm, location.name, '', LocationManager.PLACE_DICT);
+                queueDetectedPlace(location.name, {
+                    source: mode, kind: 'sub', parentId: parent?.id || '', confidence: Math.min(confidence, 0.64),
+                    reason: '구버전 최상위 내부 장소 — 부모 확인 필요',
+                    snippet: text, rpDate, autoCommit: false,
+                });
+                return true;
+            }
+
             dbg(`✅ "${location.name}" (${type} c=${confidence})`);
             // Only a strong name-adjacent movement expression may mutate current state.
-            if (_dm === 'auto' && confidence >= 0.9 && lm.currentLocationId !== location.id) {
-                await lm.moveTo(location.id, rpDate);
+            if (_dm === 'auto' && confidence >= 0.9) {
+                await moveToDetectedLocation(lm, location, rpDate);
                 if (s.showDetectToast) wtNotify(`${wtMascot()} ${wtTreat()} ${location.name}`, 'move');
                 pi.inject(); if (ui.panelVisible) ui.refresh();
             } else if (_dm !== 'auto' || confidence < 0.9) {
                 queueDetectedPlace(location.name, {
-                    source: mode, kind: 'current', confidence,
+                    source: mode, kind: location.parentId ? 'sub' : 'current', parentId: location.parentId || '', confidence,
                     reason: '기존 장소명이 언급됐지만 이동 표현이 이름 바로 옆에서 확실하지 않음',
                     snippet: text, rpDate, autoCommit: false,
                 });
@@ -584,12 +681,16 @@ async function _legacyScanMessage(text, source = 'USER') {
         const np = det.detectNewPlace(text, mode);
         if (np) {
             dbg(`🆕 "${np}" (${source})`);
+            const isInternal = lm.isSubLocation(np);
+            const parent = isInternal ? resolveTopLevelParent(lm, np, '', LocationManager.PLACE_DICT) : null;
             const queued = queueDetectedPlace(np, {
                 source: mode,
-                kind: lm.isSubLocation(np) && lm.currentLocationId ? 'sub' : 'current',
+                kind: isInternal ? 'sub' : 'current', parentId: parent?.id || '',
                 confidence: mode === 'user' ? 0.76 : 0.68,
-                reason: lm.isSubLocation(np) ? '내부 장소로 보이지만 부모 장소를 확인해야 함' : '이동 문맥에서 미등록 장소명을 찾음',
-                snippet: text, rpDate,
+                reason: isInternal
+                    ? (parent ? `“${parent.name}” 내부 장소로 감지` : '내부 장소로 보이지만 부모 장소를 확인해야 함')
+                    : '이동 문맥에서 미등록 장소명을 찾음',
+                snippet: text, rpDate, autoCommit: isInternal ? Boolean(parent) : undefined,
             });
             const committed = queued.commitPromise ? await queued.commitPromise : null;
             const eventLocId = committed?.id || lm.currentLocationId;
@@ -667,7 +768,7 @@ async function init() {
     }
     // Treat privacy- and billing-sensitive settings as strict booleans on every load.
     // Corrupt/legacy string values such as "true" must never become implicit opt-ins.
-    for (const key of ['externalAiEnabled', 'shareRpData', 'allowAutoGeocoding', 'autoEvent', 'autoSchedule', 'dragEvent', 'aiInjection']) {
+    for (const key of ['externalAiEnabled', 'shareRpData', 'allowAutoGeocoding', 'showGoogleLinks', 'autoEvent', 'autoSchedule', 'dragEvent', 'aiInjection']) {
         extension_settings[EXTENSION_NAME][key] = extension_settings[EXTENSION_NAME][key] === true;
     }
     if (!['off', 'confirm', 'auto'].includes(extension_settings[EXTENSION_NAME].detectMode)) {
@@ -973,8 +1074,8 @@ jQuery(async () => { try { await init(); } catch (_) {} });
 
 // ========== opt-in automatic geocoding (Photon / OpenStreetMap) ==========
 // Chat-derived names are never transmitted unless allowAutoGeocoding is explicitly enabled.
-async function _geocodeQuiet(query, placeOnly = false) {
-    const results = await searchPlaces(query, { limit: placeOnly ? 5 : 1, automatic: true });
+async function _geocodeQuiet(query, placeOnly = false, bias = null) {
+    const results = await searchPlaces(query, { limit: placeOnly ? 5 : 1, automatic: true, bias: bias || undefined });
     const best = placeOnly
         ? results.find(result => /city|town|village|state|country|district|locality/i.test(`${result.type} ${result.category}`)) || results[0]
         : results[0];
@@ -1176,8 +1277,10 @@ async function scanSchedule(text, source) {
     try {
         const s = extension_settings[EXTENSION_NAME];
         if (!s?.enabled || s?.autoSchedule !== true || !text?.trim()) return;
+        const narrativeText = stripNonNarrativeMetadata(text);
+        if (!narrativeText) return;
         if (isAutoDetectPaused()) return;
-        if (!_hasScheduleSignal(text)) return;
+        if (!_hasScheduleSignal(narrativeText)) return;
         if (Date.now() - _lastSchedTime < 30000) return; // 반복 과금/중복 방지
         if (!lm.currentChatId) await lm.loadChat();
         if (!lm.currentChatId) return;
@@ -1189,7 +1292,7 @@ JSON만 출력 (마크다운/설명 금지): {"hasPlan":true 또는 false,"place
 구체적인 미래 계획이 없으면 {"hasPlan":false} 만 출력.${_curHint}
 
 텍스트:
-"""${text.slice(0, 1500)}"""`;
+"""${narrativeText.slice(0, 1500)}"""`;
         const result = await callLLM(prompt, { maxTokens: 256 });
         const p = result ? parseLLMJson(result) : null;
         if (!p || !p.hasPlan) return;
@@ -1248,13 +1351,14 @@ JSON만 출력 (마크다운/설명 금지): {"hasPlan":true 또는 false,"place
 async function _tryEvent(text, locId, source) {
     const _s = extension_settings[EXTENSION_NAME];
     if (_s?.autoEvent !== true) { dbg('⏭️ autoEvent OFF — 이벤트 자동 기록 생략'); return; }
-    dbg(`📋 _tryEvent (${source}) len=${text.length}`);
-    if (text.length < 25) { dbg('⏭️ Text too short'); return; }
+    const narrativeText = stripNonNarrativeMetadata(text);
+    dbg(`📋 _tryEvent (${source}) len=${narrativeText.length}`);
+    if (narrativeText.length < 25) { dbg('⏭️ Narrative text too short'); return; }
     // 같은 장소 5초 내 중복 방지 (다른 장소는 OK!)
     if (Date.now() - _lastEventTime < 5000 && _lastEventLocId === locId) { dbg('⏭️ Event cooldown (same loc)'); return; }
     // USER는 강한 키워드만, AI는 전체 트리거
-    if (source === 'USER' && !_strongKw.test(text)) { dbg('⏭️ USER no strong keyword'); return; }
-    if (source === 'AI' && !_triggerKw.test(text)) { dbg('⏭️ AI no trigger keyword'); return; }
+    if (source === 'USER' && !_strongKw.test(narrativeText)) { dbg('⏭️ USER no strong keyword'); return; }
+    if (source === 'AI' && !_triggerKw.test(narrativeText)) { dbg('⏭️ AI no trigger keyword'); return; }
     dbg(`🎯 Event trigger! (${source}) locId=${locId}`);
 
     const loc = lm.locations.find(l => l.id === locId);
@@ -1275,11 +1379,12 @@ async function _tryEvent(text, locId, source) {
     try {
         const ctx = getContext();
         // HTML 제거 + 메타데이터 제거
-        const clean = text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
+        const clean = narrativeText.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').trim();
         if (clean.length < 30) return;
 
         const trimmed = clean.length > 2000 ? clean.substring(0, 2000) : clean;
-        const userCtx = _userContext ? `\n\n[User's action]: ${_userContext.replace(/<[^>]*>/g, '').substring(0, 300)}` : '';
+        const cleanUserContext = stripNonNarrativeMetadata(_userContext).replace(/<[^>]*>/g, '').substring(0, 300);
+        const userCtx = cleanUserContext ? `\n\n[User's action]: ${cleanUserContext}` : '';
         const userName = ctx.name1 || 'User';
         const charName = ctx.name2 || 'Character';
         // ★ 캐릭터 맥락 (이벤트 요약 품질 향상)
@@ -1491,14 +1596,14 @@ ${trimmed}${userCtx}`;
 
     // ★ 폴백: LLM 실패 시 regex 추출
     if (!evText) {
-        const ev = _extractEventSummary(text, '');
+        const ev = _extractEventSummary(narrativeText, '');
         if (!ev) return;
         evText = ev.text;
         evTitle = ev.text.length > 15 ? ev.text.substring(0, 15) + '...' : ev.text;
         evMood = ev.mood;
         dbg(`📝 Regex Event: "${evTitle}" | "${evText}" (${evMood})`);
         // ★ LLM 실패 시 엄격한 regex로 plans 추출 (시간표현 + 행동동사 동시 필요)
-        const planSentences = text.replace(/<[^>]*>/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').split(/[.!?。]+/).filter(s => s.trim().length > 10);
+        const planSentences = narrativeText.replace(/<[^>]*>/g, '').replace(/<memo>[\s\S]*?<\/memo>/g, '').split(/[.!?。]+/).filter(s => s.trim().length > 10);
         const timeRx = /(?:내일|모레|일주일|보름|다음\s*주|다음\s*달|(\d+)\s*(?:주|달|개월|일)\s*(?:뒤|후)|이번\s*주말|tomorrow|next\s+(?:week|month)|in\s+(?:two|three|\d+)\s+(?:weeks?|months?|days?)|come\s+back|T\+\d+|at\s+\d{4}\b|by\s+\d{4}\b|\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)|오전|오후|저녁|아침)/i;
         const actionRx = /(?:가자|가기로|오자|만나|검진|재검|진료|예약|방문|장보기|이사|옮기|go\s+(?:to|back)|visit|return|come\s+back|check[- ]?up|appointment|see\s+(?:you|the\s+doctor)|move\s+(?:the|our|to)|transfer|pack|wheels\s+up|gear\s+up|이동|출발|떠나)/i;
         let regexPlanAdded = false;
@@ -1658,7 +1763,7 @@ function _extractPlansRegex(text) {
 // ========== 이벤트 요약 추출 (감정/사건 키워드 + 타입 분류) ==========
 function _extractEventSummary(text, locName) {
     // HTML만 제거 (대사는 유지! RP 감정은 대사 안에 있음)
-    const clean = text.replace(/<[^>]*>/g, '').trim();
+    const clean = stripNonNarrativeMetadata(text).replace(/<[^>]*>/g, '').trim();
     if (clean.length < 20) return null;
 
     // 메타데이터/시스템 텍스트 필터 (이벤트 아님)
@@ -1702,7 +1807,7 @@ function _extractEventSummary(text, locName) {
         for (const p of patterns) {
             if (p.rx.test(trimmed)) {
                 let summary = trimmed;
-                if (summary.length > 60) summary = summary.substring(0, 60) + '...';
+                if (summary.length > 500) summary = summary.substring(0, 500) + '...';
                 return { text: summary, type: p.type, mood: p.mood };
             }
         }

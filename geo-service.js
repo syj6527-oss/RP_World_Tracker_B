@@ -8,6 +8,14 @@ const PHOTON_BASE = 'https://photon.komoot.io';
 const CACHE_LIMIT = 100;
 const REQUEST_INTERVAL_MS = 1000;
 const COORDINATE_PRECISION = 4;
+const AMBIGUOUS_AUTOMATIC_PLACE = new Set([
+    'room', 'bedroom', 'bathroom', 'kitchen', 'living room', 'hall', 'lobby',
+    'office', 'home', 'house', 'bar', 'club', 'cafe', 'restaurant', 'shop',
+    'store', 'park', 'hotel', 'hospital', 'school', 'station',
+    '방', '침실', '화장실', '욕실', '부엌', '주방', '거실', '복도', '로비',
+    '사무실', '집', '술집', '클럽', '카페', '식당', '가게', '공원',
+    '호텔', '병원', '학교', '역',
+]);
 const searchCache = new Map();
 const reverseCache = new Map();
 let lastRequestAt = 0;
@@ -28,7 +36,13 @@ function cleanQuery(value) {
         .slice(0, 160);
 }
 
+export function isAmbiguousAutomaticPlaceQuery(value) {
+    const key = cleanQuery(value).normalize('NFKC').toLocaleLowerCase();
+    return AMBIGUOUS_AUTOMATIC_PLACE.has(key);
+}
+
 function finiteCoordinate(value, min, max) {
+    if (value == null || String(value).trim() === '') return null;
     const number = Number(value);
     return Number.isFinite(number) && number >= min && number <= max ? number : null;
 }
@@ -111,10 +125,15 @@ function normalizeFeature(feature) {
  */
 export async function searchPlaces(query, options = {}) {
     const automatic = options.automatic === true;
+    const throwOnError = options.throwOnError === true;
     if (automatic && settings().allowAutoGeocoding !== true) return [];
 
     const q = cleanQuery(query);
     if (q.length < 2) return [];
+    // Bare generic RP labels have thousands of real-world namesakes. Manual
+    // search remains available, but background geocoding must not turn "Room"
+    // or "방" into an unrelated country.
+    if (automatic && isAmbiguousAutomaticPlaceQuery(q)) return [];
     const limit = Math.max(1, Math.min(5, Number(options.limit) || 5));
     const lat = finiteCoordinate(options.bias?.lat, -90, 90);
     const lng = finiteCoordinate(options.bias?.lng, -180, 180);
@@ -132,11 +151,15 @@ export async function searchPlaces(query, options = {}) {
 
     try {
         const response = await fairFetch(url.toString());
-        if (!response.ok) return [];
+        if (!response.ok) {
+            if (throwOnError) throw new Error(`Photon search failed with HTTP ${response.status}`);
+            return [];
+        }
         const data = await response.json();
         const results = (data?.features || []).map(normalizeFeature).filter(Boolean).slice(0, limit);
         return remember(searchCache, cacheKey, results);
-    } catch (_) {
+    } catch (error) {
+        if (throwOnError) throw error;
         return [];
     }
 }

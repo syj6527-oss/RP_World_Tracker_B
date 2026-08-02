@@ -2,7 +2,8 @@
 
 import { extension_settings, getContext } from '../../../extensions.js';
 import { setExtensionPrompt } from '../../../../script.js';
-import { PROMPT_KEY } from './index.js';
+import { EXTENSION_NAME, PROMPT_KEY } from './index.js';
+import { redactOutboundSecrets } from './secret-redaction.js';
 
 const MAX_INJECTION_CHARS = 12000;
 
@@ -205,7 +206,9 @@ export class PromptInjector {
         }
 
         L.push('[/Paw Map]');
-        const prompt = L.join('\n');
+        // This prompt goes to the normal chat provider rather than callLLM(), so
+        // apply the same last-mile secret masking here as well.
+        const prompt = redactOutboundSecrets(L.join('\n'));
         if (prompt.length <= MAX_INJECTION_CHARS) return prompt;
         const suffix = '\n[Map context truncated to limit input-token growth]\n[/Paw Map]';
         return prompt.slice(0, MAX_INJECTION_CHARS - suffix.length) + suffix;

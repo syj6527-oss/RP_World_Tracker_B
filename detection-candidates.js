@@ -20,6 +20,10 @@ const GENERIC_PLACE = new Set([
     '술집', '클럽', '식당', '카페', '사무실', '방', '집', '가게', '공원',
     '호텔', '병원', '학교', '역',
 ]);
+const STANDALONE_SUBPLACE = new Set([
+    'room', 'bedroom', 'bathroom', 'kitchen', 'living room', 'hall', 'lobby',
+    '방', '침실', '화장실', '욕실', '부엌', '주방', '거실', '복도', '로비',
+]);
 
 const ACTION_HOME = /^(?:(?:crawl|crawled|crawling|go|going|went|walk|walked|walking|run|ran|running|return|returned|returning|head|headed|heading|come|came|coming|get|got|getting)\s+(?:back\s+)?(?:to\s+)?)home$/i;
 const RELATIVE_SUFFIX = /\s*(?:바로\s*)?(앞|뒤|옆|근처|맞은편|입구|안|밖|앞쪽|뒤편)$/;
@@ -85,11 +89,13 @@ export function assessPlaceCandidate(rawName, options = {}) {
     let kind = requestedKind;
     let reason = sanitizeCandidateText(options.reason, 140) || '이동 문맥에서 새 장소명 후보를 찾음';
     let existingId = '';
+    let inferredParentId = '';
 
     const exact = requestedKind === 'sub' ? null : options.locationManager?.findByNameExact?.(name);
     if (exact) {
         existingId = exact.id;
-        kind = requestedKind;
+        kind = exact.parentId ? 'sub' : requestedKind;
+        inferredParentId = exact.parentId || '';
         confidence = Math.max(confidence, 0.94);
         reason = `기존 장소 “${sanitizeCandidateText(exact.name, 80)}”와 정확히 일치`;
     } else {
@@ -108,10 +114,10 @@ export function assessPlaceCandidate(rawName, options = {}) {
 
     if (GENERIC_PLACE.has(key)) {
         confidence = Math.min(confidence, 0.64);
-        reason = '일반 시설명이라 같은 이름의 다른 장소일 수 있음';
+        if (kind !== 'sub') reason = '일반 시설명이라 같은 이름의 다른 장소일 수 있음';
     }
 
-    return { accepted: true, name, key, kind, confidence, reason, existingId };
+    return { accepted: true, name, key, kind, confidence, reason, existingId, parentId: inferredParentId };
 }
 
 export function suspiciousLocationReason(location = {}) {
@@ -124,6 +130,7 @@ export function suspiciousLocationReason(location = {}) {
     if (looksLikeSentenceFragment(name)) return '문장 조각';
     if (/^[\p{L}\p{N}]$/u.test(name) && !['집', '방', '역', '산', '강'].includes(name)) return '한 글자 조각';
     if (RELATIVE_SUFFIX.test(name)) return '상대 위치 표현 — 기존 장소 연결 검토';
+    if (!location.parentId && STANDALONE_SUBPLACE.has(key)) return '상위 장소 없이 등록된 내부 장소';
     if (location.verification === 'legacy-auto' || location.source === 'auto') return '이전 자동 감지로 등록';
     return '';
 }
@@ -159,15 +166,37 @@ export class DetectionCandidateManager {
         }
 
         const chatKey = String(this.lm?.currentChatId || '');
-        const dedupeKey = `${chatKey}|${assessment.key}|${assessment.kind}`;
-        const existing = this._items.find(item => item.dedupeKey === dedupeKey);
+        const requestedParentId = String(assessment.parentId || options.parentId || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 160);
+        const validParent = assessment.kind === 'sub'
+            ? this.lm?.locations?.find(location => location.id === requestedParentId && !location.parentId &&
+                normalizeCandidateKey(location.name) !== assessment.key &&
+                !(location.aliases || []).some(alias => normalizeCandidateKey(alias) === assessment.key))
+            : null;
+        const parentId = validParent?.id || '';
+        const baseDedupeKey = `${chatKey}|${assessment.key}|${assessment.kind}`;
+        const dedupeKey = assessment.kind === 'sub' && parentId ? `${baseDedupeKey}|${parentId}` : baseDedupeKey;
+        let existing = this._items.find(item => item.dedupeKey === dedupeKey);
+        let parentContextUpdated = false;
+        // A parentless Room held for review may become actionable when a real
+        // current parent appears. Upgrade that same card instead of losing it or
+        // creating a second copy. Different real parents keep separate cards.
+        if (!existing && assessment.kind === 'sub' && parentId) {
+            existing = this._items.find(item => item.dedupeKey === baseDedupeKey && !item.parentId);
+            if (existing) {
+                existing.parentId = parentId;
+                existing.dedupeKey = dedupeKey;
+                existing.reason = assessment.reason;
+                existing.source = sanitizeCandidateText(options.source || existing.source || 'unknown', 24);
+                parentContextUpdated = true;
+            }
+        }
         if (existing) {
             existing.seenCount = Math.min(999, (existing.seenCount || 1) + 1);
             existing.confidence = Math.max(existing.confidence, assessment.confidence);
             existing.lastSeenAt = Date.now();
             if (!existing.snippet && options.snippet) existing.snippet = sanitizeCandidateText(options.snippet, 180);
             this._emit();
-            return { queued: true, duplicate: true, candidate: { ...existing } };
+            return { queued: true, duplicate: true, parentContextUpdated, candidate: { ...existing } };
         }
 
         const candidate = {
@@ -181,7 +210,7 @@ export class DetectionCandidateManager {
             confidence: assessment.confidence,
             reason: assessment.reason,
             existingId: assessment.existingId || '',
-            parentId: String(options.parentId || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 160),
+            parentId,
             rpDate: sanitizeCandidateText(options.rpDate, 80),
             // Ephemeral evidence only. It is never written to IndexedDB or backup JSON.
             snippet: sanitizeCandidateText(options.snippet, 180),

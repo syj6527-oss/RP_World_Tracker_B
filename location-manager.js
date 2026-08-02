@@ -4,6 +4,7 @@ import { getContext, extension_settings } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
 import { reverseGeocode } from './geo-service.js';
 import { approximateCoordinatesNear } from './approximate-location.js';
+import { equivalentPlaceLabel, recoverCurrentLocationState } from './place-hierarchy.js';
 
 const SECRET_FIELD_PATTERN = /^(?:api[_-]?key|private[_-]?key|authorization|bearer|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret|password|vertexSaJson|llmApiKey)$/i;
 
@@ -321,8 +322,14 @@ export class LocationManager {
 
     // ★ 서브 장소 찾기/생성 (별칭 매칭 강화)
     async findOrCreateSub(parentId, subName) {
+        // A child may only belong to a real top-level place. This final storage
+        // guard protects every caller, including old UI and metadata paths.
+        const parent = this.locations.find(location => location.id === parentId && !location.parentId);
+        if (!parent) return null;
         const normalized = this._normalizeSubName(subName);
         if (!normalized) return null;
+        const parentLabels = [parent.name, ...(parent.aliases || [])];
+        if (parentLabels.some(label => equivalentPlaceLabel(label, normalized, LocationManager.PLACE_DICT))) return null;
         const lo = normalized.toLowerCase().trim();
 
         // 별칭 그룹 찾기 (입력이 어떤 그룹에 속하는지)
@@ -363,7 +370,7 @@ export class LocationManager {
         // 새로 생성
         const loc = {
             id: this.generateId(), chatId: this.currentChatId,
-            name: normalized, aliases: normalized !== safeText(subName, 160) ? [safeText(subName, 160)].filter(Boolean) : [], parentId: safeText(parentId, 160),
+            name: normalized, aliases: normalized !== safeText(subName, 160) ? [safeText(subName, 160)].filter(Boolean) : [], parentId: safeText(parent.id, 160),
             x: 0, y: 0, lat: null, lng: null,
             visitCount: 0, firstVisited: null, lastVisited: null,
             memo: '', status: '', color: this._rndColor(), createdAt: Date.now(), verification: 'confirmed', source: 'manual', _securitySanitized0946: true, _securitySanitized0947: true,
@@ -381,6 +388,7 @@ export class LocationManager {
         if (!sub.firstVisited) sub.firstVisited = Date.now();
         await this.db.putLocation(sub);
         this.currentSubLocationId = subId;
+        await this._saveCfg();
     }
 
     // ★ 부모 장소의 서브 목록
@@ -447,10 +455,17 @@ export class LocationManager {
             if (original?._securitySanitized0947 !== true || original?.id !== canonicalId) await this.db.saveDistance(clean);
         }
         const cfg = await this.db.getMapConfig(this.currentChatId);
-        if (cfg) this.currentLocationId = safeIdentifier(cfg.currentLocationId, 160) || null;
+        const configuredCurrentId = safeIdentifier(cfg?.currentLocationId, 160) || null;
+        const configuredSubId = safeIdentifier(cfg?.currentSubLocationId, 160) || null;
+        const recoveredCurrent = recoverCurrentLocationState(this.locations, configuredCurrentId, configuredSubId);
+        this.currentLocationId = recoveredCurrent.currentLocationId;
+        this.currentSubLocationId = recoveredCurrent.currentSubLocationId;
         this.ignoredDetectedNames = Array.isArray(cfg?.ignoredDetectedNames)
             ? [...new Set(cfg.ignoredDetectedNames.slice(0, 300).map(normalizedDetectionName).filter(Boolean))]
             : [];
+        // Old builds could persist a child ID as the world-map current location.
+        // Repair only the config pointer; the child, its events and its parent stay untouched.
+        if (recoveredCurrent.repaired) await this._saveCfg();
     }
 
     // ★ 마이그레이션: chatId 데이터를 characterId 키로 복사
@@ -672,6 +687,7 @@ export class LocationManager {
         await this.db.saveMapConfig({
             chatId: this.currentChatId,
             currentLocationId: this.currentLocationId,
+            currentSubLocationId: this.currentSubLocationId,
             ignoredDetectedNames: this.ignoredDetectedNames.slice(-300),
         });
     }

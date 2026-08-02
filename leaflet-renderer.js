@@ -4,6 +4,7 @@
 import { extension_settings } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
 import { searchPlaces } from './geo-service.js';
+import { calculateRpRoute, rpRouteGeoJson } from './rp-route.js';
 
 const STYLE_URLS = Object.freeze({
     liberty: 'https://tiles.openfreemap.org/styles/liberty',
@@ -12,6 +13,7 @@ const STYLE_URLS = Object.freeze({
 });
 
 function validCoordinate(value, min, max) {
+    if (value == null || String(value).trim() === '') return null;
     const number = Number(value);
     return Number.isFinite(number) && number >= min && number <= max ? number : null;
 }
@@ -29,9 +31,11 @@ export class LeafletRenderer {
         this.onMoveStart = null;
         this.onMoveComplete = null;
         this.onLongPress = null;
+        this.onRpRouteChange = null;
         this._movingLocId = null;
         this._selectedPinId = null;
         this._searchMarker = null;
+        this._rpRoute = null;
         this._viewSet = false;
         this._styleReady = false;
     }
@@ -122,6 +126,7 @@ export class LeafletRenderer {
                 this._styleReady = true;
                 this._addThreeDimensionalBuildings();
                 this._syncMovementPath();
+                this._syncRpRoute();
                 this.render();
                 done(true);
             });
@@ -192,7 +197,7 @@ export class LeafletRenderer {
         root.style.cssText = `position:relative;width:${size}px;height:${Math.round(size * 1.35)}px;cursor:pointer;user-select:none;touch-action:none;`;
 
         const pin = document.createElement('div');
-        pin.style.cssText = `position:absolute;left:50%;top:0;width:${size}px;height:${size}px;transform:translateX(-50%) rotate(45deg);border-radius:50% 50% 50% 0;background:${pinColor};border:2px ${isApproximate ? 'dashed' : 'solid'} rgba(255,255,255,.96);box-shadow:0 2px 7px rgba(0,0,0,.32);box-sizing:border-box;`;
+        pin.style.cssText = `position:absolute;left:50%;top:0;width:${size}px;height:${size}px;transform:translateX(-50%) rotate(-45deg);border-radius:50% 50% 50% 0;background:${pinColor};border:2px ${isApproximate ? 'dashed' : 'solid'} rgba(255,255,255,.96);box-shadow:0 2px 7px rgba(0,0,0,.32);box-sizing:border-box;`;
         const icon = document.createElement('span');
         icon.textContent = style.emoji;
         icon.style.cssText = `position:absolute;left:50%;top:${Math.round(size * 0.18)}px;transform:translateX(-50%);font-size:${Math.round(size * 0.39)}px;line-height:1;z-index:2;`;
@@ -253,6 +258,7 @@ export class LeafletRenderer {
         }
 
         this._syncMovementPath();
+        this._syncRpRoute();
         if (!this._viewSet && coordinates.length) {
             const current = locations.find(loc => loc.id === currentLocationId);
             if (current?.lat != null && current?.lng != null) {
@@ -309,6 +315,71 @@ export class LeafletRenderer {
         } catch (_) {}
     }
 
+    _recalculateRpRoute() {
+        if (!this._rpRoute) return null;
+        const origin = this.lm.locations.find(location => location.id === this._rpRoute.originId);
+        const destination = this.lm.locations.find(location => location.id === this._rpRoute.destinationId);
+        this._rpRoute = origin && destination ? calculateRpRoute(origin, destination) : null;
+        return this._rpRoute;
+    }
+
+    _notifyRpRouteChange() {
+        try { this.onRpRouteChange?.(this._rpRoute); } catch (_) {}
+    }
+
+    _syncRpRoute() {
+        this._recalculateRpRoute();
+        if (!this._map || !this._styleReady) {
+            this._notifyRpRouteChange();
+            return this._rpRoute;
+        }
+        const data = rpRouteGeoJson(this._rpRoute);
+        const source = this._map.getSource('wt-rp-route');
+        if (source?.setData) {
+            source.setData(data);
+        } else {
+            try {
+                this._map.addSource('wt-rp-route', { type: 'geojson', data });
+                this._map.addLayer({
+                    id: 'wt-rp-route-shadow',
+                    type: 'line',
+                    source: 'wt-rp-route',
+                    paint: { 'line-color': 'rgba(255,255,255,.95)', 'line-width': 8, 'line-opacity': .95 },
+                });
+                this._map.addLayer({
+                    id: 'wt-rp-route-line',
+                    type: 'line',
+                    source: 'wt-rp-route',
+                    paint: { 'line-color': '#E07C3A', 'line-width': 4, 'line-opacity': .95, 'line-dasharray': [2, 1.2] },
+                });
+            } catch (_) {}
+        }
+        this._notifyRpRouteChange();
+        return this._rpRoute;
+    }
+
+    showRpRoute(origin, destination) {
+        const route = calculateRpRoute(origin, destination);
+        if (!route) return null;
+        this._rpRoute = route;
+        this._syncRpRoute();
+        try {
+            const bounds = new window.maplibregl.LngLatBounds(route.coordinates[0], route.coordinates[0]);
+            bounds.extend(route.coordinates[1]);
+            this._map?.fitBounds(bounds, { padding: 70, maxZoom: 16, duration: 450 });
+        } catch (_) {}
+        return route;
+    }
+
+    clearRpRoute() {
+        this._rpRoute = null;
+        this._syncRpRoute();
+    }
+
+    refreshRpRoute() {
+        return this._syncRpRoute();
+    }
+
     startPlacing(locId) {
         this._movingLocId = locId;
         if (this._map) this._map.getCanvas().style.cursor = 'crosshair';
@@ -355,6 +426,7 @@ export class LeafletRenderer {
 
     destroy() {
         this.clearSearchMarker();
+        this._rpRoute = null;
         Object.values(this.markers).forEach(marker => marker.remove?.());
         this.markers = {};
         try { this._map?.remove(); } catch (_) {}

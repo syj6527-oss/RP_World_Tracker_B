@@ -118,10 +118,10 @@ function firstGrapheme(value, fallback = '👤') {
 }
 
 const defaults = {
-    // v0.9.0: autoDetect 기본 OFF — 수동 모드로 전환 (드래그 이벤트 등록만 자동)
-    // v0.9.2: autoDetect는 "모든 자동 장소 감지"의 마스터 스위치 (캐릭터시트 추출 포함). 기본 OFF 유지.
+    // 장소 자동 등록은 PAW MAP의 핵심 기능이다. 외부 AI/외부 지오코딩과 달리
+    // 로컬 규칙 감지 자체는 과금이나 외부 전송을 만들지 않는다.
     // v0.9.23: detectMode = 'off'(수동) | 'confirm'(팝업 확인) | 'auto'(자동). autoEvent = 텍스트에서 이벤트 자동 추출 on/off
-    enabled:true, autoDetect:false, detectMode:'off', autoEvent:false, autoSchedule:false, showDetectToast:true,
+    enabled:true, autoDetect:true, detectMode:'auto', autoEvent:false, autoSchedule:false, showDetectToast:true,
     aiInjection:false, memoryMode:'natural', memorySummaryDays:7, panelOpacity:100,
     debugMode:false, mapMode:'leaflet', fantasyTheme:false,
     eventLang:'auto', // auto=RP언어, ko=한국어, en=English
@@ -169,9 +169,74 @@ function dbg(msg) {
     if (s?.debugMode) wtNotify(`🔧 ${msg}`, 'info', 3000);
 }
 
+let _autoPlaceCommitChain = Promise.resolve();
+
+async function commitDetectedPlace(candidate) {
+    if (!candidate || !lm?.currentChatId) return null;
+    const source = ['character', 'schedule'].includes(candidate.source) ? candidate.source : 'detected';
+
+    if (candidate.kind === 'sub') {
+        const parent = lm.locations.find(location => location.id === candidate.parentId && !location.parentId);
+        if (!parent) return null;
+        const sub = await lm.findOrCreateSub(parent.id, candidate.name);
+        if (sub) {
+            await lm.moveTo(parent.id, candidate.rpDate);
+            await lm.moveToSub(sub.id);
+        }
+        return sub;
+    }
+
+    let location = candidate.existingId
+        ? lm.locations.find(item => item.id === candidate.existingId)
+        : lm.findByNameExact(candidate.name);
+    let created = false;
+    if (!location) {
+        location = await lm.addLocation(candidate.name, '', [], { source });
+        created = Boolean(location);
+    }
+    if (!location) return null;
+
+    if (candidate.kind === 'planned') {
+        await lm.updateLocation(location.id, {
+            tags: [...new Set([...(location.tags || []), 'wantToGo'])],
+            _tempAddress: location._approximateCoordinates === true || !location.address,
+        });
+    } else if (candidate.kind === 'current' || candidate.kind === 'relative') {
+        await lm.moveTo(location.id, candidate.rpDate);
+    }
+
+    // 사용자가 따로 켠 경우에만 감지 장소명을 Photon에 보내 추정 핀을 실제 좌표로 교체한다.
+    if (created && extension_settings[EXTENSION_NAME]?.allowAutoGeocoding === true && !location.parentId) {
+        const geocoded = await _geocodeQuiet(location.name);
+        if (geocoded) {
+            location = await lm.updateLocation(location.id, {
+                lat: geocoded.lat, lng: geocoded.lng, address: geocoded.addr,
+                _approximateCoordinates: false, _approximateAnchorId: null,
+                _tempAddress: false, _geoFixed: true, _geocodeSuppressed: false,
+            });
+        }
+    }
+
+    pi?.inject();
+    if (ui?.panelVisible) ui.refresh();
+    if (extension_settings[EXTENSION_NAME]?.showDetectToast) {
+        wtNotify(`${wtMascot()} 📍 ${location.name}${location._approximateCoordinates ? ' · 추정 핀' : ''}`, 'move', 2600);
+    }
+    return location;
+}
+
 function queueDetectedPlace(name, options = {}) {
     if (!detectionCandidates) return { queued: false };
     const result = detectionCandidates.add(name, options);
+    const mode = extension_settings[EXTENSION_NAME]?.detectMode || (extension_settings[EXTENSION_NAME]?.autoDetect ? 'auto' : 'off');
+    if (result.queued && !result.duplicate && mode === 'auto' && options.autoCommit !== false) {
+        const candidate = result.candidate;
+        detectionCandidates.dismiss(candidate.id);
+        _autoPlaceCommitChain = _autoPlaceCommitChain
+            .then(() => commitDetectedPlace(candidate))
+            .catch(() => null);
+        return { ...result, autoCommitted: true, commitPromise: _autoPlaceCommitChain };
+    }
     if (result.queued && !result.duplicate && extension_settings[EXTENSION_NAME]?.showDetectToast) {
         wtNotify(`🪧 장소 후보: ${result.candidate.name}`, 'info', 2600);
     }
@@ -181,7 +246,7 @@ function queueDetectedPlace(name, options = {}) {
 
 // ========== 메시지 스캔 (USER/AI 감도 분리) ==========
 // v0.9.41: detectMode 도입으로 자동 감지 재활성화 — 실제 로직(_legacyScanMessage) 연결.
-//   detectMode='off'(기본)이면 _legacyScanMessage 내부에서 즉시 return하므로 옵트인 안전.
+//   detectMode='off'이면 _legacyScanMessage 내부에서 즉시 return한다.
 async function scanMessage(text, source = 'USER') {
     return await _legacyScanMessage(text, source);
 }
@@ -477,12 +542,14 @@ async function _legacyScanMessage(text, source = 'USER') {
                     if (_dm === 'auto') await _tryEvent(text, existing.id, source);
                     return true;
                 } else {
-                    queueDetectedPlace(metaLoc, {
+                    const queued = queueDetectedPlace(metaLoc, {
                         source: 'meta', kind: 'current', confidence: 0.86,
-                        reason: 'Location/장소 메타 필드에서 찾음 — 모델 상태창도 틀릴 수 있어 승인 필요',
+                        reason: 'Location/장소 메타 필드에서 찾음',
                         snippet: text, rpDate,
                     });
-                    if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
+                    const committed = queued.commitPromise ? await queued.commitPromise : null;
+                    const eventLocId = committed?.id || lm.currentLocationId;
+                    if (eventLocId) await _tryEvent(text, eventLocId, source);
                     return true;
                 }
             }
@@ -504,7 +571,7 @@ async function _legacyScanMessage(text, source = 'USER') {
                 queueDetectedPlace(location.name, {
                     source: mode, kind: 'current', confidence,
                     reason: '기존 장소명이 언급됐지만 이동 표현이 이름 바로 옆에서 확실하지 않음',
-                    snippet: text, rpDate,
+                    snippet: text, rpDate, autoCommit: false,
                 });
                 return true;
             }
@@ -517,14 +584,16 @@ async function _legacyScanMessage(text, source = 'USER') {
         const np = det.detectNewPlace(text, mode);
         if (np) {
             dbg(`🆕 "${np}" (${source})`);
-            queueDetectedPlace(np, {
+            const queued = queueDetectedPlace(np, {
                 source: mode,
                 kind: lm.isSubLocation(np) && lm.currentLocationId ? 'sub' : 'current',
                 confidence: mode === 'user' ? 0.76 : 0.68,
                 reason: lm.isSubLocation(np) ? '내부 장소로 보이지만 부모 장소를 확인해야 함' : '이동 문맥에서 미등록 장소명을 찾음',
                 snippet: text, rpDate,
             });
-            if (lm.currentLocationId) await _tryEvent(text, lm.currentLocationId, source);
+            const committed = queued.commitPromise ? await queued.commitPromise : null;
+            const eventLocId = committed?.id || lm.currentLocationId;
+            if (eventLocId) await _tryEvent(text, eventLocId, source);
             return true;
         }
 
@@ -589,6 +658,13 @@ async function init() {
         extension_settings[EXTENSION_NAME].autoDetect = false;
         extension_settings[EXTENSION_NAME]._securityMigration0947 = true;
     }
+    // v0.9.49: v0.9.47에서 잘못 강제 해제한 핵심 자동 등록 동작을 한 번 복구한다.
+    // 이 기능은 로컬 규칙 감지이며 외부 AI·Photon 동의 설정은 건드리지 않는다.
+    if (!extension_settings[EXTENSION_NAME]._restoreCoreDetection0949) {
+        extension_settings[EXTENSION_NAME].detectMode = 'auto';
+        extension_settings[EXTENSION_NAME].autoDetect = true;
+        extension_settings[EXTENSION_NAME]._restoreCoreDetection0949 = true;
+    }
     // Treat privacy- and billing-sensitive settings as strict booleans on every load.
     // Corrupt/legacy string values such as "true" must never become implicit opt-ins.
     for (const key of ['externalAiEnabled', 'shareRpData', 'allowAutoGeocoding', 'autoEvent', 'autoSchedule', 'dragEvent', 'aiInjection']) {
@@ -606,9 +682,8 @@ async function init() {
     }
     extension_settings[EXTENSION_NAME].mapSearchLanguage = extension_settings[EXTENSION_NAME].mapSearchLanguage === 'en' ? 'en' : 'ko';
     extension_settings[EXTENSION_NAME].debugMode = false;
-    // v0.9.0: 자동 감지 폐지 — 기존 유저도 강제 OFF
+    // 구버전 마이그레이션 표식은 유지하되 v0.9.49 복구값을 다시 덮지 않는다.
     if (!extension_settings[EXTENSION_NAME]._migrated_v090) {
-        extension_settings[EXTENSION_NAME].autoDetect = false;
         extension_settings[EXTENSION_NAME]._migrated_v090 = true;
     }
     // ★ v0.6.0 마이그레이션: 기존 'node' 유저 → 'leaflet' 강제 전환 (한 번만)
@@ -1084,7 +1159,7 @@ async function _ensureTempPinned() {
                 // 이름에 도시/국가 → 그 위치로 지오코딩 (집 근처 오배치 교정)
                 const g = await _geocodeQuiet(det.cityGeoQuery(cityNm), true);
                 if (g) {
-                    await lm.updateLocation(l.id, { lat: g.lat, lng: g.lng, address: g.addr, _geoFixed: true });
+                    await lm.updateLocation(l.id, { lat: g.lat, lng: g.lng, address: g.addr, _geoFixed: true, _approximateCoordinates: false, _approximateAnchorId: null, _tempAddress: false });
                     changed++;
                     await new Promise(r => setTimeout(r, 1100)); // rate-limit 완화
                     continue;

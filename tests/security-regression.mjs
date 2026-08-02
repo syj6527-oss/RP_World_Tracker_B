@@ -5,6 +5,7 @@ import { assessPlaceCandidate, DetectionCandidateManager, suspiciousLocationReas
 import { buildGoogleMapsUrl, isAllowedGoogleMapsUrl } from '../google-maps-links.js';
 import { LocationDetector } from '../detector.js';
 import { redactSecretFields } from '../db.js';
+import { approximateCoordinatesNear } from '../approximate-location.js';
 
 const locations = [
     { id: 'club', name: 'Club', aliases: [] },
@@ -89,6 +90,9 @@ assert.ok(directions.searchParams.get('origin'));
 assert.ok(directions.searchParams.get('destination'));
 assert.equal(buildGoogleMapsUrl('directions', destination, null), null, 'never let Google substitute real device origin');
 assert.equal(buildGoogleMapsUrl('streetview', { name: 'No coordinate', verification: 'confirmed' }), null);
+const approximatePlace = { name: 'Approximate Club', lat: 37.5667, lng: 126.9782, _approximateCoordinates: true, verification: 'confirmed' };
+assert.equal(buildGoogleMapsUrl('streetview', approximatePlace), null, 'approximate RP pins must never open Street View at a fabricated coordinate');
+assert.equal(new URL(buildGoogleMapsUrl('view', approximatePlace)).searchParams.get('query'), 'Approximate Club', 'Google place view must fall back to the name instead of an approximate coordinate');
 assert.equal(isAllowedGoogleMapsUrl('https://evil.example/maps/search/?api=1&query=Home'), false);
 assert.equal(isAllowedGoogleMapsUrl('https://www.google.com/maps/search/?api=1&query=Home&key=secret'), false);
 assert.equal(isAllowedGoogleMapsUrl('https://www.google.com/maps/search/?query=Home'), false);
@@ -111,11 +115,17 @@ const uiSource = fs.readFileSync(`${sourceRoot}/ui-manager.js`, 'utf8');
 const locationSource = fs.readFileSync(`${sourceRoot}/location-manager.js`, 'utf8');
 const indexSource = fs.readFileSync(`${sourceRoot}/index.js`, 'utf8');
 const geoSource = fs.readFileSync(`${sourceRoot}/geo-service.js`, 'utf8');
-assert.doesNotMatch(uiSource, /30\s*\+\s*Math\.random\(\)\s*\*\s*120/, 'one confirmed coordinate must not fabricate nearby pins');
+const approximateSource = fs.readFileSync(`${sourceRoot}/approximate-location.js`, 'utf8');
+assert.doesNotMatch(approximateSource, /Math\.random/, 'approximate pins must be stable rather than shifting randomly');
 assert.match(uiSource, /wt-cleanup-coordinate/, 'legacy clustered coordinates need an explicit per-place cleanup UI');
 assert.match(uiSource, /lat:\s*null,\s*lng:\s*null,\s*address:\s*''[^\n]+_geocodeSuppressed:\s*true/, 'coordinate cleanup must clear only selected geocoding data and prevent silent re-creation');
-assert.doesNotMatch(locationSource, /placeNearAnchor|111320/, 'location creation must never inherit or fabricate GPS');
-assert.doesNotMatch(indexSource, /\blm\.addLocation\s*\(/, 'automatic scanners must queue candidates instead of storing places');
+assert.match(locationSource, /approximateCoordinatesNear\(anchor,/, 'coordinate-less auto registrations must receive an explicitly marked nearby estimate');
+assert.match(indexSource, /commitDetectedPlace[\s\S]*?lm\.addLocation\(candidate\.name/, 'auto mode must preserve the core detected-place registration behavior');
+assert.match(indexSource, /detectMode:'auto'/, 'automatic place registration must remain the default core mode');
+const estimate = approximateCoordinatesNear({ lat: 37.5665, lng: 126.978 }, 'stable-place');
+const estimateAgain = approximateCoordinatesNear({ lat: 37.5665, lng: 126.978 }, 'stable-place');
+assert.deepEqual(estimate, estimateAgain, 'the same place must keep the same approximate pin');
+assert.ok(estimate.distanceMeters >= 30 && estimate.distanceMeters <= 150, 'approximate pin must stay inside the intended radius');
 assert.doesNotMatch(geoSource, /searchParams\.set\(['"]lang['"],\s*['"]ko['"]\)/, 'Photon public API rejects lang=ko; local-language mode must omit it');
 assert.match(geoSource, /mapSearchLanguage\s*===\s*['"]en['"][^\n]+searchParams\.set\(['"]lang['"],\s*['"]en['"]\)/, 'English output may explicitly request lang=en');
 const manualLongPressBlock = uiSource.match(/onLongPress\s*=\s*async[\s\S]*?\n\s*};/)?.[0] || '';

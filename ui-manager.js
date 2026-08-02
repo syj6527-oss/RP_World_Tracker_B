@@ -245,7 +245,7 @@ export class UIManager {
             if (!ids.length) { toastWarn('좌표·주소를 초기화할 장소를 먼저 체크해주세요.'); return; }
             if (!confirm(`선택한 장소 ${ids.length}개의 실제 지도 좌표와 주소를 지울까요? 장소·이벤트·이동 기록과 약도 위치는 유지되며, 주소 검색으로 다시 배치할 수 있습니다.`)) return;
             for (const id of ids) {
-                await this.lm.updateLocation(id, { lat: null, lng: null, address: '', _tempAddress: false, _geoFixed: false, _geocodeSuppressed: true });
+                await this.lm.updateLocation(id, { lat: null, lng: null, address: '', _tempAddress: false, _geoFixed: false, _geocodeSuppressed: true, _approximateCoordinates: false, _approximateAnchorId: null });
             }
             this.pi?.inject(); this.refresh(); closeCleanup();
             toastSuccess(`🧭 장소 ${ids.length}개의 좌표·주소 초기화`);
@@ -326,12 +326,12 @@ export class UIManager {
                 <div class="wt-divider"></div>
                 <!-- v0.9.23: 장소 감지 모드 (끔/확인/자동) + 이벤트 자동 기록 -->
                 <div class="wt-s-row" style="display:none"><label><input type="checkbox" id="wt-s-detect"/> 🔍 자동 감지</label></div>
-                <div class="wt-s-row" style="display:flex;align-items:center;gap:6px" title="새 장소는 어느 모드에서도 후보함을 거쳐야 합니다. 자동은 강한 기존 장소 이동만 자동 적용합니다.">
+                <div class="wt-s-row" style="display:flex;align-items:center;gap:6px" title="자동 모드는 강화된 오탐 필터를 통과한 장소를 즉시 등록하고, 좌표가 없으면 현재 장소 주변에 추정 핀을 만듭니다.">
                     <label style="white-space:nowrap">🔍 장소 감지</label>
                     <select id="wt-s-detectmode" class="text_pole wt-select" style="flex:1;font-size:11px">
                         <option value="off">끔 (수동 등록만)</option>
-                        <option value="confirm">후보함에서 확인 (권장)</option>
-                        <option value="auto">강한 기존 이동만 자동</option>
+                        <option value="confirm">후보함에서 확인</option>
+                        <option value="auto">자동 감지·등록 (기본)</option>
                     </select>
                 </div>
                 <div class="wt-s-row" title="새 메시지마다 선택한 연결 프로필을 호출할 수 있습니다"><label><input type="checkbox" id="wt-s-autoevent"/> 💳 AI 이벤트 자동 기록 (과금 가능)</label></div>
@@ -487,7 +487,7 @@ export class UIManager {
                 s.detectMode = $('#wt-s-detectmode').val();
                 s.autoDetect = (s.detectMode === 'auto'); // 레거시 호환 유지
                 saveSettingsDebounced();
-                toastSuccess(s.detectMode === 'off' ? '🔍 장소 감지 끔' : s.detectMode === 'confirm' ? '🪧 새 장소는 후보함에서 확인' : '🔍 강한 기존 이동만 자동 · 새 장소는 후보함');
+                toastSuccess(s.detectMode === 'off' ? '🔍 장소 감지 끔' : s.detectMode === 'confirm' ? '🪧 새 장소는 후보함에서 확인' : '🔍 장소 자동 감지·등록');
             });
         }
         $('#wt-s-inject').on('change', () => { s.aiInjection ? this.pi?.inject() : this.pi?.clear(); });
@@ -1527,7 +1527,7 @@ ${trimmed.substring(0, 1500)}`;
                     const loc = this.lm.locations.find(l => l.id === locId);
                     if (!loc) return;
 
-                    await this.lm.updateLocation(locId, { lat: latlng.lat, lng: latlng.lng, _geocodeSuppressed: false });
+                    await this.lm.updateLocation(locId, { lat: latlng.lat, lng: latlng.lng, address: '', _tempAddress: false, _geoFixed: false, _geocodeSuppressed: false, _approximateCoordinates: false, _approximateAnchorId: null });
                     const marker = this.leafletRenderer.markers[locId];
                     if (marker) marker.setLatLng(latlng);
 
@@ -1544,7 +1544,7 @@ ${trimmed.substring(0, 1500)}`;
                     if (!name?.trim()) return;
                     const loc = await this.lm.addLocation(name.trim());
                     if (loc) {
-                        await this.lm.updateLocation(loc.id, { lat, lng, _geocodeSuppressed: false });
+                        await this.lm.updateLocation(loc.id, { lat, lng, address: '', _tempAddress: false, _geoFixed: false, _geocodeSuppressed: false, _approximateCoordinates: false, _approximateAnchorId: null });
                         this.leafletRenderer.render();
                         toastSuccess(`📍 "${name.trim()}" 등록 · 주소 찾는 중...`);
                         // 사용자가 지도를 꾹 눌러 직접 지정한 RP 좌표만 조회한다.
@@ -3624,6 +3624,10 @@ ${trimmed.substring(0, 1500)}`;
                     if (result) {
                         updates.lat = result.lat;
                         updates.lng = result.lng;
+                        updates._approximateCoordinates = false;
+                        updates._approximateAnchorId = null;
+                        updates._tempAddress = false;
+                        updates._geocodeSuppressed = false;
                     }
                 }
                 if (Object.keys(updates).length) await self.lm.updateLocation(loc.id, updates);
@@ -4306,7 +4310,7 @@ ${trimmed.substring(0, 1500)}`;
                     const noCoord = this.lm.locations.find(l => !l.lat && !l.lng);
                     if (noCoord) {
                         if (confirm(`"${noCoord.name}"에 이 좌표를 배치할까요?`)) {
-                            await this.lm.updateLocation(noCoord.id, { lat, lng, _geocodeSuppressed: false });
+                            await this.lm.updateLocation(noCoord.id, { lat, lng, _geocodeSuppressed: false, _approximateCoordinates: false, _approximateAnchorId: null, _tempAddress: false });
                             this.leafletRenderer?.clearSearchMarker();
                             this.leafletRenderer?.render();
                             toastSuccess(`📍 ${noCoord.name} 배치!`);
@@ -4473,7 +4477,7 @@ ${trimmed.substring(0, 1500)}`;
                     const lat = parseFloat($(this).attr('data-lat'));
                     const lng = parseFloat($(this).attr('data-lng'));
                     const addrText = $(this).text().replace('📍 ', '').trim();
-                    await self.lm.updateLocation(locId, { lat, lng, address: addrText, _tempAddress: false, _geocodeSuppressed: false });
+                    await self.lm.updateLocation(locId, { lat, lng, address: addrText, _tempAddress: false, _geocodeSuppressed: false, _approximateCoordinates: false, _approximateAnchorId: null });
 
                     // 선택한 장소 하나만 배치한다. 이름이 승인됐다는 사실은 다른 장소가
                     // 근처에 있다는 근거가 아니므로 좌표 없는 장소에 임의 GPS를 만들지 않는다.

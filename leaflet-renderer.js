@@ -183,19 +183,21 @@ export class LeafletRenderer {
 
     _createMarkerElement(loc, isCurrent, isSelected) {
         const style = this._locStyle(loc.name);
-        const pinColor = isSelected ? '#EA4335' : isCurrent ? '#27AE60' : style.color;
+        const isApproximate = loc._approximateCoordinates === true;
+        const pinColor = isSelected ? '#EA4335' : isApproximate ? '#F6A93A' : isCurrent ? '#27AE60' : style.color;
         const size = isSelected ? 38 : isCurrent ? 34 : 29;
         const root = document.createElement('div');
         root.className = 'wt-map-marker';
+        root.title = isApproximate ? `${loc.name} · 현재 장소 주변 추정 위치` : loc.name;
         root.style.cssText = `position:relative;width:${size}px;height:${Math.round(size * 1.35)}px;cursor:pointer;user-select:none;touch-action:none;`;
 
         const pin = document.createElement('div');
-        pin.style.cssText = `position:absolute;left:50%;top:0;width:${size}px;height:${size}px;transform:translateX(-50%) rotate(45deg);border-radius:50% 50% 50% 0;background:${pinColor};border:2px solid rgba(255,255,255,.96);box-shadow:0 2px 7px rgba(0,0,0,.32);box-sizing:border-box;`;
+        pin.style.cssText = `position:absolute;left:50%;top:0;width:${size}px;height:${size}px;transform:translateX(-50%) rotate(45deg);border-radius:50% 50% 50% 0;background:${pinColor};border:2px ${isApproximate ? 'dashed' : 'solid'} rgba(255,255,255,.96);box-shadow:0 2px 7px rgba(0,0,0,.32);box-sizing:border-box;`;
         const icon = document.createElement('span');
         icon.textContent = style.emoji;
         icon.style.cssText = `position:absolute;left:50%;top:${Math.round(size * 0.18)}px;transform:translateX(-50%);font-size:${Math.round(size * 0.39)}px;line-height:1;z-index:2;`;
         const label = document.createElement('span');
-        label.textContent = `${loc.name}${isCurrent ? ' 🐾' : ''}`;
+        label.textContent = `${loc.name}${loc._approximateCoordinates ? ' ≈' : ''}${isCurrent ? ' 🐾' : ''}`;
         label.style.cssText = 'position:absolute;left:50%;top:100%;transform:translate(-50%,2px);background:rgba(255,255,255,.92);color:#31343a;border:1px solid rgba(0,0,0,.12);border-radius:5px;padding:2px 5px;font-size:10px;font-weight:650;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.12);pointer-events:none;';
         root.append(pin, icon, label);
 
@@ -327,7 +329,7 @@ export class LeafletRenderer {
         const results = await searchPlaces(contextHint ? `${name}, ${contextHint}` : name, { limit: 1, automatic: true });
         const best = results[0];
         if (!best) return null;
-        await this.lm.updateLocation(locId, { lat: best.lat, lng: best.lng, address: best.fullName });
+        await this.lm.updateLocation(locId, { lat: best.lat, lng: best.lng, address: best.fullName, _approximateCoordinates: false, _approximateAnchorId: null, _tempAddress: false });
         this.render();
         return best;
     }

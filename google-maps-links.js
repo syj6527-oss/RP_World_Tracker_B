@@ -16,6 +16,7 @@ function safeText(value, maxLength = 300) {
 }
 
 function coordinates(location) {
+    if (location?._approximateCoordinates === true) return '';
     if (location?.lat == null || location?.lng == null || String(location.lat).trim() === '' || String(location.lng).trim() === '') return '';
     const lat = Number(location?.lat);
     const lng = Number(location?.lng);

@@ -3,6 +3,7 @@
 import { getContext, extension_settings } from '../../../extensions.js';
 import { EXTENSION_NAME } from './index.js';
 import { reverseGeocode } from './geo-service.js';
+import { approximateCoordinatesNear } from './approximate-location.js';
 
 const SECRET_FIELD_PATTERN = /^(?:api[_-]?key|private[_-]?key|authorization|bearer|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret|password|vertexSaJson|llmApiKey)$/i;
 
@@ -230,6 +231,8 @@ export class LocationManager {
         clean._tempAddress = location._tempAddress === true;
         clean._geoFixed = location._geoFixed === true;
         clean._geocodeSuppressed = location._geocodeSuppressed === true;
+        clean._approximateCoordinates = location._approximateCoordinates === true;
+        clean._approximateAnchorId = location._approximateAnchorId == null ? null : safeIdentifier(location._approximateAnchorId, 160);
         clean.events = Array.isArray(location.events) ? location.events.slice(-100).map(event => this._sanitizeEvent(event)).filter(event => event.text) : [];
         clean.npcs = Array.isArray(location.npcs) ? location.npcs.slice(0, 100).map(npc => this._sanitizeNpc(npc)) : [];
         clean.community = Array.isArray(location.community) ? location.community.slice(0, 30).map(post => this._sanitizePost(post)).filter(post => post.text) : [];
@@ -503,8 +506,21 @@ export class LocationManager {
         };
         const p = this._autoPos(); loc.x = p.x; loc.y = p.y;
 
-        // 장소명 승인은 물리적 위치의 증거가 아니다. 주소 검색 또는 지도 위 수동 배치로
-        // 사용자가 좌표를 명시적으로 확정하기 전까지 실제 지도 핀은 만들지 않는다.
+        // 좌표가 없는 자동 등록 장소는 현재 장소 반경에 '추정 핀'으로 표시한다.
+        // 외부 통신 없이 로컬 계산만 하며, 실제 주소/Street View 좌표로 취급하지 않는다.
+        const anchor = this.locations.find(location =>
+            location.id === this.currentLocationId && location.lat != null && location.lng != null && !location.parentId
+        );
+        if (anchor) {
+            const approximate = approximateCoordinatesNear(anchor, `${loc.id}|${safeName}`, 30, 150);
+            if (approximate) {
+                loc.lat = approximate.lat;
+                loc.lng = approximate.lng;
+                loc._approximateCoordinates = true;
+                loc._approximateAnchorId = anchor.id;
+                loc._tempAddress = true;
+            }
+        }
 
         await this.db.putLocation(loc); this.locations.push(loc); return loc;
     }
@@ -710,7 +726,7 @@ export class LocationManager {
     // 좌표 있는 장소 → 주소 자동 저장 (역지오코딩)
     async autoReverseGeocode() {
         if (extension_settings?.[EXTENSION_NAME]?.allowAutoGeocoding !== true) return;
-        const targets = this.locations.filter(l => l.lat != null && l.lng != null && !l.address);
+        const targets = this.locations.filter(l => l.lat != null && l.lng != null && !l.address && l._approximateCoordinates !== true);
         if (!targets.length) return;
 
         for (const loc of targets) {

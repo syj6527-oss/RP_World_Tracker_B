@@ -4559,12 +4559,13 @@ ${trimmed.substring(0, 1500)}`;
                 automatic: false,
                 throwOnError: true,
                 bias: canBias ? { lat: current.lat, lng: current.lng } : undefined,
+                globalMerge: true, // v0.9.52: 주변 편향 + 전세계 결과 병합 (New York 검색 시 서울만 나오는 문제 해결)
             });
             if (requestId !== this._addressSearchSeq) return;
             if (!data.length) { list.html('<div class="wt-search-empty">결과 없음</div>'); return; }
 
             list.empty();
-            for (const r of data.slice(0, 5)) {
+            for (const r of data.slice(0, 8)) {
                 const name = r.fullName;
                 const lat = r.lat, lng = r.lng;
                 const item = $(`<div class="wt-search-item">
@@ -4582,17 +4583,8 @@ ${trimmed.substring(0, 1500)}`;
                         this.leafletRenderer.showSearchResult(lat, lng, name);
                         this.leafletRenderer.map.setView([lat, lng], 15);
                     }
-                    // 오배치를 피하려고 좌표 미지정 최상위 장소가 정확히 하나일 때만 연결을 제안한다.
-                    const unresolved = this.lm.locations.filter(l => !l.parentId && l.verification !== 'candidate' && (l.lat == null || l.lng == null));
-                    const noCoord = unresolved.length === 1 ? unresolved[0] : null;
-                    if (noCoord) {
-                        if (confirm(`"${noCoord.name}"에 이 좌표를 배치할까요?`)) {
-                            await this.lm.updateLocation(noCoord.id, { lat, lng, address: name, _geocodeSuppressed: false, _approximateCoordinates: false, _approximateAnchorId: null, _tempAddress: false });
-                            this.leafletRenderer?.clearSearchMarker();
-                            this.leafletRenderer?.render();
-                            toastSuccess(`📍 ${noCoord.name} 배치!`);
-                        }
-                    }
+                    // v0.9.52: 자동 배치 제안 제거 — 검색은 지도 이동만 (Yun 정책)
+                    //   좌표 배치는 장소 팝오버의 좌표 설정 기능으로 명시적으로만.
                 });
                 list.append(item);
             }
@@ -5105,6 +5097,12 @@ ${trimmed.substring(0, 1500)}`;
             const finish = value => {
                 if (settled) return;
                 settled = true;
+                // v0.9.53: "이 선택 기억하기" 저장 (모드를 실제로 골랐을 때만)
+                if (value) {
+                    const remember = $('#wt-community-mode-remember').is(':checked');
+                    extension_settings[EXTENSION_NAME].communityGenRemember = remember;
+                    saveSettingsDebounced();
+                }
                 $(document).off('keydown.wtCommunityMode');
                 $('#wt-community-mode-overlay').remove();
                 resolve(value);
@@ -5119,6 +5117,7 @@ ${trimmed.substring(0, 1500)}`;
                     <button type="button" id="wt-community-mode-grounding" ${groundingAvail ? '' : 'disabled'} style="width:100%;text-align:left;padding:12px;margin-top:8px;border:1.5px solid #F0D9A8;border-radius:11px;background:${groundingAvail ? '#FFFBF0' : '#F4F4F4'};cursor:${groundingAvail ? 'pointer' : 'not-allowed'};opacity:${groundingAvail ? '1' : '.55'};font-family:inherit"><b style="display:block;color:#9A6B1F">⭐ 구글 검색 보강 (Grounding)</b><span style="display:block;margin-top:3px;font-size:10.5px;color:#8A7350;line-height:1.4">실시간 구글 검색으로 현지 정보 반영 — 직접 API(Google) 전용, 유료</span></button>
                     ${groundingAvail ? '' : `<div style="font-size:10px;color:#A08050;margin-top:6px">Grounding 사용: 설정 → AI 연결 방식을 [API 키 직접 입력] + Google로</div>`}
                     ${exactCoordinates ? '' : `<div style="font-size:10px;color:#A05A42;margin-top:6px">주변 보강 사용 불가: ${this._escapeHtml(coordinateState.reason)}</div>`}
+                    <label style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #F0EDE5;font-size:11.5px;color:#5A4A3A;cursor:pointer"><input type="checkbox" id="wt-community-mode-remember" ${(extension_settings[EXTENSION_NAME]?.communityGenRemember === true) ? 'checked' : ''} style="width:15px;height:15px"/> 이 선택 기억하기 (다음부터 바로 생성 — 피드의 모드 칩에서 변경 가능)</label>
                 </div>
             </div>`);
             document.documentElement.appendChild(overlay[0]);
@@ -5153,7 +5152,17 @@ ${trimmed.substring(0, 1500)}`;
         });
     }
 
-    async _requestCommunityGeneration(locId) {
+    async _requestCommunityGeneration(locId, forceAsk = false) {
+        // v0.9.53: "이 선택 기억하기" — 기억돼 있으면 팝업 없이 저장된 모드로 바로 생성
+        const s = extension_settings[EXTENSION_NAME] || {};
+        if (!forceAsk && s.communityGenRemember === true) {
+            let mode = ['off', 'overpass', 'grounding'].includes(s.locationEnrichment) ? s.locationEnrichment : 'off';
+            // grounding 유효성 재검증 (설정 바뀌었으면 강등)
+            if (mode === 'grounding' && (s.llmMode !== 'direct' || (s.llmProvider || 'google') !== 'google' || !s.llmApiKey)) {
+                mode = 'off';
+            }
+            return await this._generateCommunity(locId, mode);
+        }
         const mode = await this._chooseCommunityMode(locId);
         if (!mode) return false;
         return await this._generateCommunity(locId, mode);
@@ -5743,6 +5752,7 @@ JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
                 </div>
                 <div id="wt-comm-feed">${postsHtml}</div>
             </div>
+            <button id="wt-comm-mode-chip" title="생성 방식 변경" style="position:absolute;bottom:80px;right:16px;padding:6px 11px;border-radius:16px;background:rgba(255,255,255,.95);color:#3C3028;border:1px solid #E0DCD2;font-size:10.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15);touch-action:manipulation;font-family:inherit"></button>
             <button id="wt-comm-fab" style="position:absolute;bottom:20px;right:16px;width:52px;height:52px;border-radius:50%;background:#1D9BF0;color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 2px 12px rgba(29,155,240,.4);display:flex;align-items:center;justify-content:center;touch-action:manipulation">✨</button>
         </div>`);
         $('body').append(overlay);
@@ -5790,6 +5800,25 @@ JSON만 응답. 앞뒤에 설명·코드블록·주석 금지.`;
             e.preventDefault();
             e.stopPropagation();
             await refreshFeed();
+        });
+
+        // v0.9.53: 모드 칩 — 현재 생성 방식 표시 + 탭하면 변경 팝업
+        const _modeChipLabel = () => {
+            const sC = extension_settings[EXTENSION_NAME] || {};
+            const m = sC.locationEnrichment;
+            return m === 'grounding' ? '⭐ 구글 검색' : m === 'overpass' ? '🌿 주변 보강' : '💬 기본 생성';
+        };
+        const _updateModeChip = () => overlay.find('#wt-comm-mode-chip').text(_modeChipLabel());
+        _updateModeChip();
+        overlay.find('#wt-comm-mode-chip').on('click touchend', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window._wtTapFireLock) return;
+            window._wtTapFireLock = true;
+            setTimeout(() => window._wtTapFireLock = false, 500);
+            // 팝업으로 모드만 변경 (생성은 안 함) — 선택 결과는 locationEnrichment에 저장됨
+            await self._chooseCommunityMode(locId);
+            _updateModeChip();
         });
 
         // r22: Pull-to-refresh — 트위터 감성 당겨서 새로고침

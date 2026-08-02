@@ -137,26 +137,55 @@ export async function searchPlaces(query, options = {}) {
     const limit = Math.max(1, Math.min(5, Number(options.limit) || 5));
     const lat = finiteCoordinate(options.bias?.lat, -90, 90);
     const lng = finiteCoordinate(options.bias?.lng, -180, 180);
-    const cacheKey = JSON.stringify([q.toLowerCase(), limit, lat, lng]);
+    // v0.9.52: globalMerge — bias 결과와 전세계(bias 없는) 결과를 병합.
+    //   수동 주소 검색에서 "New York" 쳤는데 서울 주변만 나오는 문제 해결.
+    const globalMerge = options.globalMerge === true && lat != null && lng != null;
+    const cacheKey = JSON.stringify([q.toLowerCase(), limit, lat, lng, globalMerge]);
     if (searchCache.has(cacheKey)) return searchCache.get(cacheKey);
 
-    const url = new URL(`${PHOTON_BASE}/api/`);
-    url.searchParams.set('q', q);
-    url.searchParams.set('limit', String(limit));
-    applyResultLanguage(url);
-    if (lat != null && lng != null) {
-        url.searchParams.set('lat', lat.toFixed(COORDINATE_PRECISION));
-        url.searchParams.set('lon', lng.toFixed(COORDINATE_PRECISION));
-    }
+    const buildUrl = (useBias) => {
+        const url = new URL(`${PHOTON_BASE}/api/`);
+        url.searchParams.set('q', q);
+        url.searchParams.set('limit', String(limit));
+        applyResultLanguage(url);
+        if (useBias && lat != null && lng != null) {
+            url.searchParams.set('lat', lat.toFixed(COORDINATE_PRECISION));
+            url.searchParams.set('lon', lng.toFixed(COORDINATE_PRECISION));
+        }
+        return url;
+    };
 
     try {
-        const response = await fairFetch(url.toString());
-        if (!response.ok) {
-            if (throwOnError) throw new Error(`Photon search failed with HTTP ${response.status}`);
+        const requests = [fairFetch(buildUrl(true).toString())];
+        if (globalMerge) requests.push(fairFetch(buildUrl(false).toString()));
+        const responses = await Promise.allSettled(requests);
+
+        const features = [];
+        let anyOk = false;
+        for (const settled of responses) {
+            if (settled.status !== 'fulfilled' || !settled.value?.ok) continue;
+            anyOk = true;
+            try {
+                const data = await settled.value.json();
+                if (Array.isArray(data?.features)) features.push(...data.features);
+            } catch (_) {}
+        }
+        if (!anyOk) {
+            if (throwOnError) throw new Error('Photon search failed');
             return [];
         }
-        const data = await response.json();
-        const results = (data?.features || []).map(normalizeFeature).filter(Boolean).slice(0, limit);
+        // 정규화 + 좌표 기준 dedupe (bias/global 중복 제거)
+        const seen = new Set();
+        const results = [];
+        for (const feature of features) {
+            const norm = normalizeFeature(feature);
+            if (!norm) continue;
+            const key = `${norm.lat?.toFixed?.(4)}|${norm.lng?.toFixed?.(4)}|${norm.fullName}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            results.push(norm);
+            if (results.length >= limit * 2) break; // bias+global 합쳐 최대 2배
+        }
         return remember(searchCache, cacheKey, results);
     } catch (error) {
         if (throwOnError) throw error;
